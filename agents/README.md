@@ -20,9 +20,13 @@ This directory manages the multi-agent development workflow for the Multi-Tenant
   - **No Mock Data**: Integrate with the running backend service directly.
   - **Design Excellence**: Modern UI with dark/light themes, dynamic interactions, and crisp typography.
 
----
+## 🌿 Git Branching & Pull Request Policy
 
-## 🔄 Handoff Workflow Protocol
+- **Active Development Branch**: `dev`
+- **Feature Branches**: All feature development MUST occur on `feature/<name>` created from `dev`.
+- **Pull Requests**: For every push, a Pull Request MUST be created targeting `dev` (or `main` when merging release candidates).
+- **PR URL**: `https://github.com/ko2527600/Accounting-Platform/compare/main...dev` (or `gh pr create`).
+
 
 ```mermaid
 graph TD

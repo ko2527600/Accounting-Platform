@@ -12,11 +12,12 @@ This document serves as the constitution for all AI agents working on the Multi-
 *   **Database:** PostgreSQL / MySQL (Shared Database, Separate Schemas)
 *   **Infrastructure:** Cloud-native (Docker, Kubernetes)
 
-## 2. Branch Policy
+## 2. Branch Policy & Pull Requests
 
-*   All development MUST occur on feature branches named `feature/<descriptive-name>`. For example, `feature/user-authentication`.
-*   Feature branches MUST be merged into `dev` after successful code review and CI/CD checks.
-*   Direct commits to `main` or `dev` are strictly forbidden.
+*   All active feature work MUST be committed and pushed on `dev` or feature branches (`feature/<descriptive-name>`) created from `dev`.
+*   Every push MUST have a corresponding Pull Request (PR) created on GitHub for review before merging into `main`.
+*   Direct commits to `main` are strictly forbidden.
+
 
 ## 3. Documentation Protocol
 
