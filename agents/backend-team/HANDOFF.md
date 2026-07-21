@@ -794,6 +794,210 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ---
 
+### 📒 Ledger Accounts & Transaction History APIs (BE-108)
+
+#### Endpoint: `GET /api/v1/ledgers`
+- **Description**: Retrieves list of general ledger transactions across all accounts for active tenant with optional filtering by `accountId`, `startDate`, `endDate`, `search` term, and pagination parameters (`page`, `limit`).
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `accountId`: Filter transactions for a specific account UUID
+  - `startDate`: Filter transactions on or after date (`YYYY-MM-DD`)
+  - `endDate`: Filter transactions on or before date (`YYYY-MM-DD`)
+  - `search`: Case-insensitive search on transaction description, entry number, or account code/name
+  - `page`: Page number (default: `1`)
+  - `limit`: Page limit (default: `20`, max: `100`)
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "transactions": [
+        {
+          "id": "l1f8a01d-...",
+          "accountId": "e4f8a01d-...",
+          "accountCode": "1010",
+          "accountName": "Cash",
+          "accountType": "ASSET",
+          "transactionDate": "2026-07-21T00:00:00.000Z",
+          "journalEntryId": "a1b2c3d4-...",
+          "entryNumber": "JE-2026-001",
+          "debit": 1500.00,
+          "credit": 0.00,
+          "balance": 1500.00,
+          "description": "Cash received",
+          "createdAt": "2026-07-21T13:45:00.000Z"
+        }
+      ],
+      "pagination": {
+        "total": 1,
+        "page": 1,
+        "limit": 20,
+        "totalPages": 1
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid date format or parameter values.
+  - `401 Unauthorized`: Missing or invalid JWT token.
+  - `404 Not Found`: `accountId` filter provided but account does not exist.
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/ledgers?page=1&limit=20" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `GET /api/v1/ledgers/accounts/:accountId`
+- **Description**: Retrieves detailed ledger statement for a specific account, including account metadata, opening balance prior to `startDate`, debit/credit running totals, net change, closing balance, and chronological transaction history with running balances.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `startDate`: Filter statement transactions starting on date (`YYYY-MM-DD`). Prior transactions calculate `openingBalance`.
+  - `endDate`: Filter statement transactions up to date (`YYYY-MM-DD`).
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "account": {
+        "id": "e4f8a01d-5b23-4c91-a123-9876543210ab",
+        "code": "1010",
+        "name": "Cash",
+        "type": "ASSET",
+        "currency": "USD"
+      },
+      "statement": {
+        "startDate": "2026-07-01",
+        "endDate": "2026-07-31",
+        "openingBalance": 0.00,
+        "totalDebit": 1500.00,
+        "totalCredit": 350.00,
+        "netChange": 1150.00,
+        "closingBalance": 1150.00,
+        "transactions": [
+          {
+            "id": "l1f8a01d-...",
+            "accountId": "e4f8a01d-...",
+            "accountCode": "1010",
+            "accountName": "Cash",
+            "accountType": "ASSET",
+            "transactionDate": "2026-07-01T00:00:00.000Z",
+            "journalEntryId": "a1b2c3d4-...",
+            "entryNumber": "JE-2026-001",
+            "debit": 1500.00,
+            "credit": 0.00,
+            "balance": 1500.00,
+            "runningBalance": 1500.00,
+            "description": "Cash deposit",
+            "createdAt": "2026-07-01T10:00:00.000Z"
+          },
+          {
+            "id": "l2f8a01d-...",
+            "accountId": "e4f8a01d-...",
+            "accountCode": "1010",
+            "accountName": "Cash",
+            "accountType": "ASSET",
+            "transactionDate": "2026-07-15T00:00:00.000Z",
+            "journalEntryId": "b2c3d4e5-...",
+            "entryNumber": "JE-2026-002",
+            "debit": 0.00,
+            "credit": 350.00,
+            "balance": 1150.00,
+            "runningBalance": 1150.00,
+            "description": "Stationery purchase",
+            "createdAt": "2026-07-15T14:30:00.000Z"
+          }
+        ]
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid date format or parameter.
+  - `404 Not Found`: Account ID not found.
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/ledgers/accounts/<account_id>?startDate=2026-07-01" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `GET /api/v1/ledgers/summary`
+- **Description**: Retrieves general ledger summary across all accounts in active tenant Chart of Accounts, providing opening balances, period total debits, period total credits, net change, closing balances for each account, and grand totals.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `startDate`: Filter summary period starting on date (`YYYY-MM-DD`).
+  - `endDate`: Filter summary period ending on date (`YYYY-MM-DD`).
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "accounts": [
+        {
+          "id": "e4f8a01d-...",
+          "code": "1010",
+          "name": "Cash",
+          "type": "ASSET",
+          "currency": "USD",
+          "openingBalance": 0.00,
+          "totalDebit": 1500.00,
+          "totalCredit": 350.00,
+          "netChange": 1150.00,
+          "closingBalance": 1150.00
+        },
+        {
+          "id": "f5a7b02c-...",
+          "code": "4010",
+          "name": "Sales Revenue",
+          "type": "REVENUE",
+          "currency": "USD",
+          "openingBalance": 0.00,
+          "totalDebit": 0.00,
+          "totalCredit": 1500.00,
+          "netChange": -1500.00,
+          "closingBalance": -1500.00
+        },
+        {
+          "id": "g6b8c03d-...",
+          "code": "5010",
+          "name": "Office Expense",
+          "type": "EXPENSE",
+          "currency": "USD",
+          "openingBalance": 0.00,
+          "totalDebit": 350.00,
+          "totalCredit": 0.00,
+          "netChange": 350.00,
+          "closingBalance": 350.00
+        }
+      ],
+      "totals": {
+        "totalDebit": 1850.00,
+        "totalCredit": 1850.00
+      }
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/ledgers/summary?startDate=2026-07-01" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+---
+
 ## 📋 Handoff Template (For Backend Team Reference)
 
 When adding a completed endpoint, use the following template:

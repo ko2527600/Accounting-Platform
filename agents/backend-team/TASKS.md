@@ -9,6 +9,6 @@ Track backend development tasks. Mark `[x]` ONLY after testing and verification.
 - [x] `BE-105`: Design & create Core Accounting database schema (Chart of Accounts, Journal Entries, Ledgers)
 - [x] `BE-106`: Implement Chart of Accounts CRUD API endpoints (`/api/v1/accounts`)
 - [x] `BE-107`: Implement Journal Entries API endpoints (`/api/v1/journal-entries`)
-- [ ] `BE-108`: Implement Ledger Accounts & Transaction History API endpoints (`/api/v1/ledgers`)
+- [x] `BE-108`: Implement Ledger Accounts & Transaction History API endpoints (`/api/v1/ledgers`)
 - [ ] `BE-109`: Implement Financial Reporting API endpoints (Trial Balance, P&L, Balance Sheet)
 - [ ] `BE-110`: Add strict tenant context middleware for request-level schema switching
