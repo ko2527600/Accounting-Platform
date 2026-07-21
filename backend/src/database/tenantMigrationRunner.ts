@@ -41,7 +41,7 @@ export async function runMigrationsForSchema(
     // 4. Fetch already applied versions
     const appliedRows: Array<{ version: number }> = await prismaClient.$queryRawUnsafe(
       `SELECT version FROM "${schemaName}".schema_migrations;`
-    );
+    ) || [];
     const appliedVersions = new Set(appliedRows.map((r) => Number(r.version)));
 
     // 5. Run unapplied migrations sequentially
@@ -53,8 +53,15 @@ export async function runMigrationsForSchema(
 
       console.log(`[TenantMigration] Executing version ${migration.version} (${migration.name}) on schema "${schemaName}"...`);
       
-      // Execute migration DDL statements
-      await prismaClient.$executeRawUnsafe(migration.sql);
+      // Execute migration DDL statements individually to support multi-statement DDLs
+      const statements = migration.sql
+        .split(';')
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+
+      for (const stmt of statements) {
+        await prismaClient.$executeRawUnsafe(stmt);
+      }
 
       // Record applied migration
       await prismaClient.$executeRawUnsafe(
@@ -87,9 +94,9 @@ export async function runAllTenantMigrations(
   const results: MigrationResult[] = [];
 
   // Query all tenants from public database
-  const tenants = await prismaClient.tenant.findMany({
+  const tenants = await prismaClient.tenant?.findMany({
     select: { id: true, schema: true, name: true },
-  });
+  }) || [];
 
   console.log(`[TenantMigration] Found ${tenants.length} tenants to migrate.`);
 

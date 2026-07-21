@@ -1,5 +1,5 @@
 import { Router, Request, Response } from 'express';
-import prisma from '../config/db';
+import { prisma } from '../config/db';
 import { onboardTenant, TenantOnboardingError } from '../services/tenantService';
 import * as tenantRepository from '../repository/tenantRepository';
 

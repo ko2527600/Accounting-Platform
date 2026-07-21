@@ -196,7 +196,7 @@ export async function onboardTenant(
       email: adminUser.email,
       name: adminUser.name,
       role: adminUser.role,
-      tenantId: adminUser.tenantId,
+      tenantId: adminUser.tenantId || null,
       createdAt: adminUser.createdAt,
     },
     token,

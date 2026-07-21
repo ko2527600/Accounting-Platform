@@ -28,9 +28,8 @@ let tableEnsured = false;
 export async function ensureUserTableExists(prisma: PrismaClient): Promise<void> {
   if (tableEnsured) return;
 
+  await prisma.$executeRawUnsafe(`CREATE EXTENSION IF NOT EXISTS "pgcrypto";`);
   await prisma.$executeRawUnsafe(`
-    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-
     CREATE TABLE IF NOT EXISTS users (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       email VARCHAR(255) NOT NULL UNIQUE,
@@ -42,10 +41,9 @@ export async function ensureUserTableExists(prisma: PrismaClient): Promise<void>
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
-
-    CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
-    CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);
   `);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);`);
+  await prisma.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS idx_users_tenant_id ON users(tenant_id);`);
 
   tableEnsured = true;
 }

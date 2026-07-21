@@ -5,6 +5,7 @@ import healthRouter from './routes/health';
 import migrationsRouter from './routes/migrations';
 import authRouter from './routes/auth';
 import tenantsRouter from './routes/tenants';
+import accountsRouter from './routes/accounts';
 
 dotenv.config();
 
@@ -22,6 +23,9 @@ app.use('/api/v1/auth', authRouter);
 
 // Tenant onboarding & management endpoints
 app.use('/api/v1/tenants', tenantsRouter);
+
+// Chart of Accounts CRUD endpoints
+app.use('/api/v1/accounts', accountsRouter);
 
 // Migration admin endpoints
 app.use('/api/v1/admin/migrations', migrationsRouter);

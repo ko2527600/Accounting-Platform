@@ -347,6 +347,235 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ---
 
+### 📊 Chart of Accounts CRUD APIs (BE-106)
+
+#### Endpoint: `POST /api/v1/accounts`
+- **Description**: Creates a new account in the Chart of Accounts for the active tenant.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  Content-Type: application/json
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`)*
+- **Request Payload**:
+  ```json
+  {
+    "code": "1000",
+    "name": "Assets",
+    "type": "ASSET",
+    "parentId": null,
+    "currency": "USD",
+    "isActive": true
+  }
+  ```
+  *(Account Types supported: `"ASSET"`, `"LIABILITY"`, `"EQUITY"`, `"REVENUE"`, `"EXPENSE"`)*
+- **Success Response (201 Created)**:
+  ```json
+  {
+    "success": true,
+    "message": "Account created successfully",
+    "data": {
+      "account": {
+        "id": "e4f8a01d-5b23-4c91-a123-9876543210ab",
+        "code": "1000",
+        "name": "Assets",
+        "type": "ASSET",
+        "parentId": null,
+        "currency": "USD",
+        "isActive": true,
+        "createdAt": "2026-07-21T13:00:00.000Z",
+        "updatedAt": "2026-07-21T13:00:00.000Z"
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Missing code/name, invalid account type, or parentId does not exist.
+  - `401 Unauthorized`: Missing or invalid JWT token.
+  - `403 Forbidden`: Insufficient role permissions.
+  - `409 Conflict`: Account code already exists for active tenant.
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/accounts -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc" -H "Content-Type: application/json" -d '{"code":"1000","name":"Assets","type":"ASSET"}'
+  ```
+
+#### Endpoint: `GET /api/v1/accounts`
+- **Description**: Retrieves all accounts for the active tenant as a flat list and nested tree hierarchy.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "accounts": [
+        {
+          "id": "e4f8a01d-...",
+          "code": "1000",
+          "name": "Assets",
+          "type": "ASSET",
+          "parentId": null,
+          "currency": "USD",
+          "isActive": true,
+          "createdAt": "2026-07-21T13:00:00.000Z",
+          "updatedAt": "2026-07-21T13:00:00.000Z"
+        },
+        {
+          "id": "f5a7b02c-...",
+          "code": "1100",
+          "name": "Current Assets",
+          "type": "ASSET",
+          "parentId": "e4f8a01d-...",
+          "currency": "USD",
+          "isActive": true,
+          "createdAt": "2026-07-21T13:05:00.000Z",
+          "updatedAt": "2026-07-21T13:05:00.000Z"
+        }
+      ],
+      "tree": [
+        {
+          "id": "e4f8a01d-...",
+          "code": "1000",
+          "name": "Assets",
+          "type": "ASSET",
+          "parentId": null,
+          "currency": "USD",
+          "isActive": true,
+          "createdAt": "2026-07-21T13:00:00.000Z",
+          "updatedAt": "2026-07-21T13:00:00.000Z",
+          "children": [
+            {
+              "id": "f5a7b02c-...",
+              "code": "1100",
+              "name": "Current Assets",
+              "type": "ASSET",
+              "parentId": "e4f8a01d-...",
+              "currency": "USD",
+              "isActive": true,
+              "createdAt": "2026-07-21T13:05:00.000Z",
+              "updatedAt": "2026-07-21T13:05:00.000Z",
+              "children": []
+            }
+          ]
+        }
+      ]
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/api/v1/accounts -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `GET /api/v1/accounts/:id`
+- **Description**: Retrieves single account details by account UUID.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "account": {
+        "id": "e4f8a01d-...",
+        "code": "1000",
+        "name": "Assets",
+        "type": "ASSET",
+        "parentId": null,
+        "currency": "USD",
+        "isActive": true,
+        "createdAt": "2026-07-21T13:00:00.000Z",
+        "updatedAt": "2026-07-21T13:00:00.000Z"
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `404 Not Found`: Account ID not found.
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/api/v1/accounts/<account_id> -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `PUT /api/v1/accounts/:id`
+- **Description**: Updates an existing account's details (code, name, type, parentId, currency, isActive).
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  Content-Type: application/json
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`)*
+- **Request Payload**:
+  ```json
+  {
+    "name": "Updated Assets Name",
+    "isActive": true
+  }
+  ```
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Account updated successfully",
+    "data": {
+      "account": {
+        "id": "e4f8a01d-...",
+        "code": "1000",
+        "name": "Updated Assets Name",
+        "type": "ASSET",
+        "parentId": null,
+        "currency": "USD",
+        "isActive": true,
+        "createdAt": "2026-07-21T13:00:00.000Z",
+        "updatedAt": "2026-07-21T13:10:00.000Z"
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Self-parent assignment or circular parent reference detected.
+  - `404 Not Found`: Account ID not found.
+  - `409 Conflict`: Code updated to an already existing code.
+- **Verification Command**:
+  ```bash
+  curl -X PUT http://localhost:4000/api/v1/accounts/<account_id> -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc" -H "Content-Type: application/json" -d '{"name":"Updated Assets Name"}'
+  ```
+
+#### Endpoint: `DELETE /api/v1/accounts/:id`
+- **Description**: Deletes an account from active tenant Chart of Accounts.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Account deleted successfully"
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Account has child accounts or is referenced in posted journal entries/ledgers.
+  - `404 Not Found`: Account ID not found.
+- **Verification Command**:
+  ```bash
+  curl -X DELETE http://localhost:4000/api/v1/accounts/<account_id> -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+---
+
 ## 📋 Handoff Template (For Backend Team Reference)
 
 When adding a completed endpoint, use the following template:

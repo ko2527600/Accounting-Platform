@@ -37,6 +37,20 @@ function mapAccountRow(row: any): AccountRecord {
   };
 }
 
+export async function getChildAccountsCount(prisma: PrismaClient, parentId: string): Promise<number> {
+  if (!parentId || !isValidUuid(parentId)) return 0;
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*)::int as count FROM accounts WHERE parent_id = $1::uuid`,
+    parentId
+  );
+  return rows[0]?.count ? Number(rows[0].count) : 0;
+}
+
+export function isValidUuid(id: string): boolean {
+  const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+  return uuidRegex.test(id);
+}
+
 export async function createAccount(
   prisma: PrismaClient,
   data: CreateAccountData
@@ -60,6 +74,8 @@ export async function getAccountById(
   prisma: PrismaClient,
   id: string
 ): Promise<AccountRecord | null> {
+  if (!isValidUuid(id)) return null;
+
   const rows: any[] = await prisma.$queryRawUnsafe(
     `SELECT id, code, name, type, parent_id, currency, is_active, created_at, updated_at
      FROM accounts
@@ -101,6 +117,8 @@ export async function updateAccount(
   id: string,
   data: Partial<CreateAccountData>
 ): Promise<AccountRecord | null> {
+  if (!isValidUuid(id)) return null;
+
   const existing = await getAccountById(prisma, id);
   if (!existing) return null;
 
@@ -130,9 +148,12 @@ export async function updateAccount(
 }
 
 export async function deleteAccount(prisma: PrismaClient, id: string): Promise<boolean> {
+  if (!isValidUuid(id)) return false;
+
   const count = await prisma.$executeRawUnsafe(
     `DELETE FROM accounts WHERE id = $1::uuid`,
     id
   );
   return count > 0;
 }
+
