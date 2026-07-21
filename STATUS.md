@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-21] - BE-OPT-001: Backend Audit & Performance Hardening
+
+**What:** Conducted a comprehensive system audit and implemented backend performance optimizations, schema indexing, traffic rate-limiting, and structured JSON observability:
+1. **Database DDL Migration v3**: Added `003_performance_indexing_and_trigger_optimizations` in `tenantMigrations.ts` creating 4 composite indexes (`ledgers(account_id, transaction_date)`, `journal_entries(status, entry_date)`, `journal_entry_lines(account_id)`, `accounts(parent_id)`).
+2. **Tenant Metadata TTL Cache**: Implemented `tenantCache.ts` providing 60-second in-memory caching for tenant lookups, bypassing `public.tenants` DB roundtrips in `tenantContextMiddleware.ts`.
+3. **Sliding-Window Rate Limiter**: Implemented `rateLimiterMiddleware.ts` with global API limits (100 req/min), auth brute-force protection (10 req/min), onboarding limits (5 req/min), and test environment bypass.
+4. **Structured JSON Logging & Correlation IDs**: Implemented `logger.ts` for structured JSON logs and `requestLoggerMiddleware.ts` for `X-Request-ID` propagation and HTTP latency logging.
+5. **Testing**: Added `performanceAndHardening.test.ts` (11 passing tests) and updated `jest.config.js` with `testTimeout: 30000`.
+**Why:** To resolve latency bottlenecks, eliminate full table scans, protect APIs against high-concurrency traffic spikes, and establish microsecond-accurate telemetry layout.
+**Files Affected:** `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/cache/tenantCache.ts`, `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/middleware/rateLimiterMiddleware.ts`, `backend/src/middleware/requestLoggerMiddleware.ts`, `backend/src/utils/logger.ts`, `backend/src/app.ts`, `backend/src/tests/performanceAndHardening.test.ts`, `backend/jest.config.js`, `STATUS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-21] - BE-110: Strict Tenant Context Middleware & Request-Level Schema Switching
 
 **What:** Enhanced `tenantContextMiddleware.ts` and `tenantClient.ts` to implement strict request-level schema switching and tenant context propagation. Supported tenant identification extraction across headers (`X-Tenant-ID`, `X-Tenant-Slug`, `X-Tenant-Schema`) and authenticated JWT user claims (`req.user.tenantId`). Enforced tenant registration verification in `public.tenants` table (returning clear `404 Not Found` JSON when unregistered), implemented automatic schema existence check & auto-migration provisioning (`ensureTenantSchemaMigrated` in `tenantMigrationRunner.ts`), strict `AsyncLocalStorage` context propagation, and clear `400 Bad Request` / `404 Not Found` JSON error responses. Added comprehensive integration test suite (`backend/src/tests/tenantSchemaSwitching.test.ts`) testing concurrent tenant requests, header extraction, automatic schema provisioning, and multi-tenant schema isolation connected to live PostgreSQL DB without mock data. Updated `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, and `TASKS.md`.
