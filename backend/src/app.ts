@@ -3,6 +3,7 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import healthRouter from './routes/health';
 import migrationsRouter from './routes/migrations';
+import authRouter from './routes/auth';
 
 dotenv.config();
 
@@ -14,6 +15,9 @@ app.use(express.json());
 // Health check endpoints
 app.use('/health', healthRouter);
 app.use('/api/v1/health', healthRouter);
+
+// Auth endpoints
+app.use('/api/v1/auth', authRouter);
 
 // Migration admin endpoints
 app.use('/api/v1/admin/migrations', migrationsRouter);

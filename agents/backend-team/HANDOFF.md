@@ -70,6 +70,140 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ---
 
+### 🔑 Authentication & Authorization APIs
+
+#### Endpoint: `POST /api/v1/auth/register`
+- **Description**: Registers a new user with password hashing (PBKDF2 SHA-512) and returns JWT authentication token.
+- **Headers Required**:
+  ```http
+  Content-Type: application/json
+  ```
+- **Request Payload**:
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "securePassword123!",
+    "name": "John Doe",
+    "role": "Admin",
+    "tenantId": "optional-tenant-id-or-slug"
+  }
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`. Default: `"Viewer"`)*
+- **Success Response (201 Created)**:
+  ```json
+  {
+    "success": true,
+    "message": "User registered successfully",
+    "data": {
+      "user": {
+        "id": "c1f7a01d-...",
+        "email": "user@example.com",
+        "name": "John Doe",
+        "role": "Admin",
+        "tenantId": "optional-tenant-id-or-slug",
+        "createdAt": "2026-07-21T12:50:00.000Z"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/auth/register -H "Content-Type: application/json" -d '{"email":"user@example.com","password":"securePassword123!","name":"John Doe","role":"Admin"}'
+  ```
+
+#### Endpoint: `POST /api/v1/auth/login`
+- **Description**: Authenticates user credentials and generates JWT token.
+- **Headers Required**:
+  ```http
+  Content-Type: application/json
+  ```
+- **Request Payload**:
+  ```json
+  {
+    "email": "user@example.com",
+    "password": "securePassword123!"
+  }
+  ```
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Login successful",
+    "data": {
+      "user": {
+        "id": "c1f7a01d-...",
+        "email": "user@example.com",
+        "name": "John Doe",
+        "role": "Admin",
+        "tenantId": "optional-tenant-id-or-slug",
+        "createdAt": "2026-07-21T12:50:00.000Z"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/auth/login -H "Content-Type: application/json" -d '{"email":"user@example.com","password":"securePassword123!"}'
+  ```
+
+#### Endpoint: `GET /api/v1/auth/me`
+- **Description**: Retrieves current authenticated user's profile details.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  ```
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "user": {
+        "id": "c1f7a01d-...",
+        "email": "user@example.com",
+        "name": "John Doe",
+        "role": "Admin",
+        "tenantId": "optional-tenant-id-or-slug",
+        "createdAt": "2026-07-21T12:50:00.000Z"
+      }
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/api/v1/auth/me -H "Authorization: Bearer <jwt_token>"
+  ```
+
+#### Endpoint: `POST /api/v1/auth/verify`
+- **Description**: Verifies JWT token validity and returns claims payload.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  ```
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "valid": true,
+    "data": {
+      "user": {
+        "id": "c1f7a01d-...",
+        "email": "user@example.com",
+        "role": "Admin",
+        "iat": 1784638200,
+        "exp": 1784724600
+      }
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/auth/verify -H "Authorization: Bearer <jwt_token>"
+  ```
+
+---
+
 ## 📋 Handoff Template (For Backend Team Reference)
 
 When adding a completed endpoint, use the following template:

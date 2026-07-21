@@ -2,6 +2,12 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-21] - BE-103: Authentication & Authorization Microservice (JWT, RBAC)
+
+**What:** Developed Authentication and Authorization microservice supporting User registration (`POST /api/v1/auth/register`), login (`POST /api/v1/auth/login`), profile retrieval (`GET /api/v1/auth/me`), token verification (`POST /api/v1/auth/verify`), password hashing (PBKDF2 SHA-512 with 100,000 iterations), JWT token generation and verification (HMAC-SHA256), Role-Based Access Control middleware (`requireRole` supporting `Admin`, `Accountant`, `Auditor`, `Viewer`), PostgreSQL `users` table repository (`userRepository.ts`), Prisma `User` model, and integration tests connected to real PostgreSQL database without mock data.
+**Why:** To establish secure authentication and fine-grained role-based access control for platform and tenant users.
+**Files Affected:** `backend/src/utils/password.ts`, `backend/src/utils/jwt.ts`, `backend/src/repository/userRepository.ts`, `backend/src/middleware/authMiddleware.ts`, `backend/src/middleware/rbacMiddleware.ts`, `backend/src/routes/auth.ts`, `backend/src/app.ts`, `backend/prisma/schema.prisma`, `backend/src/tests/auth.test.ts`, `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, `TASKS.md`, `STATUS.md`.
+
 ## [Date: 2026-07-21] - BE-102: Multi-Tenant Database Migration System & Tenant Context Middleware
 
 **What:** Setup multi-tenant database migration system supporting PostgreSQL separate schemas per tenant. Implemented dynamic schema provisioning (`tenantSchemaManager`), tenant migration runner (`tenantMigrationRunner` executing core DDL for `accounts`, `journal_entries`, `journal_entry_lines`, `ledgers`, and `schema_migrations`), tenant context middleware (`tenantContextMiddleware` using `AsyncLocalStorage`), database dynamic execution helper (`withTenantDb`), administrative migration API endpoint (`POST /api/v1/admin/migrations/run`), and complete test suite verifying schema creation, migration tracking, context resolution, and tenant data isolation.
