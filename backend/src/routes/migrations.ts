@@ -17,7 +17,7 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
       const result = await runMigrationsForSchema(prisma, tenantSchema);
       res.status(200).json({
         success: true,
-        message: `Migrations applied successfully for schema ${result.schemaName}`,
+        message: `Migrations applied successfully for schema ${result?.schemaName || tenantSchema}`,
         data: result,
       });
       return;
@@ -27,7 +27,7 @@ router.post('/run', async (req: Request, res: Response): Promise<void> => {
       const results = await runAllTenantMigrations(prisma);
       res.status(200).json({
         success: true,
-        message: `Migrations applied across ${results.length} tenant schemas`,
+        message: `Migrations applied across ${(results || []).length} tenant schemas`,
         data: results,
       });
       return;

@@ -10,6 +10,55 @@ export interface MigrationResult {
 }
 
 /**
+ * Safely splits a multi-statement SQL script by semicolons, taking into account
+ * PostgreSQL dollar-quoted string literals ($$ ... $$ or $tag$ ... $tag$).
+ */
+export function splitSqlStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = '';
+  let inDollarQuote = false;
+  let dollarTag = '';
+
+  for (let i = 0; i < sql.length; i++) {
+    const char = sql[i];
+
+    if (char === '$') {
+      const match = sql.substring(i).match(/^\$([a-zA-Z0-9_]*)\$/);
+      if (match) {
+        const tag = match[0];
+        if (!inDollarQuote) {
+          inDollarQuote = true;
+          dollarTag = tag;
+        } else if (tag === dollarTag) {
+          inDollarQuote = false;
+          dollarTag = '';
+        }
+        current += tag;
+        i += tag.length - 1;
+        continue;
+      }
+    }
+
+    if (char === ';' && !inDollarQuote) {
+      const trimmed = current.trim();
+      if (trimmed.length > 0) {
+        statements.push(trimmed);
+      }
+      current = '';
+    } else {
+      current += char;
+    }
+  }
+
+  const trimmed = current.trim();
+  if (trimmed.length > 0) {
+    statements.push(trimmed);
+  }
+
+  return statements;
+}
+
+/**
  * Applies pending migrations to a single tenant schema.
  */
 export async function runMigrationsForSchema(
@@ -54,10 +103,7 @@ export async function runMigrationsForSchema(
       console.log(`[TenantMigration] Executing version ${migration.version} (${migration.name}) on schema "${schemaName}"...`);
       
       // Execute migration DDL statements individually to support multi-statement DDLs
-      const statements = migration.sql
-        .split(';')
-        .map((s) => s.trim())
-        .filter((s) => s.length > 0);
+      const statements = splitSqlStatements(migration.sql);
 
       for (const stmt of statements) {
         await prismaClient.$executeRawUnsafe(stmt);

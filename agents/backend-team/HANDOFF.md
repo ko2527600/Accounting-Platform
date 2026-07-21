@@ -576,6 +576,224 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ---
 
+### 📖 Journal Entries APIs (BE-107)
+
+#### Endpoint: `POST /api/v1/journal-entries`
+- **Description**: Creates a new journal entry (Draft or Posted) with line items for the active tenant. Enforces double-entry balancing validation (`SUM debit == SUM credit`), minimum 2 lines requirement, non-negative amounts, and account ID existence in active tenant schema.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  Content-Type: application/json
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`)*
+- **Request Payload**:
+  ```json
+  {
+    "entryNumber": "JE-2026-001",
+    "entryDate": "2026-07-21",
+    "description": "Sales Invoice #1001",
+    "status": "DRAFT",
+    "lines": [
+      {
+        "accountId": "e4f8a01d-5b23-4c91-a123-9876543210ab",
+        "debit": 1500.00,
+        "credit": 0.00,
+        "description": "Cash received"
+      },
+      {
+        "accountId": "f5a7b02c-6c34-5d82-b234-8765432109bc",
+        "debit": 0.00,
+        "credit": 1500.00,
+        "description": "Sales revenue"
+      }
+    ]
+  }
+  ```
+  *(Note: `entryNumber` is optional and auto-generated if omitted. `status` defaults to `"DRAFT"`. If created with `"POSTED"`, ledger records are generated automatically)*
+- **Success Response (201 Created)**:
+  ```json
+  {
+    "success": true,
+    "message": "Journal entry created successfully",
+    "data": {
+      "journalEntry": {
+        "id": "a1b2c3d4-...",
+        "entryNumber": "JE-2026-001",
+        "entryDate": "2026-07-21T00:00:00.000Z",
+        "description": "Sales Invoice #1001",
+        "status": "DRAFT",
+        "createdAt": "2026-07-21T13:45:00.000Z",
+        "updatedAt": "2026-07-21T13:45:00.000Z",
+        "lines": [
+          {
+            "id": "line-1-uuid",
+            "journalEntryId": "a1b2c3d4-...",
+            "accountId": "e4f8a01d-...",
+            "debit": 1500.00,
+            "credit": 0.00,
+            "description": "Cash received",
+            "createdAt": "2026-07-21T13:45:00.000Z"
+          },
+          {
+            "id": "line-2-uuid",
+            "journalEntryId": "a1b2c3d4-...",
+            "accountId": "f5a7b02c-...",
+            "debit": 0.00,
+            "credit": 1500.00,
+            "description": "Sales revenue",
+            "createdAt": "2026-07-21T13:45:00.000Z"
+          }
+        ]
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Unbalanced debits/credits, fewer than 2 lines, invalid line numbers/amounts, or non-existent accountId.
+  - `401 Unauthorized`: Missing or invalid JWT token.
+  - `403 Forbidden`: Insufficient permissions (Viewer role).
+  - `409 Conflict`: Journal entry number already exists.
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/journal-entries -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc" -H "Content-Type: application/json" -d '{"entryNumber":"JE-2026-001","lines":[{"accountId":"<cash_acc_id>","debit":100,"credit":0},{"accountId":"<rev_acc_id>","debit":0,"credit":100}]}'
+  ```
+
+#### Endpoint: `GET /api/v1/journal-entries`
+- **Description**: Retrieves list of all journal entries for the active tenant with optional filtering by status, date range, or entryNumber/description search.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `status`: Filter by status (`DRAFT`, `POSTED`, `VOID`)
+  - `startDate`: Filter entries on or after date (`YYYY-MM-DD`)
+  - `endDate`: Filter entries on or before date (`YYYY-MM-DD`)
+  - `search`: Case-insensitive search on `entry_number` or `description`
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "journalEntries": [
+        {
+          "id": "a1b2c3d4-...",
+          "entryNumber": "JE-2026-001",
+          "entryDate": "2026-07-21T00:00:00.000Z",
+          "description": "Sales Invoice #1001",
+          "status": "DRAFT",
+          "createdAt": "2026-07-21T13:45:00.000Z",
+          "updatedAt": "2026-07-21T13:45:00.000Z",
+          "lines": [...]
+        }
+      ]
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/journal-entries?status=POSTED" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `GET /api/v1/journal-entries/:id`
+- **Description**: Retrieves single journal entry details with line items by journal entry UUID.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "journalEntry": {
+        "id": "a1b2c3d4-...",
+        "entryNumber": "JE-2026-001",
+        "entryDate": "2026-07-21T00:00:00.000Z",
+        "description": "Sales Invoice #1001",
+        "status": "DRAFT",
+        "createdAt": "2026-07-21T13:45:00.000Z",
+        "updatedAt": "2026-07-21T13:45:00.000Z",
+        "lines": [...]
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `404 Not Found`: Journal Entry ID not found.
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/api/v1/journal-entries/<entry_id> -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `POST /api/v1/journal-entries/:id/post`
+- **Description**: Posts a draft journal entry to the general ledger, updating status to `"POSTED"` and generating ledger transaction records for all line items.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Journal entry posted successfully",
+    "data": {
+      "journalEntry": {
+        "id": "a1b2c3d4-...",
+        "entryNumber": "JE-2026-001",
+        "status": "POSTED",
+        "lines": [...]
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Journal entry is already posted, or is voided, or unbalanced.
+  - `404 Not Found`: Journal Entry ID not found.
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/journal-entries/<entry_id>/post -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `POST /api/v1/journal-entries/:id/void`
+- **Description**: Voids a journal entry, updating status to `"VOID"`.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Journal entry voided successfully",
+    "data": {
+      "journalEntry": {
+        "id": "a1b2c3d4-...",
+        "entryNumber": "JE-2026-001",
+        "status": "VOID",
+        "lines": [...]
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Journal entry is already voided.
+  - `404 Not Found`: Journal Entry ID not found.
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/journal-entries/<entry_id>/void -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+---
+
 ## 📋 Handoff Template (For Backend Team Reference)
 
 When adding a completed endpoint, use the following template:

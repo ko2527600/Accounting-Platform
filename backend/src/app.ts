@@ -6,6 +6,7 @@ import migrationsRouter from './routes/migrations';
 import authRouter from './routes/auth';
 import tenantsRouter from './routes/tenants';
 import accountsRouter from './routes/accounts';
+import journalEntriesRouter from './routes/journalEntries';
 
 dotenv.config();
 
@@ -26,6 +27,9 @@ app.use('/api/v1/tenants', tenantsRouter);
 
 // Chart of Accounts CRUD endpoints
 app.use('/api/v1/accounts', accountsRouter);
+
+// Journal Entries API endpoints
+app.use('/api/v1/journal-entries', journalEntriesRouter);
 
 // Migration admin endpoints
 app.use('/api/v1/admin/migrations', migrationsRouter);

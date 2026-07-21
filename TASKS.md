@@ -9,7 +9,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Develop tenant onboarding process (w:8)
 - [x] Design and implement database schema for core accounting (Chart of Accounts, Journal Entries, Ledgers) (w:15)
 - [x] Develop API endpoints for Chart of Accounts management (CRUD) (w:10)
-- [ ] Develop API endpoints for Journal Entry creation and management (w:12)
+- [x] Develop API endpoints for Journal Entry creation and management (w:12)
 - [ ] Develop API endpoints for Ledger viewing and transaction history (w:10)
 - [ ] Build frontend UI for Chart of Accounts management (w:8)
 - [ ] Build frontend UI for Journal Entry creation (w:10)

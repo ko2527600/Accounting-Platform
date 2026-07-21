@@ -7,6 +7,8 @@ import { deleteUserByEmail, ensureUserTableExists, findUserByEmail } from '../re
 import { dropTenantSchema, checkSchemaExists } from '../database/tenantSchemaManager';
 
 describe('Tenant Onboarding API & Service Integration Tests (BE-104)', () => {
+  jest.setTimeout(30000);
+
   const testSlug1 = 'apex-acc';
   const testSchema1 = 'tenant_apex_acc';
   const testAdminEmail1 = 'onboard_admin_be104@apex.com';

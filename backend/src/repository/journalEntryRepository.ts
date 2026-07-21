@@ -127,12 +127,75 @@ export async function getJournalEntryById(
   return mapJournalEntryRow(headerRows[0], lines);
 }
 
-export async function listJournalEntries(prisma: PrismaClient): Promise<JournalEntryRecord[]> {
+export interface ListJournalEntriesFilter {
+  status?: JournalEntryStatus;
+  startDate?: string;
+  endDate?: string;
+  search?: string;
+}
+
+export async function getJournalEntryByEntryNumber(
+  prisma: PrismaClient,
+  entryNumber: string
+): Promise<JournalEntryRecord | null> {
   const headerRows: any[] = await prisma.$queryRawUnsafe(
     `SELECT id, entry_number, entry_date, description, status, created_at, updated_at
      FROM journal_entries
-     ORDER BY entry_date DESC, created_at DESC`
+     WHERE entry_number = $1`,
+    entryNumber.trim()
   );
+
+  if (!headerRows || headerRows.length === 0) return null;
+
+  const lineRows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT id, journal_entry_id, account_id, debit, credit, description, created_at
+     FROM journal_entry_lines
+     WHERE journal_entry_id = $1::uuid
+     ORDER BY created_at ASC`,
+    headerRows[0].id
+  );
+
+  const lines = lineRows.map(mapJournalEntryLineRow);
+  return mapJournalEntryRow(headerRows[0], lines);
+}
+
+export async function listJournalEntries(
+  prisma: PrismaClient,
+  filter?: ListJournalEntriesFilter
+): Promise<JournalEntryRecord[]> {
+  const conditions: string[] = [];
+  const params: any[] = [];
+
+  if (filter?.status) {
+    params.push(filter.status);
+    conditions.push(`status = $${params.length}`);
+  }
+
+  if (filter?.startDate) {
+    params.push(filter.startDate);
+    conditions.push(`entry_date >= $${params.length}::date`);
+  }
+
+  if (filter?.endDate) {
+    params.push(filter.endDate);
+    conditions.push(`entry_date <= $${params.length}::date`);
+  }
+
+  if (filter?.search) {
+    params.push(`%${filter.search}%`);
+    conditions.push(`(entry_number ILIKE $${params.length} OR description ILIKE $${params.length})`);
+  }
+
+  const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
+
+  const query = `
+    SELECT id, entry_number, entry_date, description, status, created_at, updated_at
+    FROM journal_entries
+    ${whereClause}
+    ORDER BY entry_date DESC, created_at DESC
+  `;
+
+  const headerRows: any[] = await prisma.$queryRawUnsafe(query, ...params);
 
   const results: JournalEntryRecord[] = [];
   for (const header of headerRows) {
