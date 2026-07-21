@@ -290,6 +290,63 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ---
 
+### 📊 Core Accounting Database Schema & Repositories (BE-105)
+
+- **Description**: Database models, migration DDLs, and repositories for Chart of Accounts, Journal Entries, Journal Entry Lines, and Ledgers with strict SQL check constraints and double-entry balance triggers.
+
+#### Database Enums
+- **`AccountType`**: `'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE'`
+- **`JournalEntryStatus`**: `'DRAFT' | 'POSTED' | 'VOID'`
+
+#### Core Tables & Constraints (Tenant Schema `tenant_<slug>`)
+1. **`accounts`**:
+   - `id` (UUID PK, default `gen_random_uuid()`)
+   - `code` (VARCHAR(50) UNIQUE)
+   - `name` (VARCHAR(255))
+   - `type` (VARCHAR(50), `CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'))`)
+   - `parent_id` (UUID FK -> `accounts(id)` ON DELETE SET NULL)
+   - `currency` (VARCHAR(10), default `'USD'`)
+   - `is_active` (BOOLEAN, default `true`)
+   - `created_at`, `updated_at` (TIMESTAMPTZ)
+
+2. **`journal_entries`**:
+   - `id` (UUID PK, default `gen_random_uuid()`)
+   - `entry_number` (VARCHAR(100) UNIQUE)
+   - `entry_date` (DATE)
+   - `description` (TEXT)
+   - `status` (VARCHAR(20), `CONSTRAINT chk_journal_entry_status CHECK (status IN ('DRAFT', 'POSTED', 'VOID'))`)
+   - `created_at`, `updated_at` (TIMESTAMPTZ)
+
+3. **`journal_entry_lines`**:
+   - `id` (UUID PK, default `gen_random_uuid()`)
+   - `journal_entry_id` (UUID FK -> `journal_entries(id)` ON DELETE CASCADE)
+   - `account_id` (UUID FK -> `accounts(id)` ON DELETE RESTRICT)
+   - `debit` (NUMERIC(15,2), `CONSTRAINT chk_line_debit_non_negative CHECK (debit >= 0)`)
+   - `credit` (NUMERIC(15,2), `CONSTRAINT chk_line_credit_non_negative CHECK (credit >= 0)`)
+   - `description` (TEXT)
+   - `created_at` (TIMESTAMPTZ)
+
+4. **`ledgers`**:
+   - `id` (UUID PK, default `gen_random_uuid()`)
+   - `account_id` (UUID FK -> `accounts(id)` ON DELETE RESTRICT)
+   - `transaction_date` (DATE)
+   - `journal_entry_id` (UUID FK -> `journal_entries(id)` ON DELETE SET NULL)
+   - `debit` (NUMERIC(15,2), `CONSTRAINT chk_ledger_debit_non_negative CHECK (debit >= 0)`)
+   - `credit` (NUMERIC(15,2), `CONSTRAINT chk_ledger_credit_non_negative CHECK (credit >= 0)`)
+   - `balance` (NUMERIC(15,2))
+   - `description` (TEXT)
+   - `created_at` (TIMESTAMPTZ)
+
+#### Database Triggers
+- **`trg_check_journal_entry_balance`**: Triggers function `check_journal_entry_double_entry_balance()` on `journal_entries` and `journal_entry_lines`. When status is `'POSTED'`, enforces that `SUM(debit) == SUM(credit)` and `SUM(debit) > 0`, throwing a PostgreSQL exception if unbalanced.
+
+#### Available Repositories
+- **`accountRepository.ts`**: `createAccount`, `getAccountById`, `getAccountByCode`, `listAccounts`, `updateAccount`, `deleteAccount`
+- **`journalEntryRepository.ts`**: `createJournalEntry`, `getJournalEntryById`, `listJournalEntries`, `updateJournalEntryStatus`, `deleteJournalEntry`
+- **`ledgerRepository.ts`**: `createLedgerEntry`, `getLedgerByAccountId`, `postJournalEntryToLedger`
+
+---
+
 ## 📋 Handoff Template (For Backend Team Reference)
 
 When adding a completed endpoint, use the following template:

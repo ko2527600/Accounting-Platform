@@ -2,6 +2,12 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-21] - BE-105: Core Accounting Database Schema & Repositories
+
+**What:** Designed and implemented Core Accounting database schema (Chart of Accounts, Journal Entries, Journal Entry Lines, Ledgers). Updated Prisma schema (`backend/prisma/schema.prisma`) and tenant migration DDL engine (`backend/src/database/migrations/tenantMigrations.ts`) with full DDL models and constraints (double-entry `debit == credit` check trigger function `check_journal_entry_double_entry_balance`, foreign key cascade/restrict rules, account type enums `ASSET`/`LIABILITY`/`EQUITY`/`REVENUE`/`EXPENSE`, entry status enums `DRAFT`/`POSTED`/`VOID`, and non-negative debit/credit check constraints). Created repository implementations (`accountRepository.ts`, `journalEntryRepository.ts`, `ledgerRepository.ts`) and test suite (`accountingSchema.test.ts`) verifying DDL schema creation and data integrity under PostgreSQL database connections.
+**Why:** To establish a robust, constraint-enforced relational foundation for core double-entry accounting data across all tenant schemas.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/repository/accountRepository.ts`, `backend/src/repository/journalEntryRepository.ts`, `backend/src/repository/ledgerRepository.ts`, `backend/src/tests/accountingSchema.test.ts`, `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, `TASKS.md`, `STATUS.md`.
+
 ## [Date: 2026-07-21] - BE-104: Tenant Onboarding API Endpoint (POST /api/v1/tenants/onboard)
 
 **What:** Developed Tenant Onboarding API endpoint (`POST /api/v1/tenants/onboard`) and list endpoint (`GET /api/v1/tenants`). Implemented tenant repository (`tenantRepository.ts`) and onboarding service (`tenantService.ts`) to register tenant in `public.tenants` table, dynamically provision dedicated PostgreSQL tenant schema (`tenant_<slug>`), execute initial core DDL migrations (`001_initial_tenant_core_schema`), register the tenant Admin user in `public.users`, and return tenant details and Admin JWT token. Added full integration tests (`tenantOnboarding.test.ts`) connected to real PostgreSQL database without mock data, updated API contracts in `agents/backend-team/HANDOFF.md`, and marked BE-104 as completed.
