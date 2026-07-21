@@ -1,6 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { sanitizeSchemaName } from './tenantSchemaManager';
 import { getTenantContext } from '../context/tenantContext';
+import { ensureTenantSchemaMigrated, clearMigratedSchemasCache } from './tenantMigrationRunner';
+
+export { ensureTenantSchemaMigrated, clearMigratedSchemasCache };
+
 
 /**
  * Executes a callback within PostgreSQL search_path set to the target tenant schema.

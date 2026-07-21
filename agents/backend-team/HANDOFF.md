@@ -61,12 +61,16 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 ---
 
 ### 🛡️ Multi-Tenant Request Contract (Middleware Utility)
-- **Tenant Context Requirement**: All multi-tenant endpoints require tenant identity in request headers.
+- **Tenant Context Requirement**: All multi-tenant endpoints require tenant identity in request headers (`X-Tenant-ID`, `X-Tenant-Slug`, or `X-Tenant-Schema`) or authenticated JWT context (`req.user.tenantId`).
 - **Required Header**: `X-Tenant-ID` (or `X-Tenant-Slug` or `X-Tenant-Schema`).
-- **Behavior**:
-  - `tenantContextMiddleware` extracts header, resolves tenant schema (`tenant_<slug>`), and sets `AsyncLocalStorage` context.
-  - Queries execute automatically within PostgreSQL schema search path (`SET search_path TO "tenant_<slug>", public`).
-  - Returns `400 Bad Request` if mandatory tenant header is missing.
+- **Behavior & Strict Verification (BE-110)**:
+  - `tenantContextMiddleware` extracts tenant identifier from request headers (`X-Tenant-ID`, `X-Tenant-Slug`, `X-Tenant-Schema`) or JWT context.
+  - Verifies registration in `public.tenants` table (`prisma.tenant.findFirst`). Returns `404 Not Found` (`"Tenant Not Found"`, message: `Tenant with identifier "..." is not registered.`) if identifier is not registered.
+  - Performs automatic schema existence check & auto-migration provisioning (`ensureTenantSchemaMigrated`), automatically creating PostgreSQL tenant schema (`tenant_<slug>`) and running initial DDL migrations if unprovisioned.
+  - Propagates strict `AsyncLocalStorage` context (`tenantId`, `tenantSchema`, `tenantName`, `tenantSlug`) for downstream service and database operations.
+  - Database queries execute automatically within PostgreSQL schema search path (`SET search_path TO "tenant_<slug>", public`).
+  - Returns `400 Bad Request` (`"Missing Tenant Identifier"`) if mandatory tenant header is omitted on protected endpoints.
+
 
 ---
 
