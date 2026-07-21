@@ -4,7 +4,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 
 ## Phase 1: Core Accounting Web Version (MVP)
 
-- [ ] Set up project repository and initial WebDev scaffold (w:5)
+- [x] Set up project repository and initial WebDev scaffold (w:5)
 - [ ] Implement user authentication and authorization service (w:10)
 - [ ] Develop tenant onboarding process (w:8)
 - [ ] Design and implement database schema for core accounting (Chart of Accounts, Journal Entries, Ledgers) (w:15)

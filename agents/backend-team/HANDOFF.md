@@ -6,7 +6,22 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ## 🟢 Available Services & APIs
 
-*(No endpoints verified yet. The Backend Team will publish contracts here as tasks in `agents/backend-team/TASKS.md` are completed.)*
+### Endpoint: `GET /health` (or `GET /api/v1/health`)
+- **Description**: Microservice health check endpoint to verify backend server operational status.
+- **Headers Required**: None
+- **Request Payload**: None
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": "ok",
+    "timestamp": "2026-07-21T12:21:24.079Z",
+    "service": "backend-api"
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/health
+  ```
 
 ---
 
