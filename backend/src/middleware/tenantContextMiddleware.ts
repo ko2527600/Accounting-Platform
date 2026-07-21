@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { runWithTenantContext, TenantContextData } from '../context/tenantContext';
 import { sanitizeSchemaName } from '../database/tenantSchemaManager';
 import { ensureTenantSchemaMigrated } from '../database/tenantMigrationRunner';
+import { getTenantFromCache, setTenantInCache } from '../cache/tenantCache';
 
 // Extend Express Request type to include tenantContext
 declare global {
@@ -51,27 +52,35 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
         // Continue lookup even if raw string isn't a direct valid schema name
       }
 
-      // 1. Verify tenant registration in public.tenants
-      const tenant = await prisma.tenant.findFirst({
-        where: {
-          OR: [
-            { id: rawIdentifier },
-            { slug: rawIdentifier },
-            { schema: rawIdentifier },
-            ...(sanitizedSchema ? [{ schema: sanitizedSchema }] : []),
-          ],
-        },
-      });
+      // Check in-memory TTL cache first
+      let tenant = getTenantFromCache(rawIdentifier) || (sanitizedSchema ? getTenantFromCache(sanitizedSchema) : null);
 
       if (!tenant) {
-        if (options.optional) {
-          return next();
-        }
-        res.status(404).json({
-          error: 'Tenant Not Found',
-          message: `Tenant with identifier "${rawIdentifier}" is not registered.`,
+        // 1. Verify tenant registration in public.tenants
+        const dbTenant = await prisma.tenant.findFirst({
+          where: {
+            OR: [
+              { id: rawIdentifier },
+              { slug: rawIdentifier },
+              { schema: rawIdentifier },
+              ...(sanitizedSchema ? [{ schema: sanitizedSchema }] : []),
+            ],
+          },
         });
-        return;
+
+        if (!dbTenant) {
+          if (options.optional) {
+            return next();
+          }
+          res.status(404).json({
+            error: 'Tenant Not Found',
+            message: `Tenant with identifier "${rawIdentifier}" is not registered.`,
+          });
+          return;
+        }
+
+        tenant = dbTenant;
+        setTenantInCache(rawIdentifier, dbTenant);
       }
 
       // 2. Automatic schema existence check & auto-migration provisioning
