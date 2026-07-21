@@ -8,6 +8,7 @@ import tenantsRouter from './routes/tenants';
 import accountsRouter from './routes/accounts';
 import journalEntriesRouter from './routes/journalEntries';
 import ledgersRouter from './routes/ledgers';
+import reportsRouter from './routes/reports';
 
 dotenv.config();
 
@@ -35,8 +36,12 @@ app.use('/api/v1/journal-entries', journalEntriesRouter);
 // Ledger Accounts & Transaction History API endpoints
 app.use('/api/v1/ledgers', ledgersRouter);
 
+// Financial Reporting API endpoints
+app.use('/api/v1/reports', reportsRouter);
+
 // Migration admin endpoints
 app.use('/api/v1/admin/migrations', migrationsRouter);
 
 export default app;
+
 
