@@ -2,6 +2,12 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-21] - BE-104: Tenant Onboarding API Endpoint (POST /api/v1/tenants/onboard)
+
+**What:** Developed Tenant Onboarding API endpoint (`POST /api/v1/tenants/onboard`) and list endpoint (`GET /api/v1/tenants`). Implemented tenant repository (`tenantRepository.ts`) and onboarding service (`tenantService.ts`) to register tenant in `public.tenants` table, dynamically provision dedicated PostgreSQL tenant schema (`tenant_<slug>`), execute initial core DDL migrations (`001_initial_tenant_core_schema`), register the tenant Admin user in `public.users`, and return tenant details and Admin JWT token. Added full integration tests (`tenantOnboarding.test.ts`) connected to real PostgreSQL database without mock data, updated API contracts in `agents/backend-team/HANDOFF.md`, and marked BE-104 as completed.
+**Why:** To enable seamless self-service tenant registration and dynamic database schema provisioning for multi-tenant isolation.
+**Files Affected:** `backend/src/repository/tenantRepository.ts`, `backend/src/services/tenantService.ts`, `backend/src/routes/tenants.ts`, `backend/src/app.ts`, `backend/src/tests/tenantOnboarding.test.ts`, `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, `TASKS.md`, `STATUS.md`.
+
 ## [Date: 2026-07-21] - BE-103: Authentication & Authorization Microservice (JWT, RBAC)
 
 **What:** Developed Authentication and Authorization microservice supporting User registration (`POST /api/v1/auth/register`), login (`POST /api/v1/auth/login`), profile retrieval (`GET /api/v1/auth/me`), token verification (`POST /api/v1/auth/verify`), password hashing (PBKDF2 SHA-512 with 100,000 iterations), JWT token generation and verification (HMAC-SHA256), Role-Based Access Control middleware (`requireRole` supporting `Admin`, `Accountant`, `Auditor`, `Viewer`), PostgreSQL `users` table repository (`userRepository.ts`), Prisma `User` model, and integration tests connected to real PostgreSQL database without mock data.

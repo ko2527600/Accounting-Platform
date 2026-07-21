@@ -204,6 +204,92 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ---
 
+### 🏢 Tenant Onboarding API
+
+#### Endpoint: `POST /api/v1/tenants/onboard`
+- **Description**: Registers a new tenant in `public.tenants`, provisions dedicated PostgreSQL schema (`tenant_<slug>`), executes core DDL migrations (`001_initial_tenant_core_schema`), registers the tenant Admin user in `public.users`, and returns tenant details + Admin JWT authentication token.
+- **Headers Required**:
+  ```http
+  Content-Type: application/json
+  ```
+- **Request Payload**:
+  ```json
+  {
+    "companyName": "Acme Accounting Ltd",
+    "slug": "acme-acc",
+    "adminEmail": "admin@acme.com",
+    "adminPassword": "Password123!",
+    "adminName": "Acme Admin"
+  }
+  ```
+  *(Note: `slug` is optional and auto-generated from `companyName` if omitted. `adminName` falls back to company name + "Admin" if omitted)*
+- **Success Response (201 Created)**:
+  ```json
+  {
+    "success": true,
+    "message": "Tenant onboarded successfully",
+    "data": {
+      "tenant": {
+        "id": "e4f8a01d-5b23-4c91-a123-9876543210ab",
+        "name": "Acme Accounting Ltd",
+        "slug": "acme-acc",
+        "schema": "tenant_acme_acc",
+        "createdAt": "2026-07-21T13:00:00.000Z"
+      },
+      "admin": {
+        "id": "f5a7b02c-6c34-5d82-b234-8765432109bc",
+        "email": "admin@acme.com",
+        "name": "Acme Admin",
+        "role": "Admin",
+        "tenantId": "e4f8a01d-5b23-4c91-a123-9876543210ab",
+        "createdAt": "2026-07-21T13:00:00.000Z"
+      },
+      "token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...",
+      "migration": {
+        "appliedMigrations": [
+          "001_initial_tenant_core_schema"
+        ]
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Validation error (missing company name, invalid email, password too short).
+  - `409 Conflict`: Tenant slug or Admin email already registered.
+  - `500 Internal Server Error`: Schema provisioning or database error.
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/tenants/onboard -H "Content-Type: application/json" -d '{"companyName":"Acme Accounting Ltd","slug":"acme-acc","adminEmail":"admin@acme.com","adminPassword":"Password123!","adminName":"Acme Admin"}'
+  ```
+
+#### Endpoint: `GET /api/v1/tenants`
+- **Description**: Retrieves a list of all registered tenants.
+- **Headers Required**: None
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "tenants": [
+        {
+          "id": "e4f8a01d-...",
+          "name": "Acme Accounting Ltd",
+          "slug": "acme-acc",
+          "schema": "tenant_acme_acc",
+          "createdAt": "2026-07-21T13:00:00.000Z",
+          "updatedAt": "2026-07-21T13:00:00.000Z"
+        }
+      ]
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/api/v1/tenants
+  ```
+
+---
+
 ## 📋 Handoff Template (For Backend Team Reference)
 
 When adding a completed endpoint, use the following template:

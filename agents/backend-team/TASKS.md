@@ -5,7 +5,7 @@ Track backend development tasks. Mark `[x]` ONLY after testing and verification.
 - [x] `BE-101`: Initialize backend service structure (Node.js/TypeScript, Express, Prisma/TypeORM or Knex)
 - [x] `BE-102`: Setup multi-tenant database migration system (PostgreSQL separate schemas)
 - [x] `BE-103`: Develop Authentication & Authorization microservice (JWT, Role-Based Access Control)
-- [ ] `BE-104`: Develop Tenant Onboarding API endpoint (`POST /api/v1/tenants/onboard`)
+- [x] `BE-104`: Develop Tenant Onboarding API endpoint (`POST /api/v1/tenants/onboard`)
 - [ ] `BE-105`: Design & create Core Accounting database schema (Chart of Accounts, Journal Entries, Ledgers)
 - [ ] `BE-106`: Implement Chart of Accounts CRUD API endpoints (`/api/v1/accounts`)
 - [ ] `BE-107`: Implement Journal Entries API endpoints (`/api/v1/journal-entries`)
