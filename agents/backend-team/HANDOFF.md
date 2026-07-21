@@ -6,7 +6,67 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 
 ## 🟢 Available Services & APIs
 
-*(No endpoints verified yet. The Backend Team will publish contracts here as tasks in `agents/backend-team/TASKS.md` are completed.)*
+### Endpoint: `GET /health` (or `GET /api/v1/health`)
+- **Description**: Microservice health check endpoint to verify backend server operational status.
+- **Headers Required**: None
+- **Request Payload**: None
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "status": "ok",
+    "timestamp": "2026-07-21T12:21:24.079Z",
+    "service": "backend-api"
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X GET http://localhost:4000/health
+  ```
+
+---
+
+### Endpoint: `POST /api/v1/admin/migrations/run`
+- **Description**: Triggers dynamic tenant database schema migrations (creates schemas and runs DDL migrations for tenant core tables).
+- **Headers Required**:
+  ```http
+  Content-Type: application/json
+  ```
+- **Request Payload**:
+  ```json
+  {
+    "tenantSchema": "acme_corp"
+  }
+  ```
+  *(Or `{ "allTenants": true }` to run migrations across all registered tenants)*
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "message": "Migrations applied successfully for schema tenant_acme_corp",
+    "data": {
+      "tenantId": "tenant-uuid-or-slug",
+      "schemaName": "tenant_acme_corp",
+      "appliedMigrations": [
+        "001_initial_tenant_core_schema"
+      ],
+      "skippedCount": 0
+    }
+  }
+  ```
+- **Verification Command**:
+  ```bash
+  curl -X POST http://localhost:4000/api/v1/admin/migrations/run -H "Content-Type: application/json" -d '{"tenantSchema": "acme_corp"}'
+  ```
+
+---
+
+### 🛡️ Multi-Tenant Request Contract (Middleware Utility)
+- **Tenant Context Requirement**: All multi-tenant endpoints require tenant identity in request headers.
+- **Required Header**: `X-Tenant-ID` (or `X-Tenant-Slug` or `X-Tenant-Schema`).
+- **Behavior**:
+  - `tenantContextMiddleware` extracts header, resolves tenant schema (`tenant_<slug>`), and sets `AsyncLocalStorage` context.
+  - Queries execute automatically within PostgreSQL schema search path (`SET search_path TO "tenant_<slug>", public`).
+  - Returns `400 Bad Request` if mandatory tenant header is missing.
 
 ---
 
