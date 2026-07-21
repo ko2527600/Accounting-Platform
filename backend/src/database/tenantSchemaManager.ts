@@ -74,5 +74,5 @@ export async function checkSchemaExists(prismaClient: PrismaClient, rawSchemaNam
     schemaName
   );
   
-  return result.length > 0 && Boolean(result[0].exists);
+  return Array.isArray(result) && result.length > 0 && Boolean(result[0]?.exists);
 }

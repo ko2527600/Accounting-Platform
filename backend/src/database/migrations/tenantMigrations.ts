@@ -32,7 +32,8 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         currency VARCHAR(10) DEFAULT 'USD',
         is_active BOOLEAN DEFAULT true,
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'))
       );
 
       -- Journal Entries table
@@ -43,7 +44,8 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         description TEXT,
         status VARCHAR(20) DEFAULT 'DRAFT',
         created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_journal_entry_status CHECK (status IN ('DRAFT', 'POSTED', 'VOID'))
       );
 
       -- Journal Entry Lines table
@@ -54,7 +56,9 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         debit NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
         credit NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
         description TEXT,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_line_debit_non_negative CHECK (debit >= 0),
+        CONSTRAINT chk_line_credit_non_negative CHECK (credit >= 0)
       );
 
       -- Ledger table
@@ -67,7 +71,9 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         credit NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
         balance NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
         description TEXT,
-        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_ledger_debit_non_negative CHECK (debit >= 0),
+        CONSTRAINT chk_ledger_credit_non_negative CHECK (credit >= 0)
       );
 
       -- Indexes for fast querying
@@ -77,5 +83,87 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_ledgers_account ON ledgers(account_id);
       CREATE INDEX IF NOT EXISTS idx_ledgers_date ON ledgers(transaction_date);
     `
+  },
+  {
+    version: 2,
+    name: '002_core_accounting_constraints_and_triggers',
+    sql: `
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_type') THEN
+          ALTER TABLE accounts ADD CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'));
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_journal_entry_status') THEN
+          ALTER TABLE journal_entries ADD CONSTRAINT chk_journal_entry_status CHECK (status IN ('DRAFT', 'POSTED', 'VOID'));
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_line_debit_non_negative') THEN
+          ALTER TABLE journal_entry_lines ADD CONSTRAINT chk_line_debit_non_negative CHECK (debit >= 0);
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_line_credit_non_negative') THEN
+          ALTER TABLE journal_entry_lines ADD CONSTRAINT chk_line_credit_non_negative CHECK (credit >= 0);
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_ledger_debit_non_negative') THEN
+          ALTER TABLE ledgers ADD CONSTRAINT chk_ledger_debit_non_negative CHECK (debit >= 0);
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_ledger_credit_non_negative') THEN
+          ALTER TABLE ledgers ADD CONSTRAINT chk_ledger_credit_non_negative CHECK (credit >= 0);
+        END IF;
+      END $$;
+
+      CREATE OR REPLACE FUNCTION check_journal_entry_double_entry_balance()
+      RETURNS TRIGGER AS $$
+      DECLARE
+        v_total_debit NUMERIC(15, 2);
+        v_total_credit NUMERIC(15, 2);
+        v_status VARCHAR(20);
+        v_entry_id UUID;
+      BEGIN
+        IF TG_TABLE_NAME = 'journal_entries' THEN
+          v_entry_id := NEW.id;
+          v_status := NEW.status;
+        ELSE
+          v_entry_id := NEW.journal_entry_id;
+          SELECT status INTO v_status FROM journal_entries WHERE id = v_entry_id;
+        END IF;
+
+        IF v_status = 'POSTED' THEN
+          SELECT COALESCE(SUM(debit), 0.00), COALESCE(SUM(credit), 0.00)
+          INTO v_total_debit, v_total_credit
+          FROM journal_entry_lines
+          WHERE journal_entry_id = v_entry_id;
+
+          IF v_total_debit <> v_total_credit THEN
+            RAISE EXCEPTION 'Double-entry balance constraint failed: Total Debit (%) must equal Total Credit (%) for journal entry %',
+              v_total_debit, v_total_credit, v_entry_id;
+          END IF;
+
+          IF v_total_debit = 0.00 AND v_total_credit = 0.00 THEN
+            RAISE EXCEPTION 'Double-entry constraint failed: Journal entry % must have non-zero debit/credit lines before posting',
+              v_entry_id;
+          END IF;
+        END IF;
+
+        RETURN NEW;
+      END;
+      $$ LANGUAGE plpgsql;
+
+      DROP TRIGGER IF EXISTS trg_check_journal_entry_balance ON journal_entries;
+      CREATE TRIGGER trg_check_journal_entry_balance
+        AFTER INSERT OR UPDATE ON journal_entries
+        FOR EACH ROW
+        EXECUTE FUNCTION check_journal_entry_double_entry_balance();
+
+      DROP TRIGGER IF EXISTS trg_check_journal_entry_line_balance ON journal_entry_lines;
+      CREATE TRIGGER trg_check_journal_entry_line_balance
+        AFTER INSERT OR UPDATE OR DELETE ON journal_entry_lines
+        FOR EACH ROW
+        EXECUTE FUNCTION check_journal_entry_double_entry_balance();
+    `
   }
 ];
+

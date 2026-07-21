@@ -17,5 +17,104 @@ model Tenant {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
+  users     User[]
+
   @@map("tenants")
 }
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("Viewer")
+  tenantId  String?  @map("tenant_id")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("users")
+}
+
+enum AccountType {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+
+enum JournalEntryStatus {
+  DRAFT
+  POSTED
+  VOID
+}
+
+model Account {
+  id        String      @id @default(uuid())
+  code      String      @unique
+  name      String
+  type      AccountType
+  parentId  String?     @map("parent_id")
+  currency  String      @default("USD")
+  isActive  Boolean     @default(true) @map("is_active")
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  parent            Account?           @relation("AccountHierarchy", fields: [parentId], references: [id], onDelete: SetNull)
+  children          Account[]          @relation("AccountHierarchy")
+  journalEntryLines JournalEntryLine[]
+  ledgers           Ledger[]
+
+  @@map("accounts")
+}
+
+model JournalEntry {
+  id          String             @id @default(uuid())
+  entryNumber String             @unique @map("entry_number")
+  entryDate   DateTime           @default(now()) @map("entry_date")
+  description String?
+  status      JournalEntryStatus @default(DRAFT)
+  createdAt   DateTime           @default(now()) @map("created_at")
+  updatedAt   DateTime           @updatedAt @map("updated_at")
+
+  lines   JournalEntryLine[]
+  ledgers Ledger[]
+
+  @@map("journal_entries")
+}
+
+model JournalEntryLine {
+  id             String       @id @default(uuid())
+  journalEntryId String       @map("journal_entry_id")
+  accountId      String       @map("account_id")
+  debit          Decimal      @default(0.00) @db.Decimal(15, 2)
+  credit         Decimal      @default(0.00) @db.Decimal(15, 2)
+  description    String?
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
+  account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@map("journal_entry_lines")
+}
+
+model Ledger {
+  id              String       @id @default(uuid())
+  accountId       String       @map("account_id")
+  transactionDate DateTime     @default(now()) @map("transaction_date")
+  journalEntryId  String?      @map("journal_entry_id")
+  debit           Decimal      @default(0.00) @db.Decimal(15, 2)
+  credit          Decimal      @default(0.00) @db.Decimal(15, 2)
+  balance         Decimal      @default(0.00) @db.Decimal(15, 2)
+  description     String?
+  createdAt       DateTime     @default(now()) @map("created_at")
+
+  account      Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
+  journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
+
+  @@map("ledgers")
+}
+
