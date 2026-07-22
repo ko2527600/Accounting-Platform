@@ -2,6 +2,8 @@ type LogLevel = 'debug' | 'info' | 'warn' | 'error';
 
 export interface LogContext {
   requestId?: string;
+  traceId?: string;
+  spanId?: string;
   tenantSlug?: string;
   method?: string;
   path?: string;

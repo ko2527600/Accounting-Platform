@@ -102,6 +102,15 @@ describe('Rate Limiter Middleware', () => {
     expect(res.headers['x-request-id']).toBe(customId);
   });
 
+  it('echoes back W3C traceparent header when supplied', async () => {
+    const traceparent = '00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01';
+    const res = await request(app)
+      .get('/health')
+      .set('traceparent', traceparent);
+
+    expect(res.headers['traceparent']).toBe(traceparent);
+  });
+
   it('rate limiter module exports all three limiter variants', () => {
     // Verify all three specialized rate limiters are exported and are functions
     const { apiRateLimiter, authRateLimiter, onboardingRateLimiter } = require('../middleware/rateLimiterMiddleware');
@@ -126,12 +135,13 @@ describe('TenantMigrations', () => {
     expect(migrationV3).toBeDefined();
     expect(migrationV3?.sql).toContain('idx_ledgers_account_date');
     expect(migrationV3?.sql).toContain('idx_journal_entries_status_date');
+    expect(migrationV3?.sql).toContain('idx_posted_journal_entries');
     expect(migrationV3?.sql).toContain('idx_journal_entry_lines_account');
     expect(migrationV3?.sql).toContain('idx_accounts_parent');
   });
 
   it('migration v3 uses IF NOT EXISTS guards for safe re-execution', () => {
     const migrationV3 = TENANT_MIGRATIONS.find((m) => m.version === 3);
-    expect(migrationV3?.sql.match(/CREATE INDEX IF NOT EXISTS/g)?.length).toBeGreaterThanOrEqual(4);
+    expect(migrationV3?.sql.match(/CREATE INDEX IF NOT EXISTS/g)?.length).toBeGreaterThanOrEqual(5);
   });
 });
