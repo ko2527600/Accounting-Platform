@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-22] - BE-OPT-002: Advanced Isolation & Telemetry Propagation
+
+**What:** Implemented targeted fixes addressing connection race conditions, sorting index limits, and telemetry metadata context propagation:
+1. **Interactive Transaction Pinning**: Wrapped dynamic search_path mutations and target query executions in `prisma.$transaction()`, guaranteeing absolute connection isolation under async execution concurrency.
+2. **PostgreSQL Index Upgrades**: Upgraded `idx_ledgers_account_date` to `idx_ledgers_account_date_created ON ledgers(account_id, transaction_date, created_at)` to eliminate Sort passes. Added partial index `idx_posted_journal_entries ON journal_entries(entry_date) WHERE status = 'POSTED'`.
+3. **OpenTelemetry Context & traceparent Extraction**: Updated `requestLoggerMiddleware.ts` to parse W3C `traceparent` headers and propagate `traceId` / `spanId` downstream into JSON logs.
+**Why:** To establish 100% thread/concurrency isolation, avoid in-memory sorting overhead, and align with OpenTelemetry distributed tracing standards.
+**Files Affected:** `backend/src/database/tenantClient.ts`, `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/middleware/requestLoggerMiddleware.ts`, `backend/src/utils/logger.ts`, `backend/src/tests/performanceAndHardening.test.ts`, `STATUS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-21] - BE-OPT-001: Backend Audit & Performance Hardening
 
 **What:** Conducted a comprehensive system audit and implemented backend performance optimizations, schema indexing, traffic rate-limiting, and structured JSON observability:
