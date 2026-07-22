@@ -164,6 +164,19 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         FOR EACH ROW
         EXECUTE FUNCTION check_journal_entry_double_entry_balance();
     `
+  },
+  {
+    version: 3,
+    name: '003_performance_indexing_and_trigger_optimizations',
+    sql: `
+      -- Composite & performance indexes for high-volume tenant schemas
+      CREATE INDEX IF NOT EXISTS idx_ledgers_account_date ON ledgers(account_id, transaction_date, created_at);
+      CREATE INDEX IF NOT EXISTS idx_journal_entries_status_date ON journal_entries(status, entry_date);
+      CREATE INDEX IF NOT EXISTS idx_posted_journal_entries ON journal_entries(entry_date) WHERE status = 'POSTED';
+      CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_account ON journal_entry_lines(account_id);
+      CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_id);
+    `
   }
 ];
+
 

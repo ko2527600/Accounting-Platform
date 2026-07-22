@@ -61,12 +61,16 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 ---
 
 ### 🛡️ Multi-Tenant Request Contract (Middleware Utility)
-- **Tenant Context Requirement**: All multi-tenant endpoints require tenant identity in request headers.
+- **Tenant Context Requirement**: All multi-tenant endpoints require tenant identity in request headers (`X-Tenant-ID`, `X-Tenant-Slug`, or `X-Tenant-Schema`) or authenticated JWT context (`req.user.tenantId`).
 - **Required Header**: `X-Tenant-ID` (or `X-Tenant-Slug` or `X-Tenant-Schema`).
-- **Behavior**:
-  - `tenantContextMiddleware` extracts header, resolves tenant schema (`tenant_<slug>`), and sets `AsyncLocalStorage` context.
-  - Queries execute automatically within PostgreSQL schema search path (`SET search_path TO "tenant_<slug>", public`).
-  - Returns `400 Bad Request` if mandatory tenant header is missing.
+- **Behavior & Strict Verification (BE-110)**:
+  - `tenantContextMiddleware` extracts tenant identifier from request headers (`X-Tenant-ID`, `X-Tenant-Slug`, `X-Tenant-Schema`) or JWT context.
+  - Verifies registration in `public.tenants` table (`prisma.tenant.findFirst`). Returns `404 Not Found` (`"Tenant Not Found"`, message: `Tenant with identifier "..." is not registered.`) if identifier is not registered.
+  - Performs automatic schema existence check & auto-migration provisioning (`ensureTenantSchemaMigrated`), automatically creating PostgreSQL tenant schema (`tenant_<slug>`) and running initial DDL migrations if unprovisioned.
+  - Propagates strict `AsyncLocalStorage` context (`tenantId`, `tenantSchema`, `tenantName`, `tenantSlug`) for downstream service and database operations.
+  - Database queries execute automatically within PostgreSQL schema search path (`SET search_path TO "tenant_<slug>", public`).
+  - Returns `400 Bad Request` (`"Missing Tenant Identifier"`) if mandatory tenant header is omitted on protected endpoints.
+
 
 ---
 
@@ -994,6 +998,179 @@ This document is updated by the **Backend Team** whenever a backend service/endp
 - **Verification Command**:
   ```bash
   curl -X GET "http://localhost:4000/api/v1/ledgers/summary?startDate=2026-07-01" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+---
+
+### 📈 Financial Reporting APIs (BE-109)
+
+#### Endpoint: `GET /api/v1/reports/trial-balance`
+- **Description**: Retrieves Trial Balance report listing all accounts in tenant Chart of Accounts with their net Debit/Credit balances and verifies that grand total debits equal grand total credits (`isBalanced === true`).
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `asOfDate`: Filter transactions up to date (`YYYY-MM-DD`)
+  - `startDate`: Filter transactions starting on or after date (`YYYY-MM-DD`)
+  - `endDate`: Filter transactions on or before date (`YYYY-MM-DD`)
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "asOfDate": null,
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "accounts": [
+        {
+          "id": "e4f8a01d-...",
+          "code": "1010",
+          "name": "Cash & Bank",
+          "type": "ASSET",
+          "debit": 7500.00,
+          "credit": 0.00
+        },
+        {
+          "id": "f5a7b02c-...",
+          "code": "4010",
+          "name": "Consulting Revenue",
+          "type": "REVENUE",
+          "debit": 0.00,
+          "credit": 3000.00
+        }
+      ],
+      "totals": {
+        "totalDebit": 8700.00,
+        "totalCredit": 8700.00,
+        "isBalanced": true
+      }
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid date format.
+  - `401 Unauthorized`: Missing or invalid JWT token.
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/reports/trial-balance?startDate=2026-07-01&endDate=2026-07-31" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `GET /api/v1/reports/profit-loss`
+- **Description**: Retrieves Profit & Loss Statement calculating total Revenue, total Expenses, Net Profit/Loss, and profitability flag (`isProfit`) over a date range.
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `startDate`: Filter income & expense transactions starting on date (`YYYY-MM-DD`)
+  - `endDate`: Filter income & expense transactions up to date (`YYYY-MM-DD`)
+  - `asOfDate`: Alternative end date parameter (`YYYY-MM-DD`)
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "startDate": "2026-07-01",
+      "endDate": "2026-07-31",
+      "asOfDate": null,
+      "revenues": [
+        {
+          "id": "f5a7b02c-...",
+          "code": "4010",
+          "name": "Consulting Services Revenue",
+          "type": "REVENUE",
+          "amount": 3000.00
+        }
+      ],
+      "totalRevenue": 3000.00,
+      "expenses": [
+        {
+          "id": "g6b8c03d-...",
+          "code": "5010",
+          "name": "Software Licenses Expense",
+          "type": "EXPENSE",
+          "amount": 1200.00
+        }
+      ],
+      "totalExpenses": 1200.00,
+      "netProfit": 1800.00,
+      "isProfit": true
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid date format.
+  - `401 Unauthorized`: Missing or invalid JWT token.
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/reports/profit-loss?startDate=2026-07-01&endDate=2026-07-31" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
+  ```
+
+#### Endpoint: `GET /api/v1/reports/balance-sheet`
+- **Description**: Retrieves Balance Sheet report calculating total Assets, total Liabilities, direct Equity accounts, accumulated Retained Earnings (cumulative Net Profit/Loss), total Equity, and verifies the core accounting equation (`Assets == Liabilities + Equity`, `isBalanced === true`).
+- **Headers Required**:
+  ```http
+  Authorization: Bearer <jwt_token>
+  X-Tenant-ID: <tenant_id_or_slug>
+  ```
+  *(Supported Roles: `"Admin"`, `"Accountant"`, `"Auditor"`, `"Viewer"`)*
+- **Query Parameters**:
+  - `asOfDate`: Balance sheet date snapshot (`YYYY-MM-DD`)
+  - `endDate`: Alternative snapshot date parameter (`YYYY-MM-DD`)
+- **Success Response (200 OK)**:
+  ```json
+  {
+    "success": true,
+    "data": {
+      "asOfDate": "2026-07-31",
+      "assets": [
+        {
+          "id": "e4f8a01d-...",
+          "code": "1010",
+          "name": "Cash & Bank",
+          "type": "ASSET",
+          "balance": 7500.00
+        }
+      ],
+      "totalAssets": 7500.00,
+      "liabilities": [
+        {
+          "id": "h7c9d04e-...",
+          "code": "2010",
+          "name": "Accounts Payable",
+          "type": "LIABILITY",
+          "balance": 700.00
+        }
+      ],
+      "totalLiabilities": 700.00,
+      "equity": [
+        {
+          "id": "i8d0e05f-...",
+          "code": "3010",
+          "name": "Owner Capital",
+          "type": "EQUITY",
+          "balance": 5000.00
+        }
+      ],
+      "totalEquityAccounts": 5000.00,
+      "retainedEarnings": 1800.00,
+      "totalEquity": 6800.00,
+      "totalLiabilitiesAndEquity": 7500.00,
+      "isBalanced": true
+    }
+  }
+  ```
+- **Error Responses**:
+  - `400 Bad Request`: Invalid date format.
+  - `401 Unauthorized`: Missing or invalid JWT token.
+- **Verification Command**:
+  ```bash
+  curl -X GET "http://localhost:4000/api/v1/reports/balance-sheet?asOfDate=2026-07-31" -H "Authorization: Bearer <jwt_token>" -H "X-Tenant-ID: acme-acc"
   ```
 
 ---

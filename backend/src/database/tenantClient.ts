@@ -1,6 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 import { sanitizeSchemaName } from './tenantSchemaManager';
 import { getTenantContext } from '../context/tenantContext';
+import { ensureTenantSchemaMigrated, clearMigratedSchemasCache } from './tenantMigrationRunner';
+
+export { ensureTenantSchemaMigrated, clearMigratedSchemasCache };
+
 
 /**
  * Executes a callback within PostgreSQL search_path set to the target tenant schema.
@@ -12,15 +16,17 @@ export async function withTenantDb<T>(
 ): Promise<T> {
   const schemaName = sanitizeSchemaName(rawSchemaName);
 
-  // Set PostgreSQL search_path for schema isolation
-  await prismaClient.$executeRawUnsafe(`SET search_path TO "${schemaName}", public;`);
-
-  try {
-    return await queryFn(prismaClient);
-  } finally {
-    // Reset search path back to public
-    await prismaClient.$executeRawUnsafe(`SET search_path TO public;`);
-  }
+  // Execute search_path mutation and query execution inside a transaction
+  // to pin both operations to the exact same checked-out connection, eliminating race conditions.
+  return await prismaClient.$transaction(async (tx) => {
+    const client = tx as unknown as PrismaClient;
+    await client.$executeRawUnsafe(`SET search_path TO "${schemaName}", public;`);
+    try {
+      return await queryFn(client);
+    } finally {
+      await client.$executeRawUnsafe(`SET search_path TO public;`);
+    }
+  });
 }
 
 /**

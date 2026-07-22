@@ -10,15 +10,19 @@ datasource db {
 }
 
 model Tenant {
-  id        String   @id @default(uuid())
-  name      String
-  slug      String   @unique
-  schema    String   @unique
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                   String    @id @default(uuid())
+  name                 String
+  slug                 String    @unique
+  schema               String    @unique
+  acceptedTermsVersion String?   @map("accepted_terms_version")
+  termsAcceptedAt      DateTime? @map("terms_accepted_at")
+  tier                 Int       @default(1)
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
 
   users     User[]
 
+  @@index([acceptedTermsVersion, termsAcceptedAt])
   @@map("tenants")
 }
 

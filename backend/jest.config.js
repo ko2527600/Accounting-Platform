@@ -7,4 +7,7 @@ module.exports = {
   clearMocks: true,
   resetMocks: true,
   restoreMocks: true,
+  // Integration tests hit Prisma Accelerate (remote DB); 30s covers connection latency
+  testTimeout: 30000,
 };
+

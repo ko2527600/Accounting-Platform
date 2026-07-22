@@ -158,3 +158,34 @@ export async function runAllTenantMigrations(
 
   return results;
 }
+
+const migratedSchemasCache = new Set<string>();
+
+/**
+ * Clears the in-memory schema migration cache (useful for testing).
+ */
+export function clearMigratedSchemasCache(): void {
+  migratedSchemasCache.clear();
+}
+
+/**
+ * Checks if the given tenant schema exists and has all core migrations applied.
+ * Automatically creates the schema and executes pending migrations if missing or unmigrated.
+ * Uses an in-memory cache to avoid redundant database schema checks on subsequent requests.
+ */
+export async function ensureTenantSchemaMigrated(
+  prismaClient: PrismaClient,
+  rawSchemaName: string,
+  tenantId?: string
+): Promise<MigrationResult | null> {
+  const schemaName = sanitizeSchemaName(rawSchemaName);
+
+  if (migratedSchemasCache.has(schemaName)) {
+    return null;
+  }
+
+  const result = await runMigrationsForSchema(prismaClient, schemaName, tenantId);
+  migratedSchemasCache.add(schemaName);
+  return result;
+}
+

@@ -32,12 +32,14 @@ describe('Tenant Schema Manager', () => {
 
   describe('Database Operations (Mock / Integration Fallback)', () => {
     const mockPrisma: any = {
-      $executeRawUnsafe: jest.fn().mockResolvedValue(1),
-      $queryRawUnsafe: jest.fn().mockResolvedValue([{ exists: true }]),
+      $executeRawUnsafe: jest.fn(),
+      $queryRawUnsafe: jest.fn(),
     };
 
     beforeEach(() => {
-      jest.clearAllMocks();
+      // Re-apply mock implementations after jest resetMocks:true clears them
+      mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+      mockPrisma.$queryRawUnsafe.mockResolvedValue([{ exists: true }]);
     });
 
     it('should execute CREATE SCHEMA IF NOT EXISTS with sanitized name', async () => {
@@ -62,3 +64,4 @@ describe('Tenant Schema Manager', () => {
     });
   });
 });
+

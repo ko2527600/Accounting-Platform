@@ -10,5 +10,5 @@ Track backend development tasks. Mark `[x]` ONLY after testing and verification.
 - [x] `BE-106`: Implement Chart of Accounts CRUD API endpoints (`/api/v1/accounts`)
 - [x] `BE-107`: Implement Journal Entries API endpoints (`/api/v1/journal-entries`)
 - [x] `BE-108`: Implement Ledger Accounts & Transaction History API endpoints (`/api/v1/ledgers`)
-- [ ] `BE-109`: Implement Financial Reporting API endpoints (Trial Balance, P&L, Balance Sheet)
-- [ ] `BE-110`: Add strict tenant context middleware for request-level schema switching
+- [x] `BE-109`: Implement Financial Reporting API endpoints (Trial Balance, P&L, Balance Sheet)
+- [x] `BE-110`: Add strict tenant context middleware for request-level schema switching

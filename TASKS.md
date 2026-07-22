@@ -14,7 +14,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [ ] Build frontend UI for Chart of Accounts management (w:8)
 - [ ] Build frontend UI for Journal Entry creation (w:10)
 - [ ] Build frontend UI for Ledger viewing (w:8)
-- [ ] Implement basic reporting: Trial Balance, P&L, Balance Sheet (API & UI) (w:15)
+- [x] Implement basic reporting: Trial Balance, P&L, Balance Sheet (API) (w:15)
 - [x] Implement tenant-specific data isolation logic across all services (w:10)
 - [ ] Set up CI/CD pipeline for automated deployments (w:7)
 - [ ] Conduct initial security audit and penetration testing (w:5)

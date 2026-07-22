@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 import { prisma } from '../config/db';
 import { runWithTenantContext, TenantContextData } from '../context/tenantContext';
 import { sanitizeSchemaName } from '../database/tenantSchemaManager';
+import { ensureTenantSchemaMigrated } from '../database/tenantMigrationRunner';
+import { getTenantFromCache, setTenantInCache } from '../cache/tenantCache';
 
 // Extend Express Request type to include tenantContext
 declare global {
@@ -17,15 +19,21 @@ export interface TenantMiddlewareOptions {
 }
 
 /**
- * Express Middleware to resolve tenant context from headers (`X-Tenant-ID` or `X-Tenant-Schema`).
- * Sets up AsyncLocalStorage tenant context for downstream service and database calls.
+ * Express Middleware to resolve tenant context from request headers (`X-Tenant-ID`, `X-Tenant-Slug`, `X-Tenant-Schema`)
+ * or authenticated user context.
+ * Performs tenant registration verification in public.tenants, ensures schema existence & auto-migration provisioning,
+ * and sets up strict AsyncLocalStorage tenant context propagation for downstream handlers.
  */
 export function createTenantContextMiddleware(options: TenantMiddlewareOptions = {}) {
   return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
-    const tenantIdHeader = (req.headers['x-tenant-id'] || req.headers['x-tenant-slug']) as string | undefined;
-    const tenantSchemaHeader = req.headers['x-tenant-schema'] as string | undefined;
+    const rawIdentifier = (
+      req.headers['x-tenant-id'] ||
+      req.headers['x-tenant-slug'] ||
+      req.headers['x-tenant-schema'] ||
+      req.user?.tenantId
+    ) as string | undefined;
 
-    if (!tenantIdHeader && !tenantSchemaHeader) {
+    if (!rawIdentifier) {
       if (options.optional) {
         return next();
       }
@@ -37,67 +45,60 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
     }
 
     try {
-      let tenantContext: TenantContextData | undefined;
-
-      // 1. Resolve by direct schema header if provided
-      if (tenantSchemaHeader) {
-        const sanitizedSchema = sanitizeSchemaName(tenantSchemaHeader);
-        tenantContext = {
-          tenantId: tenantIdHeader || sanitizedSchema,
-          tenantSchema: sanitizedSchema,
-        };
-      } else if (tenantIdHeader) {
-        // 2. Resolve by tenant ID or slug from public database
-        try {
-          const tenant = await prisma.tenant.findFirst({
-            where: {
-              OR: [
-                { id: tenantIdHeader },
-                { slug: tenantIdHeader },
-              ],
-            },
-          });
-
-          if (tenant) {
-            tenantContext = {
-              tenantId: tenant.id,
-              tenantSchema: tenant.schema,
-              tenantName: tenant.name,
-              tenantSlug: tenant.slug,
-            };
-          } else {
-            // Fallback: derive schema name from tenant slug/id directly if DB entry not found yet
-            const derivedSchema = sanitizeSchemaName(tenantIdHeader);
-            tenantContext = {
-              tenantId: tenantIdHeader,
-              tenantSchema: derivedSchema,
-            };
-          }
-        } catch {
-          // If DB query fails, derive schema name from header
-          const derivedSchema = sanitizeSchemaName(tenantIdHeader);
-          tenantContext = {
-            tenantId: tenantIdHeader,
-            tenantSchema: derivedSchema,
-          };
-        }
+      let sanitizedSchema: string | null = null;
+      try {
+        sanitizedSchema = sanitizeSchemaName(rawIdentifier);
+      } catch {
+        // Continue lookup even if raw string isn't a direct valid schema name
       }
 
-      if (!tenantContext) {
-        if (options.optional) {
-          return next();
-        }
-        res.status(404).json({
-          error: 'Tenant Not Found',
-          message: 'The requested tenant could not be resolved.',
+      // Check in-memory TTL cache first
+      let tenant = getTenantFromCache(rawIdentifier) || (sanitizedSchema ? getTenantFromCache(sanitizedSchema) : null);
+
+      if (!tenant) {
+        // 1. Verify tenant registration in public.tenants
+        const dbTenant = await prisma.tenant.findFirst({
+          where: {
+            OR: [
+              { id: rawIdentifier },
+              { slug: rawIdentifier },
+              { schema: rawIdentifier },
+              ...(sanitizedSchema ? [{ schema: sanitizedSchema }] : []),
+            ],
+          },
         });
-        return;
+
+        if (!dbTenant) {
+          if (options.optional) {
+            return next();
+          }
+          res.status(404).json({
+            error: 'Tenant Not Found',
+            message: `Tenant with identifier "${rawIdentifier}" is not registered.`,
+          });
+          return;
+        }
+
+        tenant = dbTenant;
+        setTenantInCache(rawIdentifier, dbTenant);
       }
+
+      // 2. Automatic schema existence check & auto-migration provisioning
+      await ensureTenantSchemaMigrated(prisma, tenant.schema, tenant.id);
+
+      // 3. Construct strict tenant context object
+      const tenantContext: TenantContextData = {
+        tenantId: tenant.id,
+        tenantSchema: tenant.schema,
+        tenantName: tenant.name,
+        tenantSlug: tenant.slug,
+        tenantTier: tenant.tier,
+      };
 
       // Attach context to request object
       req.tenantContext = tenantContext;
 
-      // Run next handler inside AsyncLocalStorage context
+      // 4. Propagate context via AsyncLocalStorage for downstream service execution
       await runWithTenantContext(tenantContext, async () => {
         next();
       });
@@ -112,3 +113,4 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
 
 export const tenantContextMiddleware = createTenantContextMiddleware({ optional: false });
 export const optionalTenantContextMiddleware = createTenantContextMiddleware({ optional: true });
+

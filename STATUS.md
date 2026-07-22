@@ -2,6 +2,59 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-22] - Audit Recommendations Fixes (Performance & Observability)
+
+**What:** Resolved audit findings regarding database indexing, blocking file system loops, and trace context generation:
+1. **In-Memory Policy Caching**: Implemented V8 static policy memory cache in `legal.ts` and refactored filesystem reads to be non-blocking and cached, eliminating disk I/O and synchronous exists checks.
+2. **Auto-Generated W3C Traceparents**: Configured `requestLoggerMiddleware.ts` to automatically generate W3C compliant `traceparent` headers using secure random bytes for untraced requests, resolving tracing blind spots.
+3. **Database Index Upgrade**: Added a composite index on `acceptedTermsVersion` and `termsAcceptedAt` in `schema.prisma`.
+4. **Testing**: Modified `performanceAndHardening.test.ts` to mock newer cache fields and verify W3C traceparent auto-generation (all 13 performance and 9 legal tests pass).
+**Why:** To optimize server latency under traffic spikes, eliminate event-loop blocking disk reads, and establish complete request correlation tracing coverage.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/routes/legal.ts`, `backend/src/middleware/requestLoggerMiddleware.ts`, `backend/src/tests/performanceAndHardening.test.ts`, `STATUS.md`, `walkthrough.md`.
+
+## [Date: 2026-07-22] - Legal Policy Framework & Customization Enforcement (Backend)
+
+**What:** Integrated legal policies compliance and tier-based customization enforcement on the backend:
+1. **Schema & Repository Upgrades**: Updated `schema.prisma` with `acceptedTermsVersion`, `termsAcceptedAt`, and `tier`. Refactored `tenantRepository.ts` and `userRepository.ts` to use type-safe Prisma Client, resolving UUID generation and timestamp default issues.
+2. **Compliance Onboarding Verification**: Updated `onboardTenant` in `tenantService.ts` to enforce `termsAccepted === true` and `acceptedTermsVersion` checks.
+3. **Legal Document API**: Created `legal.ts` router to safely serve markdown text from `/docs` folder for `terms-and-conditions`, `sla`, and `customization-policy` under `/api/legal/:policyName`.
+4. **Tier Enforcement Middleware**: Implemented `requireCustomizationTier(requiredTier)` and demonstrated by securing `POST /api/v1/custom-fields` (Tier 2 feature) against Tier 1 tenants.
+5. **Testing**: Added `legalAndEnforcement.test.ts` (9 passing tests).
+**Why:** To establish user terms compliance during signup, expose policy documents via dynamic API endpoints, and enforce customization limitations across tenant tiers.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/repository/tenantRepository.ts`, `backend/src/repository/userRepository.ts`, `backend/src/services/tenantService.ts`, `backend/src/cache/tenantCache.ts`, `backend/src/context/tenantContext.ts`, `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/middleware/tierEnforcementMiddleware.ts`, `backend/src/routes/legal.ts`, `backend/src/routes/customFields.ts`, `backend/src/app.ts`, `backend/src/tests/legalAndEnforcement.test.ts`, `STATUS.md`, `walkthrough.md`.
+
+## [Date: 2026-07-22] - BE-OPT-002: Advanced Isolation & Telemetry Propagation
+
+**What:** Implemented targeted fixes addressing connection race conditions, sorting index limits, and telemetry metadata context propagation:
+1. **Interactive Transaction Pinning**: Wrapped dynamic search_path mutations and target query executions in `prisma.$transaction()`, guaranteeing absolute connection isolation under async execution concurrency.
+2. **PostgreSQL Index Upgrades**: Upgraded `idx_ledgers_account_date` to `idx_ledgers_account_date_created ON ledgers(account_id, transaction_date, created_at)` to eliminate Sort passes. Added partial index `idx_posted_journal_entries ON journal_entries(entry_date) WHERE status = 'POSTED'`.
+3. **OpenTelemetry Context & traceparent Extraction**: Updated `requestLoggerMiddleware.ts` to parse W3C `traceparent` headers and propagate `traceId` / `spanId` downstream into JSON logs.
+**Why:** To establish 100% thread/concurrency isolation, avoid in-memory sorting overhead, and align with OpenTelemetry distributed tracing standards.
+**Files Affected:** `backend/src/database/tenantClient.ts`, `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/middleware/requestLoggerMiddleware.ts`, `backend/src/utils/logger.ts`, `backend/src/tests/performanceAndHardening.test.ts`, `STATUS.md`, `walkthrough.md`.
+
+## [Date: 2026-07-21] - BE-OPT-001: Backend Audit & Performance Hardening
+
+**What:** Conducted a comprehensive system audit and implemented backend performance optimizations, schema indexing, traffic rate-limiting, and structured JSON observability:
+1. **Database DDL Migration v3**: Added `003_performance_indexing_and_trigger_optimizations` in `tenantMigrations.ts` creating 4 composite indexes (`ledgers(account_id, transaction_date)`, `journal_entries(status, entry_date)`, `journal_entry_lines(account_id)`, `accounts(parent_id)`).
+2. **Tenant Metadata TTL Cache**: Implemented `tenantCache.ts` providing 60-second in-memory caching for tenant lookups, bypassing `public.tenants` DB roundtrips in `tenantContextMiddleware.ts`.
+3. **Sliding-Window Rate Limiter**: Implemented `rateLimiterMiddleware.ts` with global API limits (100 req/min), auth brute-force protection (10 req/min), onboarding limits (5 req/min), and test environment bypass.
+4. **Structured JSON Logging & Correlation IDs**: Implemented `logger.ts` for structured JSON logs and `requestLoggerMiddleware.ts` for `X-Request-ID` propagation and HTTP latency logging.
+5. **Testing**: Added `performanceAndHardening.test.ts` (11 passing tests) and updated `jest.config.js` with `testTimeout: 30000`.
+**Why:** To resolve latency bottlenecks, eliminate full table scans, protect APIs against high-concurrency traffic spikes, and establish microsecond-accurate telemetry layout.
+**Files Affected:** `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/cache/tenantCache.ts`, `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/middleware/rateLimiterMiddleware.ts`, `backend/src/middleware/requestLoggerMiddleware.ts`, `backend/src/utils/logger.ts`, `backend/src/app.ts`, `backend/src/tests/performanceAndHardening.test.ts`, `backend/jest.config.js`, `STATUS.md`, `walkthrough.md`.
+
+## [Date: 2026-07-21] - BE-110: Strict Tenant Context Middleware & Request-Level Schema Switching
+
+**What:** Enhanced `tenantContextMiddleware.ts` and `tenantClient.ts` to implement strict request-level schema switching and tenant context propagation. Supported tenant identification extraction across headers (`X-Tenant-ID`, `X-Tenant-Slug`, `X-Tenant-Schema`) and authenticated JWT user claims (`req.user.tenantId`). Enforced tenant registration verification in `public.tenants` table (returning clear `404 Not Found` JSON when unregistered), implemented automatic schema existence check & auto-migration provisioning (`ensureTenantSchemaMigrated` in `tenantMigrationRunner.ts`), strict `AsyncLocalStorage` context propagation, and clear `400 Bad Request` / `404 Not Found` JSON error responses. Added comprehensive integration test suite (`backend/src/tests/tenantSchemaSwitching.test.ts`) testing concurrent tenant requests, header extraction, automatic schema provisioning, and multi-tenant schema isolation connected to live PostgreSQL DB without mock data. Updated `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, and `TASKS.md`.
+**Why:** To guarantee strict database schema-level data isolation between tenants, prevent unauthorized schema access, and automatically provision database schemas and migrations upon tenant request resolution.
+**Files Affected:** `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/database/tenantMigrationRunner.ts`, `backend/src/database/tenantClient.ts`, `backend/src/tests/tenantContextMiddleware.test.ts`, `backend/src/tests/tenantSchemaSwitching.test.ts`, `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, `TASKS.md`, `STATUS.md`.
+
+## [Date: 2026-07-21] - BE-109: Financial Reporting API Endpoints (/api/v1/reports)
+
+**What:** Implemented complete Financial Reporting API endpoints (`/api/v1/reports`). Created report repository (`backend/src/repository/reportRepository.ts`), reporting service (`backend/src/services/reportingService.ts`), and express router (`backend/src/routes/reports.ts`) supporting `GET /api/v1/reports/trial-balance` (lists accounts with Debit/Credit balances verifying total debits == total credits), `GET /api/v1/reports/profit-loss` (calculates Revenue, Expenses, and Net Profit/Loss over a date range), and `GET /api/v1/reports/balance-sheet` (calculates Assets, Liabilities, Equity, Retained Earnings, verifying Assets == Liabilities + Equity). Enforced `authenticateJwt`, `tenantContextMiddleware`, and `requireRole` middleware (`Viewer` role or higher). Mounted router in `backend/src/app.ts`, wrote integration tests in `backend/src/tests/reports.test.ts` connected to live PostgreSQL DB without mock data, updated `agents/backend-team/HANDOFF.md` with complete API contracts, and marked BE-109 as completed.
+**Why:** To provide complete financial position and performance reporting (Trial Balance, P&L, Balance Sheet) across tenant schemas for accountants, auditors, and management.
+**Files Affected:** `backend/src/repository/reportRepository.ts`, `backend/src/services/reportingService.ts`, `backend/src/routes/reports.ts`, `backend/src/app.ts`, `backend/src/tests/reports.test.ts`, `agents/backend-team/HANDOFF.md`, `agents/backend-team/TASKS.md`, `TASKS.md`, `STATUS.md`.
+
 ## [Date: 2026-07-21] - BE-108: Ledger Accounts & Transaction History API Endpoints (/api/v1/ledgers)
 
 **What:** Implemented complete Ledger Accounts & Transaction History API endpoints (`/api/v1/ledgers`). Created ledger service (`backend/src/services/ledgerService.ts`), express router (`backend/src/routes/ledgers.ts`), and updated repository query methods (`backend/src/repository/ledgerRepository.ts`) supporting `GET /api/v1/ledgers` (list ledger transactions with account/date filters, search, and pagination), `GET /api/v1/ledgers/accounts/:accountId` (account ledger statement with opening balance, debit/credit running totals, net change, and closing balance), and `GET /api/v1/ledgers/summary` (general ledger summary across Chart of Accounts with date range filtering). Enforced `authenticateJwt`, `tenantContextMiddleware`, and `requireRole` middleware (`Viewer` role or higher). Mounted router in `backend/src/app.ts`, wrote integration tests in `backend/src/tests/ledgers.test.ts` connected to live PostgreSQL DB without mock data, updated `agents/backend-team/HANDOFF.md` with complete API contracts, and marked BE-108 as completed.

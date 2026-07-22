@@ -5,6 +5,7 @@ export interface TenantContextData {
   tenantSchema: string;
   tenantName?: string;
   tenantSlug?: string;
+  tenantTier?: number;
 }
 
 const asyncLocalStorage = new AsyncLocalStorage<TenantContextData>();
