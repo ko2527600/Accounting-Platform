@@ -2,6 +2,7 @@ import express, { Express } from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import healthRouter from './routes/health';
+import metricsRouter from './routes/metrics';
 import migrationsRouter from './routes/migrations';
 import authRouter from './routes/auth';
 import tenantsRouter from './routes/tenants';
@@ -10,6 +11,7 @@ import journalEntriesRouter from './routes/journalEntries';
 import ledgersRouter from './routes/ledgers';
 import reportsRouter from './routes/reports';
 import { requestLoggerMiddleware } from './middleware/requestLoggerMiddleware';
+import { metricsMiddleware } from './middleware/metricsMiddleware';
 import { apiRateLimiter, authRateLimiter, onboardingRateLimiter } from './middleware/rateLimiterMiddleware';
 import legalRouter from './routes/legal';
 import customFieldsRouter from './routes/customFields';
@@ -24,11 +26,14 @@ app.use(express.json());
 // ── Observability ──────────────────────────────────────────────────────────────
 // Inject X-Request-ID and structured HTTP request/latency logs on every request
 app.use(requestLoggerMiddleware);
+app.use(metricsMiddleware);
 
 // ── Traffic Protection ──────────────────────────────────────────────────────────
 // Global API rate limiter (100 req/min per tenant or IP)
 app.use('/api/', apiRateLimiter);
 
+// Metrics endpoint (no auth required for Prometheus scraping)
+app.use('/metrics', metricsRouter);
 
 // Health check endpoints
 app.use('/health', healthRouter);

@@ -62,6 +62,22 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Check if tenant exists (by ID or Slug) to satisfy foreign key constraints
+    let associatedTenantId: string | null = null;
+    if (tenantId) {
+      const tenant = await prisma.tenant.findFirst({
+        where: {
+          OR: [
+            { id: tenantId },
+            { slug: tenantId },
+          ],
+        },
+      });
+      if (tenant) {
+        associatedTenantId = tenant.id;
+      }
+    }
+
     // Hash password and store user
     const hashedPassword = hashPassword(password);
     const user = await createUser(prisma, {
@@ -69,7 +85,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       password: hashedPassword,
       name,
       role: assignedRole,
-      tenantId: tenantId || null,
+      tenantId: associatedTenantId,
     });
 
     // Generate JWT token

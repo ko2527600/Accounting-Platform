@@ -4,33 +4,38 @@ import { runWithTenantContext } from '../context/tenantContext';
 describe('Tenant Schema Data Isolation', () => {
   const mockPrisma: any = {
     $executeRawUnsafe: jest.fn().mockResolvedValue(1),
+    $transaction: jest.fn(),
   };
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+    // $transaction pins the connection and passes a tx client to the callback
+    mockPrisma.$transaction.mockImplementation(async (callback: any) => {
+      return await callback(mockPrisma);
+    });
   });
 
-  it('should set search_path to tenant schema during execution and reset to public', async () => {
+  it('should SET LOCAL search_path to tenant schema inside $transaction and call queryFn', async () => {
     let capturedSearchPathDuringQuery = false;
 
     await withTenantDb(mockPrisma, 'acme_corp', async (client) => {
-      expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith('SET search_path TO "tenant_acme_corp", public;');
+      const calls = mockPrisma.$executeRawUnsafe.mock.calls.map((c: any[]) => c[0]);
+      expect(calls.some((c: string) => c.includes('SET LOCAL search_path') && c.includes('"tenant_acme_corp"'))).toBe(true);
       capturedSearchPathDuringQuery = true;
       return 'query_result';
     });
 
     expect(capturedSearchPathDuringQuery).toBe(true);
-    expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith('SET search_path TO public;');
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
-  it('should reset search_path even if query function throws an error', async () => {
+  it('should propagate errors thrown by the query function (Prisma rolls back automatically)', async () => {
     await expect(
       withTenantDb(mockPrisma, 'acme_corp', async () => {
         throw new Error('Database query failure');
       })
     ).rejects.toThrow('Database query failure');
-
-    expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith('SET search_path TO public;');
   });
 
   it('should execute with tenant schema from active AsyncLocalStorage context', async () => {
@@ -41,11 +46,12 @@ describe('Tenant Schema Data Isolation', () => {
 
     await runWithTenantContext(context, async () => {
       await withCurrentTenantDb(mockPrisma, async (client) => {
-        expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith('SET search_path TO "tenant_stark_ind", public;');
+        const calls = mockPrisma.$executeRawUnsafe.mock.calls.map((c: any[]) => c[0]);
+        expect(calls.some((c: string) => c.includes('"tenant_stark_ind"'))).toBe(true);
       });
     });
 
-    expect(mockPrisma.$executeRawUnsafe).toHaveBeenCalledWith('SET search_path TO public;');
+    expect(mockPrisma.$transaction).toHaveBeenCalledTimes(1);
   });
 
   it('should throw error when withCurrentTenantDb is called without tenant context', async () => {

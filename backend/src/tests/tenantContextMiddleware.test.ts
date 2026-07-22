@@ -88,12 +88,14 @@ describe('Tenant Context Middleware', () => {
       tenantSchema: 'tenant_acme_corp',
       tenantName: 'Acme Corp',
       tenantSlug: 'acme-corp',
+      tenantTier: 1,
     });
     expect(response.body.asyncContext).toEqual({
       tenantId: tenant1Id,
       tenantSchema: 'tenant_acme_corp',
       tenantName: 'Acme Corp',
       tenantSlug: 'acme-corp',
+      tenantTier: 1,
     });
   });
 

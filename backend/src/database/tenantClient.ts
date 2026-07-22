@@ -8,6 +8,10 @@ export { ensureTenantSchemaMigrated, clearMigratedSchemasCache };
 
 /**
  * Executes a callback within PostgreSQL search_path set to the target tenant schema.
+ *
+ * Uses Prisma's interactive $transaction to pin all operations to a single DB connection,
+ * preventing connection pool races. Uses SET LOCAL so the search_path is automatically
+ * reset to the session default when the transaction commits or rolls back.
  */
 export async function withTenantDb<T>(
   prismaClient: PrismaClient,
@@ -16,16 +20,11 @@ export async function withTenantDb<T>(
 ): Promise<T> {
   const schemaName = sanitizeSchemaName(rawSchemaName);
 
-  // Execute search_path mutation and query execution inside a transaction
-  // to pin both operations to the exact same checked-out connection, eliminating race conditions.
   return await prismaClient.$transaction(async (tx) => {
     const client = tx as unknown as PrismaClient;
-    await client.$executeRawUnsafe(`SET search_path TO "${schemaName}", public;`);
-    try {
-      return await queryFn(client);
-    } finally {
-      await client.$executeRawUnsafe(`SET search_path TO public;`);
-    }
+    // SET LOCAL is transaction-scoped: search_path auto-resets on commit/rollback
+    await client.$executeRawUnsafe(`SET LOCAL search_path TO "${schemaName}", public;`);
+    return await queryFn(client);
   });
 }
 
