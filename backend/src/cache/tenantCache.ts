@@ -3,6 +3,9 @@ export interface CachedTenant {
   name: string;
   slug: string;
   schema: string;
+  acceptedTermsVersion: string | null;
+  termsAcceptedAt: Date | null;
+  tier: number;
   createdAt: Date;
   updatedAt: Date;
 }

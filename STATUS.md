@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-22] - Legal Policy Framework & Customization Enforcement (Backend)
+
+**What:** Integrated legal policies compliance and tier-based customization enforcement on the backend:
+1. **Schema & Repository Upgrades**: Updated `schema.prisma` with `acceptedTermsVersion`, `termsAcceptedAt`, and `tier`. Refactored `tenantRepository.ts` and `userRepository.ts` to use type-safe Prisma Client, resolving UUID generation and timestamp default issues.
+2. **Compliance Onboarding Verification**: Updated `onboardTenant` in `tenantService.ts` to enforce `termsAccepted === true` and `acceptedTermsVersion` checks.
+3. **Legal Document API**: Created `legal.ts` router to safely serve markdown text from `/docs` folder for `terms-and-conditions`, `sla`, and `customization-policy` under `/api/legal/:policyName`.
+4. **Tier Enforcement Middleware**: Implemented `requireCustomizationTier(requiredTier)` and demonstrated by securing `POST /api/v1/custom-fields` (Tier 2 feature) against Tier 1 tenants.
+5. **Testing**: Added `legalAndEnforcement.test.ts` (9 passing tests).
+**Why:** To establish user terms compliance during signup, expose policy documents via dynamic API endpoints, and enforce customization limitations across tenant tiers.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/repository/tenantRepository.ts`, `backend/src/repository/userRepository.ts`, `backend/src/services/tenantService.ts`, `backend/src/cache/tenantCache.ts`, `backend/src/context/tenantContext.ts`, `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/middleware/tierEnforcementMiddleware.ts`, `backend/src/routes/legal.ts`, `backend/src/routes/customFields.ts`, `backend/src/app.ts`, `backend/src/tests/legalAndEnforcement.test.ts`, `STATUS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-22] - BE-OPT-002: Advanced Isolation & Telemetry Propagation
 
 **What:** Implemented targeted fixes addressing connection race conditions, sorting index limits, and telemetry metadata context propagation:

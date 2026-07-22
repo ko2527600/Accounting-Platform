@@ -92,6 +92,7 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
         tenantSchema: tenant.schema,
         tenantName: tenant.name,
         tenantSlug: tenant.slug,
+        tenantTier: tenant.tier,
       };
 
       // Attach context to request object

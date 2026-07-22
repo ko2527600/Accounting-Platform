@@ -16,6 +16,9 @@ export interface OnboardTenantDTO {
   adminPassword?: string;
   password?: string;
   adminName?: string;
+  acceptedTermsVersion?: string;
+  termsAccepted?: boolean;
+  tier?: number;
 }
 
 export interface OnboardTenantResult {
@@ -24,6 +27,9 @@ export interface OnboardTenantResult {
     name: string;
     slug: string;
     schema: string;
+    acceptedTermsVersion: string | null;
+    termsAcceptedAt: Date | null;
+    tier: number;
     createdAt: Date;
   };
   admin: {
@@ -117,6 +123,20 @@ export async function onboardTenant(
     adminName = dto.name && dto.name !== companyName ? dto.name.trim() : `${companyName} Admin`;
   }
 
+  // Terms and Conditions Acceptance validation
+  const acceptedTermsVersion = (dto.acceptedTermsVersion || '').trim();
+  const termsAccepted = dto.termsAccepted === true || (dto as any).termsAccepted === 'true';
+
+  if (!termsAccepted) {
+    throw new TenantOnboardingError('You must accept the Terms and Conditions and SLA to onboard', 400);
+  }
+
+  if (!acceptedTermsVersion) {
+    throw new TenantOnboardingError('Accepted terms version is required', 400);
+  }
+
+  const tier = dto.tier !== undefined ? Number(dto.tier) : 1;
+
   const schemaName = sanitizeSchemaName(slug);
 
   // 2. Uniqueness checks
@@ -137,6 +157,9 @@ export async function onboardTenant(
       name: companyName,
       slug,
       schema: schemaName,
+      acceptedTermsVersion,
+      termsAcceptedAt: new Date(),
+      tier,
     });
   } catch (err: any) {
     if (err.message && err.message.includes('unique constraint')) {
@@ -189,6 +212,9 @@ export async function onboardTenant(
       name: tenantRecord.name,
       slug: tenantRecord.slug,
       schema: tenantRecord.schema,
+      acceptedTermsVersion: tenantRecord.acceptedTermsVersion,
+      termsAcceptedAt: tenantRecord.termsAcceptedAt,
+      tier: tenantRecord.tier,
       createdAt: tenantRecord.createdAt,
     },
     admin: {
