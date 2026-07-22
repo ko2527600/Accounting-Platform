@@ -95,9 +95,7 @@ export async function postJournalEntryToLedger(
 
   const createdLedgerEntries: LedgerRecord[] = [];
 
-  // Use SERIALIZABLE isolation level to prevent race conditions
-  // This ensures that concurrent postings to the same accounts don't corrupt balances
-  await prisma.$executeRawUnsafe(`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;`);
+  // Uses FOR UPDATE row locks below to prevent race conditions
 
   // Extract unique account IDs from journal entry lines
   const accountIds = [...new Set(entry.lines.map(line => line.accountId))];

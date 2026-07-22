@@ -109,6 +109,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       });
       return;
     }
+    console.error('CREATE JE 500 ERROR:', error);
     res.status(500).json({
       success: false,
       error: error.message || 'Internal Server Error while creating journal entry.',

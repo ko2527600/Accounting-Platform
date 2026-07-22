@@ -153,14 +153,16 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       $$ LANGUAGE plpgsql;
 
       DROP TRIGGER IF EXISTS trg_check_journal_entry_balance ON journal_entries;
-      CREATE TRIGGER trg_check_journal_entry_balance
+      CREATE CONSTRAINT TRIGGER trg_check_journal_entry_balance
         AFTER INSERT OR UPDATE ON journal_entries
+        DEFERRABLE INITIALLY DEFERRED
         FOR EACH ROW
         EXECUTE FUNCTION check_journal_entry_double_entry_balance();
 
       DROP TRIGGER IF EXISTS trg_check_journal_entry_line_balance ON journal_entry_lines;
-      CREATE TRIGGER trg_check_journal_entry_line_balance
+      CREATE CONSTRAINT TRIGGER trg_check_journal_entry_line_balance
         AFTER INSERT OR UPDATE OR DELETE ON journal_entry_lines
+        DEFERRABLE INITIALLY DEFERRED
         FOR EACH ROW
         EXECUTE FUNCTION check_journal_entry_double_entry_balance();
     `

@@ -70,17 +70,16 @@ export async function createJournalEntry(
   const status = data.status || 'DRAFT';
   const entryDate = data.entryDate ? data.entryDate.toISOString().split('T')[0] : new Date().toISOString().split('T')[0];
 
-  // Insert header
+  // 1. Insert Header
   const headerRows: any[] = await prisma.$queryRawUnsafe(
     `INSERT INTO journal_entries (entry_number, entry_date, description, status)
      VALUES ($1, $2::date, $3, CAST($4 AS "JournalEntryStatus"))
      RETURNING id, entry_number, entry_date, description, status, created_at, updated_at`,
-    data.entryNumber.trim(),
-    entryDate,
+    data.entryNumber,
+    data.entryDate || new Date(),
     data.description || null,
-    status
+    data.status || 'DRAFT'
   );
-
   const entryHeader = headerRows[0];
   const insertedLines: JournalEntryLineRecord[] = [];
 
@@ -98,6 +97,7 @@ export async function createJournalEntry(
     );
     insertedLines.push(mapJournalEntryLineRow(lineRows[0]));
   }
+
 
   return mapJournalEntryRow(entryHeader, insertedLines);
 }

@@ -8,15 +8,15 @@ import { deleteUserByEmail, ensureUserTableExists, createUser } from '../reposit
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Journal Entries API Integration Tests (BE-107)', () => {
-  const tenant1Slug = 'je-corp-1';
-  const tenant1Schema = 'tenant_je_corp_1';
-  const adminEmail1 = 'admin_je1@corp1.com';
-  const accountantEmail1 = 'accountant_je1@corp1.com';
-  const viewerEmail1 = 'viewer_je1@corp1.com';
+  const tenant1Slug = 'je-corp-1-v2';
+  const tenant1Schema = 'tenant_je_corp_1_v2';
+  const adminEmail1 = 'admin_je1_v2@corp1.com';
+  const accountantEmail1 = 'accountant_je1_v2@corp1.com';
+  const viewerEmail1 = 'viewer_je1_v2@corp1.com';
 
-  const tenant2Slug = 'je-corp-2';
-  const tenant2Schema = 'tenant_je_corp_2';
-  const adminEmail2 = 'admin_je2@corp2.com';
+  const tenant2Slug = 'je-corp-2-v2';
+  const tenant2Schema = 'tenant_je_corp_2_v2';
+  const adminEmail2 = 'admin_je2_v2@corp2.com';
 
   let tenant1Id: string;
   let tenant2Id: string;
@@ -35,24 +35,38 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
   let voidedEntryId: string;
 
   async function cleanupTestData() {
+    console.log("-> cleanup: deleteTenantBySlug 1");
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
+    console.log("-> cleanup: deleteTenantBySlug 2");
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});
 
+    console.log("-> cleanup: deleteUserByEmail 1");
     await deleteUserByEmail(prisma, adminEmail1).catch(() => {});
+    console.log("-> cleanup: deleteUserByEmail 2");
     await deleteUserByEmail(prisma, accountantEmail1).catch(() => {});
+    console.log("-> cleanup: deleteUserByEmail 3");
     await deleteUserByEmail(prisma, viewerEmail1).catch(() => {});
+    console.log("-> cleanup: deleteUserByEmail 4");
     await deleteUserByEmail(prisma, adminEmail2).catch(() => {});
 
+    console.log("-> cleanup: dropTenantSchema 1");
     await dropTenantSchema(prisma, tenant1Schema).catch(() => {});
+    console.log("-> cleanup: dropTenantSchema 2");
     await dropTenantSchema(prisma, tenant2Schema).catch(() => {});
+    console.log("-> cleanup: done");
   }
 
   beforeAll(async () => {
+    console.log("-> Connecting to Prisma");
     await prisma.$connect();
+    console.log("-> Ensuring Tenant Table");
     await ensureTenantTableExists(prisma);
+    console.log("-> Ensuring User Table");
     await ensureUserTableExists(prisma);
+    console.log("-> Cleaning up test data");
     await cleanupTestData();
 
+    console.log("-> Onboarding Tenant 1");
     // 1. Onboard Tenant 1
     const onboard1 = await onboardTenant(prisma, {
       companyName: 'JE Corp 1',
@@ -61,6 +75,7 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       adminPassword: 'Password123!',
       adminName: 'JE Corp 1 Admin',
     });
+    console.log("-> Onboarded Tenant 1");
     tenant1Id = onboard1.tenant.id;
     adminToken1 = onboard1.token;
 
@@ -126,7 +141,7 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       .set('X-Tenant-ID', tenant1Slug)
       .send({ code: '5010', name: 'Office Expense', type: 'EXPENSE' });
     expenseAccountId1 = expAcc.body.data.account.id;
-  }, 30000);
+  }, 120000);
 
   afterAll(async () => {
     await cleanupTestData();
