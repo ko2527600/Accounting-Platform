@@ -9,6 +9,8 @@ export interface LogContext {
   path?: string;
   statusCode?: number;
   durationMs?: number;
+  error?: string;
+  stack?: string;
   [key: string]: unknown;
 }
 
@@ -36,5 +38,15 @@ export const logger = {
   debug: (message: string, context?: LogContext) => log('debug', message, context),
   info:  (message: string, context?: LogContext) => log('info',  message, context),
   warn:  (message: string, context?: LogContext) => log('warn',  message, context),
-  error: (message: string, context?: LogContext) => log('error', message, context),
+  error: (message: string, context?: LogContext | Error) => {
+    if (context instanceof Error) {
+      log('error', message, {
+        error: context.message,
+        stack: context.stack,
+        name: context.name,
+      });
+    } else {
+      log('error', message, context);
+    }
+  },
 };

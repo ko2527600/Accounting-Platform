@@ -89,17 +89,53 @@ export async function postJournalEntryToLedger(
     throw new Error(`Journal entry ${journalEntryId} must be POSTED before posting to ledgers.`);
   }
 
+  if (!entry.lines || entry.lines.length === 0) {
+    return [];
+  }
+
   const createdLedgerEntries: LedgerRecord[] = [];
 
-  for (const line of entry.lines || []) {
-    // Fetch latest balance for account
-    const lastLedgers: any[] = await prisma.$queryRawUnsafe(
-      `SELECT balance FROM ledgers WHERE account_id = $1::uuid ORDER BY transaction_date DESC, created_at DESC LIMIT 1`,
-      line.accountId
-    );
+  // Use SERIALIZABLE isolation level to prevent race conditions
+  // This ensures that concurrent postings to the same accounts don't corrupt balances
+  await prisma.$executeRawUnsafe(`SET TRANSACTION ISOLATION LEVEL SERIALIZABLE;`);
 
-    const prevBalance = lastLedgers.length > 0 ? parseFloat(lastLedgers[0].balance) : 0.00;
+  // Extract unique account IDs from journal entry lines
+  const accountIds = [...new Set(entry.lines.map(line => line.accountId))];
+
+  // Batch fetch latest balances for all affected accounts in a single query
+  // Uses DISTINCT ON to get the most recent ledger entry per account
+  // Includes FOR UPDATE to lock rows and prevent race conditions
+  const balanceQuery = `
+    SELECT DISTINCT ON (account_id) 
+      account_id, 
+      balance
+    FROM ledgers
+    WHERE account_id = ANY($1::uuid[])
+    ORDER BY account_id, transaction_date DESC, created_at DESC
+    FOR UPDATE
+  `;
+
+  const balanceRows: any[] = await prisma.$queryRawUnsafe(balanceQuery, accountIds);
+
+  // Build a map of account_id -> current balance for O(1) lookups
+  const balanceMap = new Map<string, number>();
+  for (const row of balanceRows) {
+    balanceMap.set(row.account_id, parseFloat(row.balance));
+  }
+
+  // Track running balances for accounts that appear multiple times in the same journal entry
+  const runningBalances = new Map<string, number>();
+  for (const accountId of accountIds) {
+    runningBalances.set(accountId, balanceMap.get(accountId) || 0.00);
+  }
+
+  // Process each line and create ledger entries
+  for (const line of entry.lines) {
+    const prevBalance = runningBalances.get(line.accountId) || 0.00;
     const newBalance = prevBalance + line.debit - line.credit;
+    
+    // Update running balance for this account
+    runningBalances.set(line.accountId, newBalance);
 
     const ledger = await createLedgerEntry(prisma, {
       accountId: line.accountId,

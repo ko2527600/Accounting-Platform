@@ -29,8 +29,7 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
     const rawIdentifier = (
       req.headers['x-tenant-id'] ||
       req.headers['x-tenant-slug'] ||
-      req.headers['x-tenant-schema'] ||
-      req.user?.tenantId
+      req.headers['x-tenant-schema']
     ) as string | undefined;
 
     if (!rawIdentifier) {
@@ -52,11 +51,16 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
         // Continue lookup even if raw string isn't a direct valid schema name
       }
 
-      // Check in-memory TTL cache first
-      let tenant = getTenantFromCache(rawIdentifier) || (sanitizedSchema ? getTenantFromCache(sanitizedSchema) : null);
+      // Check Redis cache first (async)
+      let tenant = await getTenantFromCache(rawIdentifier);
+      
+      // If not found by primary identifier, try sanitized schema name
+      if (!tenant && sanitizedSchema && sanitizedSchema !== rawIdentifier) {
+        tenant = await getTenantFromCache(sanitizedSchema);
+      }
 
       if (!tenant) {
-        // 1. Verify tenant registration in public.tenants
+        // Cache miss - verify tenant registration in public.tenants
         const dbTenant = await prisma.tenant.findFirst({
           where: {
             OR: [
@@ -80,6 +84,8 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
         }
 
         tenant = dbTenant;
+        
+        // Store in Redis cache (fire and forget)
         setTenantInCache(rawIdentifier, dbTenant);
       }
 

@@ -57,7 +57,7 @@ export async function createAccount(
 ): Promise<AccountRecord> {
   const rows: any[] = await prisma.$queryRawUnsafe(
     `INSERT INTO accounts (code, name, type, parent_id, currency, is_active)
-     VALUES ($1, $2, $3, $4, $5, $6)
+     VALUES ($1, $2, $3, $4::uuid, $5, $6)
      RETURNING id, code, name, type, parent_id, currency, is_active, created_at, updated_at`,
     data.code.trim(),
     data.name.trim(),
@@ -131,7 +131,7 @@ export async function updateAccount(
 
   const rows: any[] = await prisma.$queryRawUnsafe(
     `UPDATE accounts
-     SET code = $1, name = $2, type = $3, parent_id = $4, currency = $5, is_active = $6, updated_at = CURRENT_TIMESTAMP
+     SET code = $1, name = $2, type = $3, parent_id = $4::uuid, currency = $5, is_active = $6, updated_at = CURRENT_TIMESTAMP
      WHERE id = $7::uuid
      RETURNING id, code, name, type, parent_id, currency, is_active, created_at, updated_at`,
     code,

@@ -22,10 +22,23 @@ describe('Legal Policy & Customization Enforcement API', () => {
   });
 
   async function cleanupTestData() {
-    await deleteUserByEmail(prisma, testEmail).catch(() => {});
-    await deleteTenantBySlug(prisma, testSlug).catch(() => {});
-    await deleteTenantBySlug(prisma, 'tier2-corp').catch(() => {});
-    await deleteUserByEmail(prisma, 'tier2-admin@test.com').catch(() => {});
+    // Delete users first to satisfy foreign key constraints
+    await prisma.user.deleteMany({
+      where: {
+        email: {
+          in: [testEmail.toLowerCase().trim(), 'tier2-admin@test.com'],
+        },
+      },
+    }).catch(() => {});
+
+    // Delete tenants
+    await prisma.tenant.deleteMany({
+      where: {
+        slug: {
+          in: [testSlug.toLowerCase().trim(), 'tier2-corp'],
+        },
+      },
+    }).catch(() => {});
   }
 
   describe('1. Onboarding Terms Validation', () => {

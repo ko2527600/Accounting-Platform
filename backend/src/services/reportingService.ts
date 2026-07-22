@@ -18,7 +18,13 @@ export class ReportingServiceError extends Error {
 }
 
 function validateDateFormat(dateStr: string, paramName: string) {
-  if (dateStr && !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+  if (!dateStr) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    throw new ReportingServiceError(`Invalid ${paramName} format. Expected YYYY-MM-DD.`, 400);
+  }
+  // Also validate the date is semantically valid (e.g. not 2026-13-45)
+  const parsed = new Date(dateStr);
+  if (isNaN(parsed.getTime()) || parsed.toISOString().split('T')[0] !== dateStr) {
     throw new ReportingServiceError(`Invalid ${paramName} format. Expected YYYY-MM-DD.`, 400);
   }
 }

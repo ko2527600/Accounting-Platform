@@ -73,7 +73,7 @@ export async function createJournalEntry(
   // Insert header
   const headerRows: any[] = await prisma.$queryRawUnsafe(
     `INSERT INTO journal_entries (entry_number, entry_date, description, status)
-     VALUES ($1, $2::date, $3, $4)
+     VALUES ($1, $2::date, $3, CAST($4 AS "JournalEntryStatus"))
      RETURNING id, entry_number, entry_date, description, status, created_at, updated_at`,
     data.entryNumber.trim(),
     entryDate,
@@ -168,45 +168,80 @@ export async function listJournalEntries(
 
   if (filter?.status) {
     params.push(filter.status);
-    conditions.push(`status = $${params.length}`);
+    conditions.push(`je.status = $${params.length}`);
   }
 
   if (filter?.startDate) {
     params.push(filter.startDate);
-    conditions.push(`entry_date >= $${params.length}::date`);
+    conditions.push(`je.entry_date >= $${params.length}::date`);
   }
 
   if (filter?.endDate) {
     params.push(filter.endDate);
-    conditions.push(`entry_date <= $${params.length}::date`);
+    conditions.push(`je.entry_date <= $${params.length}::date`);
   }
 
   if (filter?.search) {
     params.push(`%${filter.search}%`);
-    conditions.push(`(entry_number ILIKE $${params.length} OR description ILIKE $${params.length})`);
+    conditions.push(`(je.entry_number ILIKE $${params.length} OR je.description ILIKE $${params.length})`);
   }
 
   const whereClause = conditions.length > 0 ? `WHERE ${conditions.join(' AND ')}` : '';
 
+  // Single query with LEFT JOIN to fetch all journal entries and their lines at once
+  // This eliminates the N+1 query problem (was: 1 + N queries, now: 1 query)
   const query = `
-    SELECT id, entry_number, entry_date, description, status, created_at, updated_at
-    FROM journal_entries
+    SELECT 
+      je.id, je.entry_number, je.entry_date, je.description, je.status, 
+      je.created_at, je.updated_at,
+      jel.id as line_id, jel.journal_entry_id, jel.account_id, 
+      jel.debit, jel.credit, jel.description as line_description, 
+      jel.created_at as line_created_at
+    FROM journal_entries je
+    LEFT JOIN journal_entry_lines jel ON je.id = jel.journal_entry_id
     ${whereClause}
-    ORDER BY entry_date DESC, created_at DESC
+    ORDER BY je.entry_date DESC, je.created_at DESC, jel.created_at ASC
   `;
 
-  const headerRows: any[] = await prisma.$queryRawUnsafe(query, ...params);
+  const rows: any[] = await prisma.$queryRawUnsafe(query, ...params);
 
+  // Group rows by journal entry ID in memory (single pass, O(n))
+  const entryMap = new Map<string, { header: any; lines: any[] }>();
+
+  for (const row of rows) {
+    if (!entryMap.has(row.id)) {
+      entryMap.set(row.id, {
+        header: {
+          id: row.id,
+          entry_number: row.entry_number,
+          entry_date: row.entry_date,
+          description: row.description,
+          status: row.status,
+          created_at: row.created_at,
+          updated_at: row.updated_at,
+        },
+        lines: [],
+      });
+    }
+
+    // Only add line if it exists (LEFT JOIN may return null for entries with no lines)
+    if (row.line_id) {
+      entryMap.get(row.id)!.lines.push({
+        id: row.line_id,
+        journal_entry_id: row.journal_entry_id,
+        account_id: row.account_id,
+        debit: row.debit,
+        credit: row.credit,
+        description: row.line_description,
+        created_at: row.line_created_at,
+      });
+    }
+  }
+
+  // Convert map to array of JournalEntryRecord objects
   const results: JournalEntryRecord[] = [];
-  for (const header of headerRows) {
-    const lineRows: any[] = await prisma.$queryRawUnsafe(
-      `SELECT id, journal_entry_id, account_id, debit, credit, description, created_at
-       FROM journal_entry_lines
-       WHERE journal_entry_id = $1::uuid
-       ORDER BY created_at ASC`,
-      header.id
-    );
-    results.push(mapJournalEntryRow(header, lineRows.map(mapJournalEntryLineRow)));
+  for (const { header, lines } of entryMap.values()) {
+    results.push(mapJournalEntryRow(header, lines.map(mapJournalEntryLineRow)));
   }
 
   return results;
@@ -219,7 +254,7 @@ export async function updateJournalEntryStatus(
 ): Promise<JournalEntryRecord | null> {
   const rows: any[] = await prisma.$queryRawUnsafe(
     `UPDATE journal_entries
-     SET status = $1, updated_at = CURRENT_TIMESTAMP
+     SET status = CAST($1 AS "JournalEntryStatus"), updated_at = CURRENT_TIMESTAMP
      WHERE id = $2::uuid
      RETURNING id, entry_number, entry_date, description, status, created_at, updated_at`,
     status,
