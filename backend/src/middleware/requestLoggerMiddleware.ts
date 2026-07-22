@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
+import { randomUUID, randomBytes } from 'crypto';
 import { logger } from '../utils/logger';
 
 /**
@@ -10,25 +10,32 @@ export function requestLoggerMiddleware(req: Request, res: Response, next: NextF
   const requestId = (req.headers['x-request-id'] as string) || randomUUID();
   const startAt = process.hrtime.bigint();
 
-  // W3C traceparent header extraction (00-traceid-spanid-traceflags)
-  const traceparent = (req.headers['traceparent'] as string) || undefined;
-  let traceId: string | undefined;
-  let spanId: string | undefined;
+  // W3C traceparent header extraction or generation (00-traceid-spanid-traceflags)
+  let traceparent = (req.headers['traceparent'] as string) || undefined;
+  let traceId: string;
+  let spanId: string;
 
   if (traceparent) {
     const parts = traceparent.split('-');
     if (parts.length >= 4) {
       traceId = parts[1];
       spanId = parts[2];
+    } else {
+      traceId = randomBytes(16).toString('hex');
+      spanId = randomBytes(8).toString('hex');
+      traceparent = `00-${traceId}-${spanId}-01`;
     }
+  } else {
+    traceId = randomBytes(16).toString('hex');
+    spanId = randomBytes(8).toString('hex');
+    traceparent = `00-${traceId}-${spanId}-01`;
   }
 
-  // Propagate correlation ID downstream and in response headers
+  // Propagate correlation IDs downstream and in response headers
   req.headers['x-request-id'] = requestId;
   res.setHeader('X-Request-ID', requestId);
-  if (traceparent) {
-    res.setHeader('traceparent', traceparent);
-  }
+  req.headers['traceparent'] = traceparent;
+  res.setHeader('traceparent', traceparent);
 
   res.on('finish', () => {
     const durationNs = process.hrtime.bigint() - startAt;

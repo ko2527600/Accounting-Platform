@@ -22,6 +22,7 @@ model Tenant {
 
   users     User[]
 
+  @@index([acceptedTermsVersion, termsAcceptedAt])
   @@map("tenants")
 }
 

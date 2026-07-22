@@ -19,6 +19,9 @@ const ALLOWED_POLICIES: Record<string, { file: string; title: string }> = {
   },
 };
 
+// In-memory static policy cache
+const policyCache = new Map<string, string>();
+
 /**
  * GET /api/legal/:policyName
  * Reads and returns the content of the Markdown policy files from the docs/ folder.
@@ -40,15 +43,13 @@ router.get('/:policyName', async (req: Request, res: Response): Promise<void> =>
   const filePath = path.join(docsPath, policy.file);
 
   try {
-    if (!fs.existsSync(filePath)) {
-      res.status(404).json({
-        error: 'Policy File Missing',
-        message: 'The requested policy document could not be found on the server.',
-      });
-      return;
+    let content = policyCache.get(policy.file);
+    
+    // Serve from cache if available, otherwise read asynchronously
+    if (!content) {
+      content = await fs.promises.readFile(filePath, 'utf8');
+      policyCache.set(policy.file, content);
     }
-
-    const content = await fs.promises.readFile(filePath, 'utf8');
 
     res.status(200).json({
       success: true,
@@ -57,6 +58,13 @@ router.get('/:policyName', async (req: Request, res: Response): Promise<void> =>
       content,
     });
   } catch (error: any) {
+    if (error.code === 'ENOENT') {
+      res.status(404).json({
+        error: 'Policy File Missing',
+        message: 'The requested policy document could not be found on the server.',
+      });
+      return;
+    }
     res.status(500).json({
       error: 'Internal Server Error',
       message: `Failed to load policy document: ${error.message}`,

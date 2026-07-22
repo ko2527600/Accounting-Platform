@@ -2,6 +2,16 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-22] - Audit Recommendations Fixes (Performance & Observability)
+
+**What:** Resolved audit findings regarding database indexing, blocking file system loops, and trace context generation:
+1. **In-Memory Policy Caching**: Implemented V8 static policy memory cache in `legal.ts` and refactored filesystem reads to be non-blocking and cached, eliminating disk I/O and synchronous exists checks.
+2. **Auto-Generated W3C Traceparents**: Configured `requestLoggerMiddleware.ts` to automatically generate W3C compliant `traceparent` headers using secure random bytes for untraced requests, resolving tracing blind spots.
+3. **Database Index Upgrade**: Added a composite index on `acceptedTermsVersion` and `termsAcceptedAt` in `schema.prisma`.
+4. **Testing**: Modified `performanceAndHardening.test.ts` to mock newer cache fields and verify W3C traceparent auto-generation (all 13 performance and 9 legal tests pass).
+**Why:** To optimize server latency under traffic spikes, eliminate event-loop blocking disk reads, and establish complete request correlation tracing coverage.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/routes/legal.ts`, `backend/src/middleware/requestLoggerMiddleware.ts`, `backend/src/tests/performanceAndHardening.test.ts`, `STATUS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-22] - Legal Policy Framework & Customization Enforcement (Backend)
 
 **What:** Integrated legal policies compliance and tier-based customization enforcement on the backend:

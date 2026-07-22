@@ -20,6 +20,9 @@ describe('TenantCache', () => {
       name: 'Test Corp',
       slug: 'test-corp',
       schema: 'tenant_test_corp',
+      acceptedTermsVersion: null,
+      termsAcceptedAt: null,
+      tier: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -38,6 +41,9 @@ describe('TenantCache', () => {
       name: 'Expiry Corp',
       slug: 'expiry-corp',
       schema: 'tenant_expiry_corp',
+      acceptedTermsVersion: null,
+      termsAcceptedAt: null,
+      tier: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -59,6 +65,9 @@ describe('TenantCache', () => {
       name: 'Invalid Corp',
       slug: 'invalid-corp',
       schema: 'tenant_invalid_corp',
+      acceptedTermsVersion: null,
+      termsAcceptedAt: null,
+      tier: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -109,6 +118,14 @@ describe('Rate Limiter Middleware', () => {
       .set('traceparent', traceparent);
 
     expect(res.headers['traceparent']).toBe(traceparent);
+  });
+
+  it('generates a fresh W3C traceparent header if not supplied', async () => {
+    const res = await request(app).get('/health');
+    expect(res.headers['traceparent']).toBeDefined();
+    expect(res.headers['traceparent']).toMatch(
+      /^00-[0-9a-f]{32}-[0-9a-f]{16}-01$/
+    );
   });
 
   it('rate limiter module exports all three limiter variants', () => {
