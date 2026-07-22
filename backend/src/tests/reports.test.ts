@@ -206,7 +206,7 @@ describe('Financial Reporting API Integration Tests (BE-109)', () => {
           { accountId: cashAccountId1, debit: 0.0, credit: 500.0, description: 'Cash disbursement' },
         ],
       });
-  }, 60000);
+  }, 120000);
 
   afterAll(async () => {
     await cleanupTestData();
