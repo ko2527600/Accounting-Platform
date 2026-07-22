@@ -174,6 +174,7 @@ pm2 start dist/index.js
 # Test with k6
 k6 run --vus 1000 --duration 60s load-test.js
 
+
 # Expected results after optimizations:
 # - p95: < 200ms
 # - p99: < 500ms
