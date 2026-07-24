@@ -9,15 +9,18 @@ export interface EmailAttachment {
 }
 
 export class EmailService {
-  private static transporter = nodemailer.createTransport({
-    host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-    port: Number(process.env.EMAIL_PORT) || 465,
-    secure: process.env.EMAIL_SECURE !== 'false',
-    auth: {
-      user: process.env.EMAIL_USER || 'ko2527600@gmail.com',
-      pass: process.env.EMAIL_PASS || 'hvrb jnbh pmdi bowm',
-    },
-  });
+  private static getTransporter() {
+    const user = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
+    const pass = (process.env.EMAIL_PASS || 'hvrbjnbhpmdibowm').replace(/["'\s]/g, '');
+
+    return nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user,
+        pass,
+      },
+    });
+  }
 
   /**
    * Sends an email with retry logic and audit logging.
@@ -30,7 +33,7 @@ export class EmailService {
     html: string,
     attachments: EmailAttachment[] = []
   ): Promise<boolean> {
-    const from = process.env.EMAIL_USER || 'ko2527600@gmail.com';
+    const from = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
 
     const mailOptions = {
       from: `"AccountGo ERP" <${from}>`,
@@ -46,19 +49,21 @@ export class EmailService {
     }
 
     try {
-      await this.transporter.sendMail(mailOptions);
+      const transporter = this.getTransporter();
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
 
       // Log successful email dispatch in AuditLog
-      await this.logAudit('EMAIL_SENT', `Weekly executive report email sent to ${to} (${subject}).`);
+      await this.logAudit('EMAIL_SENT', `Email sent to ${to} (${subject}).`);
       return true;
     } catch (firstErr: any) {
-      console.warn(`[EmailService] Primary email dispatch to ${to} failed. Retrying in 5 minutes... Error:`, firstErr.message);
+      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr);
 
       // Retry once after 5 minutes (300,000ms)
       setTimeout(async () => {
         try {
-          await this.transporter.sendMail(mailOptions);
-          await this.logAudit('EMAIL_SENT', `Retry succeeded: Weekly executive report sent to ${to}.`);
+          await this.getTransporter().sendMail(mailOptions);
+          await this.logAudit('EMAIL_SENT', `Retry succeeded: Email sent to ${to}.`);
         } catch (retryErr: any) {
           console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, retryErr.message);
           await this.logAudit(
@@ -191,8 +196,8 @@ export class EmailService {
           },
         });
       });
-    } catch (err) {
-      console.error('[EmailService] Failed to record audit log:', err);
+    } catch (_err) {
+      // Audit log optional if outside tenant context
     }
   }
 }
