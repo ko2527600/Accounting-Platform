@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2 } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -7,6 +8,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { api } from "../../lib/api";
 
 export function Settings() {
+  const { user } = useAuth();
   const { settings, isLoading, updateSettings } = useTenantSettings();
   
   // Local state for forms to handle edits before saving
@@ -22,13 +24,13 @@ export function Settings() {
   });
 
   const [smsData, setSmsData] = useState({
-    ownerPhone: "+233201234567",
-    gatewayStatus: "Online (SIM 92k+ Free SMS)",
+    ownerPhone: user?.phone || "",
+    gatewayStatus: "Active & Managed (Included in Subscription)",
   });
 
   const [scheduleData, setScheduleData] = useState({
     frequency: "Weekly (Every Monday at 8:00 AM)",
-    recipients: "owner@company.com",
+    recipients: user?.email || "",
     enabled: true
   });
 
@@ -49,7 +51,11 @@ export function Settings() {
         timezone: settings.timezone,
       });
     }
-  }, [settings]);
+    if (user) {
+      setSmsData((prev) => ({ ...prev, ownerPhone: user.phone || "" }));
+      setScheduleData((prev) => ({ ...prev, recipients: user.email || "" }));
+    }
+  }, [settings, user]);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -70,6 +76,30 @@ export function Settings() {
       setSaveSuccessMsg("Regional settings updated successfully.");
     } catch (err) {
       console.error(err);
+    }
+  };
+
+  const handleUpdatePhone = async () => {
+    setSaveSuccessMsg(null);
+    try {
+      const res = await api.put("/auth/profile", { phone: smsData.ownerPhone });
+      if (res.data.success) {
+        setSaveSuccessMsg("✅ Owner alert mobile phone updated permanently in account DB.");
+      }
+    } catch (err: any) {
+      setSaveSuccessMsg(`❌ Error saving phone: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
+  const handleUpdateEmail = async () => {
+    setSaveSuccessMsg(null);
+    try {
+      const res = await api.put("/auth/profile", { email: scheduleData.recipients });
+      if (res.data.success) {
+        setSaveSuccessMsg("✅ Report email address updated permanently in account DB.");
+      }
+    } catch (err: any) {
+      setSaveSuccessMsg(`❌ Error saving email: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -259,7 +289,7 @@ export function Settings() {
             >
               Test Shortage Alert
             </Button>
-            <Button type="button" variant="primary" onClick={() => setSaveSuccessMsg("Owner alert mobile phone updated.")}>
+            <Button type="button" variant="primary" onClick={handleUpdatePhone}>
               Update Alert Mobile Number
             </Button>
           </CardFooter>
@@ -312,7 +342,7 @@ export function Settings() {
               <Send className="mr-2 h-4 w-4 text-blue-600" />
               Send Test Report Now
             </Button>
-            <Button type="button" variant="primary" onClick={() => setSaveSuccessMsg("Weekly report email updated.")}>
+            <Button type="button" variant="primary" onClick={handleUpdateEmail}>
               Update Report Email Address
             </Button>
           </CardFooter>

@@ -255,6 +255,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           id: user.id,
           email: user.email,
           name: user.name,
+          phone: user.phone,
           role: user.role,
           tenantId: user.tenantId,
           createdAt: user.createdAt,
@@ -295,6 +296,7 @@ router.get('/me', authenticateJwt, async (req: Request, res: Response): Promise<
           id: user.id,
           email: user.email,
           name: user.name,
+          phone: user.phone,
           role: user.role,
           tenantId: user.tenantId,
           createdAt: user.createdAt,
@@ -307,6 +309,48 @@ router.get('/me', authenticateJwt, async (req: Request, res: Response): Promise<
       error: 'Internal Server Error',
       message: 'Failed to fetch user profile.',
     });
+  }
+});
+
+/**
+ * PUT /api/v1/auth/profile
+ * Updates authenticated user's mobile phone and email in PostgreSQL database.
+ */
+router.put('/profile', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized: User not authenticated.' });
+      return;
+    }
+
+    const { email, phone, name } = req.body;
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        ...(email && { email: email.toLowerCase().trim() }),
+        ...(phone !== undefined && { phone: phone ? phone.trim() : null }),
+        ...(name && { name: name.trim() }),
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Account profile updated successfully in database.',
+      data: {
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          name: updatedUser.name,
+          phone: updatedUser.phone,
+          role: updatedUser.role,
+          tenantId: updatedUser.tenantId,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('[Auth Service] Update profile error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update user profile in database.' });
   }
 });
 
