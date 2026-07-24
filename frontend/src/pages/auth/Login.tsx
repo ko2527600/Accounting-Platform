@@ -15,7 +15,9 @@ export function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const from = location.state?.from?.pathname || "/";
+  const from = (location.state?.from?.pathname && location.state.from.pathname !== "/")
+    ? location.state.from.pathname
+    : "/dashboard";
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

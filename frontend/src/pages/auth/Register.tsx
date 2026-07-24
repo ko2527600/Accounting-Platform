@@ -96,7 +96,7 @@ export function Register() {
         };
 
         login(token, userObj);
-        navigate("/");
+        navigate(`/verify-account?email=${encodeURIComponent(formData.email)}`);
       }
     } catch (err: any) {
       setError(err.response?.data?.error || "Failed to onboard business workspace.");
