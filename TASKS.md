@@ -19,12 +19,15 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [ ] Set up CI/CD pipeline for automated deployments (w:7)
 - [ ] Conduct initial security audit and penetration testing (w:5)
 
-## Phase 2: Feature Expansion (TallyPrime Inspired)
+## Phase 3: Enterprise Automation & Messaging
 
 - [x] Implement Verified Registration Flow with Email Verification & 4-Digit SMS Code (w:10)
 - [x] Integrate Private Android SMS Gateway for instant till shortage warnings (w:10)
 - [x] Configure Nodemailer & Gmail SMTP for automated Monday 8:00 AM executive PDF reports (w:10)
 - [x] Create frontend Verification Screen (/verify-account) & Welcome Sequence with Quick Start Guide PDF (w:8)
+- [x] Build Public Platform Landing Page (/) with Onboarding Requirements, Terms & Conditions, and SLA 99.9% Uptime Guarantee (w:12)
+- [x] Create Password-Encrypted Secret Footer Link & Admin System-Wide Upgrade Broadcast Console (w:15)
+
 - [ ] Implement Inventory Management module (w:15)
 - [ ] Develop Invoicing & Billing module (w:12)
 - [ ] Integrate Bank Reconciliation functionality (w:10)

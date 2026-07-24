@@ -2,6 +2,16 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-24] - Public Landing Page, Onboarding Requirements & Encrypted Footer Admin Broadcast Engine
+
+**What:** Designed and deployed a stunning public landing page with password-encrypted administrative broadcast capabilities:
+1. **Public Platform Landing Page (`/`)**: Built a modern landing page showcasing $0 SMS shortage alerts, automated Monday executive email reports, multi-warehouse logistics, step-by-step onboarding guide, and onboarding requirements checklist.
+2. **Legal & Compliance Trust Center**: Integrated interactive accordions for **Terms & Conditions**, **SLA 99.9% Uptime Guarantee**, and **Customization Tier Policies**.
+3. **Discrete Password-Encrypted Footer Link**: Added `"AccountGo Accounting Engine v2.4 (Encrypted)"` link in the footer. Clicking opens a master passcode modal (`BROADCAST_MASTER_SECRET`).
+4. **System-Wide Admin Broadcast Engine**: Unlocks a batch-processing broadcast composer with pre-built templates (🚀 **System Upgrade**, 🛠 **Scheduled Maintenance**, 🎁 **Feature Release**) that sends batch SMS via Android Gateway and Email via Gmail SMTP to all tenant business owners with a 500ms safety delay between chunks.
+**Why:** To attract new business owners, clarify onboarding requirements and legal SLA commitments, and provide platform administrators with a secure broadcast gate to notify all businesses of system upgrades.
+**Files Affected:** `backend/src/services/broadcastService.ts`, `backend/src/routes/adminBroadcast.ts`, `backend/src/app.ts`, `frontend/src/pages/landing/LandingPage.tsx`, `frontend/src/components/admin/AdminBroadcastModal.tsx`, `frontend/src/App.tsx`, `STATUS.md`, `TASKS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-24] - Verified Registration Flow (Email & SMS) & Private Android Gateway
 
 **What:** Implemented double verification on user onboarding and private messaging integration:
