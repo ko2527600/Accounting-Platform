@@ -221,6 +221,19 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
+      // Trigger Private Android SMS Gateway Alert on Cash Shortage
+      if (discrepancy < 0) {
+        const { SmsService } = require('../services/smsService');
+        SmsService.sendShortageAlert({
+          shopName: till.warehouse?.name || 'Shop Location',
+          staffName: userName,
+          shortageAmount: `GH₵ ${Math.abs(discrepancy).toFixed(2)}`,
+          recipientPhone: process.env.OWNER_PHONE_NUMBER || '+233200000000',
+        }).catch((smsErr: any) => {
+          console.error('[CashTill] Error dispatching SMS shortage alert:', smsErr);
+        });
+      }
+
       return report;
     });
 

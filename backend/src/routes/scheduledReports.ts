@@ -109,4 +109,33 @@ router.get('/export/pdf', async (req: Request, res: Response): Promise<void> => 
   }
 });
 
+/**
+ * POST /api/v1/reports/schedule/test-email
+ * Triggers an instant test executive email report via Nodemailer/Gmail SMTP.
+ */
+router.post('/schedule/test-email', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { recipientEmail } = req.body;
+    const { EmailService } = require('../services/EmailService');
+
+    const email = recipientEmail || (req as any).user?.email || 'owner@example.com';
+    const tenantName = (req as any).tenantName || 'AccountGo Workspace';
+
+    const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName, {
+      weeklySales: 3450.00,
+      topShopName: 'Osu Downtown Shop',
+      totalItemsSold: 28,
+    });
+
+    if (success) {
+      res.status(200).json({ success: true, message: `Test executive email dispatched to ${email}.` });
+    } else {
+      res.status(500).json({ success: false, error: 'Failed to send test email report.' });
+    }
+  } catch (error: any) {
+    console.error('[ScheduledReports] Error dispatching test email:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to dispatch test email.' });
+  }
+});
+
 export default router;

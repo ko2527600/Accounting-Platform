@@ -1,0 +1,103 @@
+import axios from 'axios';
+import { prisma } from '../config/db';
+import { withCurrentTenantDb } from '../database/tenantClient';
+
+interface ShortageAlertDTO {
+  shopName: string;
+  staffName: string;
+  shortageAmount: string;
+  recipientPhone: string;
+}
+
+export class SmsService {
+  private static get gatewayUrl() {
+    return process.env.SMS_GATEWAY_URL || 'https://api.sms-gate.app/v1/';
+  }
+
+  private static get username() {
+    return process.env.SMS_GATEWAY_USER || 'U8LXKB';
+  }
+
+  private static get password() {
+    return process.env.SMS_GATEWAY_PASS || 'db8lp7qnvc3qkv';
+  }
+
+  private static get deviceId() {
+    return process.env.SMS_GATEWAY_DEVICE_ID || 'ke6CPUcczoxCIGS7fA6la';
+  }
+
+  /**
+   * Sends an SMS via sms-gate.app API using Basic Auth.
+   * Retries up to 3 times if offline before logging "Gateway Offline" to audit_logs.
+   */
+  public static async send(recipientPhone: string, message: string): Promise<boolean> {
+    // Construct payload per sms-gate.app specification
+    const payload = {
+      device_id: this.deviceId,
+      phone_number: recipientPhone,
+      message,
+    };
+
+    const maxRetries = 3;
+    let attempt = 0;
+
+    while (attempt < maxRetries) {
+      attempt++;
+      try {
+        if (process.env.NODE_ENV === 'test' && !process.env.SMS_GATEWAY_TEST_LIVE) {
+          // Mock mode in tests unless explicitly testing live gateway
+          return true;
+        }
+
+        const endpoint = this.gatewayUrl.endsWith('/') ? `${this.gatewayUrl}message` : `${this.gatewayUrl}/message`;
+
+        const response = await axios.post(endpoint, payload, {
+          timeout: 10000,
+          auth: {
+            username: this.username,
+            password: this.password,
+          },
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
+
+        if (response.status >= 200 && response.status < 300) {
+          console.log(`[SmsService] SMS dispatched successfully to ${recipientPhone} via sms-gate.app`);
+          return true;
+        }
+      } catch (err: any) {
+        console.warn(`[SmsService] Gateway send attempt ${attempt}/${maxRetries} failed:`, err.response?.data || err.message);
+        if (attempt < maxRetries) {
+          await new Promise((resolve) => setTimeout(resolve, attempt * 1000));
+        }
+      }
+    }
+
+    // 3 Retries Failed -> Log "Gateway Offline" in AuditLog
+    console.error(`[SmsService] Android Gateway Offline after ${maxRetries} failed attempts.`);
+    try {
+      await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).auditLog.create({
+          data: {
+            action: 'GATEWAY_OFFLINE',
+            entity: 'SMS_GATEWAY',
+            details: `Failed to dispatch SMS to ${recipientPhone} via Android Gateway after ${maxRetries} retries. Message: "${message}"`,
+          },
+        });
+      });
+    } catch (auditErr) {
+      console.error('[SmsService] Failed to write Gateway Offline audit log:', auditErr);
+    }
+
+    return false;
+  }
+
+  /**
+   * Helper to format and dispatch instant Cash Shortage alerts to business owners.
+   */
+  public static async sendShortageAlert(dto: ShortageAlertDTO): Promise<boolean> {
+    const message = `AccountGo Alert: ${dto.shopName} till closed by ${dto.staffName}. Shortage: ${dto.shortageAmount}. Please check the system.`;
+    return this.send(dto.recipientPhone, message);
+  }
+}
