@@ -2,7 +2,7 @@
 
 Track frontend development tasks. Mark `[x]` ONLY after testing and verification against real backend services.
 
-- [ ] `FE-101`: Initialize frontend scaffold (React + TypeScript + TailwindCSS, Vite/Next.js)
+- [x] `FE-101`: Initialize frontend scaffold (React + TypeScript + TailwindCSS, Vite/Next.js)
 - [ ] `FE-102`: Build Design System, Theme Provider, and base UI layout (Navigation, Header, Sidebar)
 - [ ] `FE-103`: Build Authentication UI (Login, Register, Tenant Switcher)
 - [ ] `FE-104`: Build Tenant Onboarding Form UI

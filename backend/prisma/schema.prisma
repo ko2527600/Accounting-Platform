@@ -20,10 +20,30 @@ model Tenant {
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
-  users     User[]
+  users       User[]
+  invitations Invitation[]
 
   @@index([acceptedTermsVersion, termsAcceptedAt])
   @@map("tenants")
+}
+
+model Invitation {
+  id        String   @id @default(uuid())
+  email     String
+  tenantId  String   @map("tenant_id")
+  role      String   @default("Viewer")
+  token     String   @unique
+  status    String   @default("PENDING")
+  expiresAt DateTime @map("expires_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([token])
+  @@index([email])
+  @@map("invitations")
 }
 
 model User {
@@ -137,5 +157,277 @@ model Ledger {
   @@index([transactionDate])
   @@index([accountId])
   @@map("ledgers")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String
+  entity    String
+  entityId  String?  @map("entity_id")
+  details   String?
+  userId    String?  @map("user_id")
+  userEmail String?  @map("user_email")
+  ipAddress String?  @map("ip_address")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@index([entity])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+model BankAccount {
+  id             String            @id @default(uuid())
+  accountName    String            @map("account_name")
+  accountNumber  String            @map("account_number")
+  bankName       String            @map("bank_name")
+  currency       String            @default("USD")
+  currentBalance Decimal           @default(0.00) @db.Decimal(15, 2) @map("current_balance")
+  isActive       Boolean           @default(true) @map("is_active")
+  createdAt      DateTime          @default(now()) @map("created_at")
+
+  transactions   BankTransaction[]
+
+  @@map("bank_accounts")
+}
+
+model BankTransaction {
+  id            String      @id @default(uuid())
+  bankAccountId String      @map("bank_account_id")
+  amount        Decimal     @db.Decimal(15, 2)
+  payee         String
+  description   String?
+  postedDate    DateTime    @default(now()) @map("posted_date")
+  status        String      @default("UNRECONCILED")
+  ledgerId      String?     @map("ledger_id")
+
+  bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+
+  @@index([bankAccountId])
+  @@index([status])
+  @@map("bank_transactions")
+}
+
+model Customer {
+  id        String    @id @default(uuid())
+  name      String
+  email     String
+  phone     String?
+  address   String?
+  createdAt DateTime  @default(now()) @map("created_at")
+
+  invoices  Invoice[]
+
+  @@map("customers")
+}
+
+model Invoice {
+  id            String        @id @default(uuid())
+  invoiceNumber String        @unique @map("invoice_number")
+  customerId    String        @map("customer_id")
+  issueDate     DateTime      @default(now()) @map("issue_date")
+  dueDate       DateTime      @map("due_date")
+  currency      String        @default("USD")
+  exchangeRate  Decimal       @default(1.0000) @db.Decimal(10, 4) @map("exchange_rate")
+  subtotal      Decimal       @db.Decimal(15, 2)
+  tax           Decimal       @default(0.00) @db.Decimal(15, 2)
+  total         Decimal       @db.Decimal(15, 2)
+  status        String        @default("DRAFT")
+  journalId     String?       @map("journal_id")
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  items         InvoiceItem[]
+
+  @@index([customerId])
+  @@index([status])
+  @@map("invoices")
+}
+
+model InvoiceItem {
+  id          String   @id @default(uuid())
+  invoiceId   String   @map("invoice_id")
+  description String
+  quantity    Decimal  @db.Decimal(10, 2)
+  unitPrice   Decimal  @db.Decimal(15, 2) @map("unit_price")
+  amount      Decimal  @db.Decimal(15, 2)
+
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@map("invoice_items")
+}
+
+model Vendor {
+  id        String       @id @default(uuid())
+  name      String
+  email     String
+  phone     String?
+  address   String?
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  bills     VendorBill[]
+
+  @@map("vendors")
+}
+
+model VendorBill {
+  id         String   @id @default(uuid())
+  billNumber String   @unique @map("bill_number")
+  vendorId   String   @map("vendor_id")
+  billDate   DateTime @default(now()) @map("bill_date")
+  dueDate    DateTime @map("due_date")
+  amount     Decimal  @db.Decimal(15, 2)
+  currency   String   @default("USD")
+  status     String   @default("UNPAID")
+  journalId  String?  @map("journal_id")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+
+  @@index([vendorId])
+  @@index([status])
+  @@map("vendor_bills")
+}
+
+model Warehouse {
+  id          String           @id @default(uuid())
+  name        String
+  code        String           @unique
+  location    String?
+  managerName String?          @map("manager_name")
+  isPrimary   Boolean          @default(false) @map("is_primary")
+  createdAt   DateTime         @default(now()) @map("created_at")
+
+  stocks        WarehouseStock[]
+  fromTransfers StockTransfer[] @relation("FromWarehouse")
+  toTransfers   StockTransfer[] @relation("ToWarehouse")
+  tills         CashTill[]
+  closeouts     DailyCloseoutReport[]
+
+  @@map("warehouses")
+}
+
+model InventoryItem {
+  id            String           @id @default(uuid())
+  sku           String           @unique
+  name          String
+  category      String           @default("General")
+  unitOfMeasure String           @default("pcs") @map("unit_of_measure")
+  costPrice     Decimal          @db.Decimal(15, 2) @map("cost_price")
+  sellingPrice  Decimal          @db.Decimal(15, 2) @map("selling_price")
+  reorderLevel  Int              @default(10) @map("reorder_level")
+  createdAt     DateTime         @default(now()) @map("created_at")
+
+  warehouseStocks WarehouseStock[]
+
+  @@map("inventory_items")
+}
+
+model WarehouseStock {
+  id             String        @id @default(uuid())
+  warehouseId    String        @map("warehouse_id")
+  itemId         String        @map("item_id")
+  quantityOnHand Int           @default(0) @map("quantity_on_hand")
+
+  warehouse      Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@unique([warehouseId, itemId])
+  @@map("warehouse_stocks")
+}
+
+model StockTransfer {
+  id              String              @id @default(uuid())
+  transferNumber  String              @unique @map("transfer_number")
+  fromWarehouseId String              @map("from_warehouse_id")
+  toWarehouseId   String              @map("to_warehouse_id")
+  transferDate    DateTime            @default(now()) @map("transfer_date")
+  notes           String?
+  status          String              @default("COMPLETED")
+  createdAt       DateTime            @default(now()) @map("created_at")
+
+  fromWarehouse   Warehouse           @relation("FromWarehouse", fields: [fromWarehouseId], references: [id])
+  toWarehouse     Warehouse           @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
+  items           StockTransferItem[]
+
+  @@map("stock_transfers")
+}
+
+model StockTransferItem {
+  id          String        @id @default(uuid())
+  transferId  String        @map("transfer_id")
+  itemId      String        @map("item_id")
+  quantity    Int
+
+  transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+
+  @@map("stock_transfer_items")
+}
+
+model CashTill {
+  id              String               @id @default(uuid())
+  warehouseId     String               @map("warehouse_id")
+  openedBy        String               @map("opened_by")
+  openingCash     Decimal              @db.Decimal(15, 2) @map("opening_cash")
+  cashSalesTotal  Decimal              @default(0) @db.Decimal(15, 2) @map("cash_sales_total")
+  actualEndingCash Decimal?            @db.Decimal(15, 2) @map("actual_ending_cash")
+  status          String               @default("OPEN")
+  openedAt        DateTime             @default(now()) @map("opened_at")
+  closedAt        DateTime?            @map("closed_at")
+
+  warehouse       Warehouse            @relation(fields: [warehouseId], references: [id])
+  sales           CashSale[]
+  closeoutReport  DailyCloseoutReport?
+
+  @@map("cash_tills")
+}
+
+model CashSale {
+  id          String   @id @default(uuid())
+  tillId      String   @map("till_id")
+  receiptNo   String   @unique @map("receipt_no")
+  amount      Decimal  @db.Decimal(15, 2)
+  cashGiven   Decimal  @db.Decimal(15, 2) @map("cash_given")
+  changeGiven Decimal  @db.Decimal(15, 2) @map("change_given")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  till        CashTill @relation(fields: [tillId], references: [id], onDelete: Cascade)
+
+  @@map("cash_sales")
+}
+
+model DailyCloseoutReport {
+  id           String    @id @default(uuid())
+  tillId       String    @unique @map("till_id")
+  warehouseId  String    @map("warehouse_id")
+  closedBy     String    @map("closed_by")
+  openingCash  Decimal   @db.Decimal(15, 2) @map("opening_cash")
+  cashSales    Decimal   @db.Decimal(15, 2) @map("cash_sales")
+  expectedCash Decimal   @db.Decimal(15, 2) @map("expected_cash")
+  actualCash   Decimal   @db.Decimal(15, 2) @map("actual_cash")
+  discrepancy  Decimal   @db.Decimal(15, 2)
+  itemsSold    Int       @default(0) @map("items_sold")
+  notes        String?
+  closedAt     DateTime  @default(now()) @map("closed_at")
+
+  till         CashTill  @relation(fields: [tillId], references: [id])
+  warehouse    Warehouse @relation(fields: [warehouseId], references: [id])
+
+  @@map("daily_closeout_reports")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String?  @map("user_id")
+  title     String
+  message   String
+  type      String   @default("SYSTEM")
+  read      Boolean  @default(false)
+  link      String?
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([userId])
+  @@index([read])
+  @@map("notifications")
 }
 

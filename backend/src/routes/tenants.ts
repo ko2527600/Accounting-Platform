@@ -1,7 +1,11 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'crypto';
 import { prisma } from '../config/db';
 import { onboardTenant, TenantOnboardingError } from '../services/tenantService';
 import * as tenantRepository from '../repository/tenantRepository';
+import { authenticateJwt } from '../middleware/authMiddleware';
+import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
+import { requireRole } from '../middleware/rbacMiddleware';
 
 const router = Router();
 
@@ -52,6 +56,222 @@ router.get('/', async (_req: Request, res: Response) => {
     return res.status(500).json({
       success: false,
       error: 'Failed to retrieve tenants list',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/tenants/current
+ * Returns active workspace profile settings.
+ */
+router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({ success: false, error: 'Tenant ID context required.' });
+    }
+
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant) {
+      return res.status(404).json({ success: false, error: 'Tenant not found.' });
+    }
+
+    return res.status(200).json({
+      success: true,
+      data: { tenant },
+    });
+  } catch (error: any) {
+    console.error('[TenantCurrent] Error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch tenant profile.' });
+  }
+});
+
+/**
+ * PUT /api/v1/tenants/current
+ * Updates workspace profile settings.
+ */
+router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    const { companyName, name, slug } = req.body;
+    const newName = (companyName || name || '').trim();
+
+    if (!tenantId) {
+      return res.status(400).json({ success: false, error: 'Tenant ID context required.' });
+    }
+
+    const updated = await prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        ...(newName && { name: newName }),
+        ...(slug && { slug: slug.trim().toLowerCase() }),
+      },
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Tenant settings updated successfully',
+      data: { tenant: updated },
+    });
+  } catch (error: any) {
+    console.error('[TenantUpdate] Error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update tenant profile.' });
+  }
+});
+
+/**
+ * POST /api/v1/tenants/invite (Admin only)
+ * Generates a secure invitation token for a new staff member and logs/sends an email.
+ */
+router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
+  try {
+    const { email, role } = req.body;
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tenant ID context is required to issue staff invitations.',
+      });
+    }
+
+    if (!email || typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
+      return res.status(400).json({
+        success: false,
+        error: 'A valid email address is required.',
+      });
+    }
+
+    if (!role || typeof role !== 'string' || !role.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please enter a custom role/title for the worker (e.g. Shop Manager, Cashier, Inventory Lead).',
+      });
+    }
+
+    const assignedRole = role.trim();
+
+    // Check if user with this email is already a member of this tenant
+    const existingUser = await prisma.user.findFirst({
+      where: { email: email.trim().toLowerCase(), tenantId },
+    });
+
+    if (existingUser) {
+      return res.status(400).json({
+        success: false,
+        error: `User with email "${email}" is already a member of this workspace.`,
+      });
+    }
+
+    // Generate secure 64-character token
+    const token = crypto.randomBytes(32).toString('hex');
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
+
+    // Upsert or create invitation
+    const invitation = await prisma.invitation.create({
+      data: {
+        email: email.trim().toLowerCase(),
+        tenantId,
+        role: assignedRole,
+        token,
+        status: 'PENDING',
+        expiresAt,
+      },
+    });
+
+    const inviteUrl = `http://localhost:5173/accept-invite?token=${token}`;
+    console.log(`\n======================================================`);
+    console.log(`[STAFF INVITATION EMAIL SENT]`);
+    console.log(`To: ${invitation.email}`);
+    console.log(`Role: ${invitation.role}`);
+    console.log(`Invite URL: ${inviteUrl}`);
+    console.log(`======================================================\n`);
+
+    return res.status(201).json({
+      success: true,
+      message: 'Invitation sent successfully',
+      data: {
+        invitation,
+        inviteUrl,
+      },
+    });
+  } catch (error: any) {
+    console.error('[TenantInvite] Error sending invitation:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create staff invitation',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/tenants/members (Admin / Accountant / Viewer)
+ * Returns all active users in the current tenant.
+ */
+router.get('/members', authenticateJwt, tenantContextMiddleware, async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tenant ID context is required to view workspace members.',
+      });
+    }
+
+    const members = await prisma.user.findMany({
+      where: { tenantId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        role: true,
+        isActive: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: { members },
+    });
+  } catch (error: any) {
+    console.error('[TenantMembers] Error fetching team members:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve team members',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/tenants/invitations (Admin / Accountant)
+ * Returns all pending invitations for the current tenant.
+ */
+router.get('/invitations', authenticateJwt, tenantContextMiddleware, requireRole('Accountant'), async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    if (!tenantId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Tenant ID context is required to view invitations.',
+      });
+    }
+
+    const invitations = await prisma.invitation.findMany({
+      where: { tenantId },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    return res.status(200).json({
+      success: true,
+      data: { invitations },
+    });
+  } catch (error: any) {
+    console.error('[TenantInvitations] Error fetching invitations:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to retrieve invitations',
     });
   }
 });

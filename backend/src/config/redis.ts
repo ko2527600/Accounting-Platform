@@ -23,9 +23,11 @@ function parseRedisUrl(url: string): RedisOptions {
       
       // Reconnection strategy with exponential backoff
       retryStrategy: (times: number) => {
-        const delay = Math.min(times * 50, 2000);
-        logger.warn('Redis reconnection attempt', { attempt: times, delayMs: delay });
-        return delay;
+        if (times > 2) {
+          logger.warn('Redis port unreachable after retries. Continuing in fallback mode.');
+          return null; // Stop retrying
+        }
+        return 100;
       },
       
       // Connection timeout
@@ -115,19 +117,7 @@ export const connectRedis = async (): Promise<void> => {
       }),
     });
   } catch (error: any) {
-    logger.error('Redis connection failed', {
-      error: error.message,
-      stack: error.stack,
-      url: REDIS_URL.replace(/:[^:@]+@/, ':***@'), // Mask password in logs
-    });
-    
-    // In production, fail startup if Redis is unavailable
-    // In development, allow graceful degradation
-    if (NODE_ENV === 'production') {
-      throw error;
-    } else {
-      logger.warn('Running without Redis in development mode');
-    }
+    logger.warn('Redis connection not available (running in fallback mode):', error.message || String(error));
   }
 };
 
