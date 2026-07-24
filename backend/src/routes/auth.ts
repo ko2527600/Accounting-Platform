@@ -278,6 +278,164 @@ router.post('/verify', (req: Request, res: Response): void => {
 });
 
 /**
+ * GET /api/v1/auth/invitation/:token
+ * Validates invitation token and returns basic details for accept UI.
+ */
+router.get('/invitation/:token', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token } = req.params;
+    const invitation = await prisma.invitation.findUnique({
+      where: { token },
+      include: { tenant: true },
+    });
+
+    if (!invitation) {
+      res.status(404).json({
+        success: false,
+        error: 'Invalid invitation token.',
+      });
+      return;
+    }
+
+    if (invitation.status !== 'PENDING') {
+      res.status(400).json({
+        success: false,
+        error: `This invitation has already been ${invitation.status.toLowerCase()}.`,
+      });
+      return;
+    }
+
+    if (invitation.expiresAt < new Date()) {
+      res.status(400).json({
+        success: false,
+        error: 'This invitation has expired. Please ask your administrator for a new invite.',
+      });
+      return;
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        invitation: {
+          email: invitation.email,
+          role: invitation.role,
+          tenantName: invitation.tenant?.name || 'Workspace',
+          tenantId: invitation.tenantId,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('[Auth Service] Error verifying invitation token:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to verify invitation token.',
+    });
+  }
+});
+
+/**
+ * POST /api/v1/auth/accept-invitation
+ * Accepts invitation token, sets user password and name, links to tenantId.
+ */
+router.post('/accept-invitation', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { token, name, password } = req.body;
+
+    if (!token || !password || !name) {
+      res.status(400).json({
+        success: false,
+        error: 'Token, name, and password are required.',
+      });
+      return;
+    }
+
+    if (password.length < 6) {
+      res.status(400).json({
+        success: false,
+        error: 'Password must be at least 6 characters long.',
+      });
+      return;
+    }
+
+    const invitation = await prisma.invitation.findUnique({
+      where: { token },
+    });
+
+    if (!invitation || invitation.status !== 'PENDING' || invitation.expiresAt < new Date()) {
+      res.status(400).json({
+        success: false,
+        error: 'Invalid or expired invitation token.',
+      });
+      return;
+    }
+
+    const hashedPassword = hashPassword(password);
+
+    // Upsert or create user linked to tenant
+    const existingUser = await findUserByEmail(prisma, invitation.email);
+    let user;
+
+    if (existingUser) {
+      user = await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          name: name.trim(),
+          password: hashedPassword,
+          tenantId: invitation.tenantId,
+          role: invitation.role,
+          isActive: true,
+        },
+      });
+    } else {
+      user = await createUser(prisma, {
+        email: invitation.email,
+        password: hashedPassword,
+        name: name.trim(),
+        role: invitation.role,
+        tenantId: invitation.tenantId,
+      });
+    }
+
+    // Mark invitation as accepted
+    await prisma.invitation.update({
+      where: { id: invitation.id },
+      data: { status: 'ACCEPTED' },
+    });
+
+    // Generate JWT token
+    const tokenPayload = {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      tenantId: user.tenantId || undefined,
+    };
+    const jwtToken = generateJwtToken(tokenPayload);
+
+    res.status(200).json({
+      success: true,
+      message: 'Invitation accepted successfully.',
+      data: {
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+          tenantId: user.tenantId,
+        },
+        token: jwtToken,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Auth Service] Error accepting invitation:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to accept invitation.',
+    });
+  }
+});
+
+/**
  * RBAC Protected Test Routes
  */
 router.get('/admin-only', authenticateJwt, requireRole('Admin'), (req: Request, res: Response) => {

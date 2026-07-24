@@ -2,6 +2,14 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-23] - Advanced Features & Staff Onboarding Roadmap Added
+
+**What:** Integrated the technical strategy and roadmap for Phase 2 "Edge" Features and Staff Onboarding:
+1. **Staff Onboarding & Team Management**: Completed database `Invitation` table, `/tenants/invite` and `/auth/accept-invitation` endpoints, and frontend Team Management UI (`/team` & `/accept-invite`).
+2. **Advanced Features Roadmap Documented**: Added `docs/ADVANCED_FEATURES_ROADMAP.md` covering Audit Trail Logs, Bulk Data Import, AI Ledger Categorization, Scheduled Reporting, and Connected Banking.
+**Why:** To establish a clear technical design and execution order for enterprise-grade features.
+**Files Affected:** `docs/ADVANCED_FEATURES_ROADMAP.md`, `STATUS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-22] - Audit Recommendations Fixes (Performance & Observability)
 
 **What:** Resolved audit findings regarding database indexing, blocking file system loops, and trace context generation:

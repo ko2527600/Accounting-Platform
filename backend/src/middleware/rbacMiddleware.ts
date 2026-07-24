@@ -28,22 +28,40 @@ declare global {
 }
 
 /**
- * Checks if a user's role satisfies at least one of the required roles or higher privilege in hierarchy.
+ * Checks if a user's role satisfies at least one of the required roles or hierarchy.
+ * Fully supports custom user-typed worker job titles (e.g. Shop Manager, Store Clerk, Cashier).
  */
 export function hasRequiredRole(userRole: string, allowedRoles: string[]): boolean {
   if (!userRole || !allowedRoles || allowedRoles.length === 0) {
     return false;
   }
 
-  const normalizedUserRole = (userRole.charAt(0).toUpperCase() + userRole.slice(1).toLowerCase()) as UserRole;
-  const userRank = ROLE_HIERARCHY[normalizedUserRole] || 0;
+  const uRoleLower = userRole.toLowerCase().trim();
+  const allowedLower = allowedRoles.map(r => r.toLowerCase());
 
-  return allowedRoles.some((allowedRole) => {
-    const normalizedAllowed = (allowedRole.charAt(0).toUpperCase() + allowedRole.slice(1).toLowerCase()) as UserRole;
-    const allowedRank = ROLE_HIERARCHY[normalizedAllowed] || 0;
-    // Exact role match OR user possesses higher hierarchy rank than required
-    return userRole.toLowerCase() === allowedRole.toLowerCase() || userRank >= allowedRank;
-  });
+  // 1. If Admin role is explicitly required (Admin-only actions like inviting staff, settings, workspace purge)
+  if (allowedLower.includes('admin')) {
+    return uRoleLower === 'admin' || uRoleLower === 'owner';
+  }
+
+  // 2. Exact match check
+  if (allowedLower.includes(uRoleLower)) {
+    return true;
+  }
+
+  // 3. Admin / Owner has full access to all operational routes
+  if (uRoleLower === 'admin' || uRoleLower === 'owner') {
+    return true;
+  }
+
+  // 4. Viewer / Auditor read-only restrictions
+  if (uRoleLower === 'viewer' || uRoleLower === 'auditor') {
+    return allowedLower.includes(uRoleLower);
+  }
+
+  // 5. Custom worker job titles assigned by business owner (e.g. Shop Manager, Store Clerk, Cashier, Inventory Lead)
+  // Have full operational access to business endpoints (Inventory, Invoices, Bills, Banking, Journals)
+  return true;
 }
 
 /**
