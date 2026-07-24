@@ -8,6 +8,7 @@ import { CommandMenu } from "./components/ui/CommandMenu";
 import { Login } from "./pages/auth/Login";
 import { Register } from "./pages/auth/Register";
 import { AcceptInvitation } from "./pages/auth/AcceptInvitation";
+import { Verification } from "./pages/auth/Verification";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
 import { Settings } from "./pages/settings/Settings";
 import { TeamManagement } from "./pages/team/TeamManagement";
@@ -121,6 +122,7 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/accept-invite" element={<AcceptInvitation />} />
+            <Route path="/verify-account" element={<Verification />} />
             
             {/* Protected Routes */}
             <Route path="/" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />

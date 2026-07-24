@@ -21,6 +21,10 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 
 ## Phase 2: Feature Expansion (TallyPrime Inspired)
 
+- [x] Implement Verified Registration Flow with Email Verification & 4-Digit SMS Code (w:10)
+- [x] Integrate Private Android SMS Gateway for instant till shortage warnings (w:10)
+- [x] Configure Nodemailer & Gmail SMTP for automated Monday 8:00 AM executive PDF reports (w:10)
+- [x] Create frontend Verification Screen (/verify-account) & Welcome Sequence with Quick Start Guide PDF (w:8)
 - [ ] Implement Inventory Management module (w:15)
 - [ ] Develop Invoicing & Billing module (w:12)
 - [ ] Integrate Bank Reconciliation functionality (w:10)

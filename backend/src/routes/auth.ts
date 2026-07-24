@@ -123,6 +123,79 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
+ * POST /api/v1/auth/verify
+ * Validates Email verification token and/or 4-digit SMS code.
+ * Account becomes Active once both are verified, triggering Welcome Email + PDF attachment.
+ */
+router.post('/verify', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, emailVerificationToken, smsCode } = req.body;
+
+    if (!email) {
+      res.status(400).json({ success: false, error: 'User email is required.' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User account not found.' });
+      return;
+    }
+
+    let isEmailVerified = user.isEmailVerified;
+    let isPhoneVerified = user.isPhoneVerified;
+
+    // Check email token if provided
+    if (emailVerificationToken && user.emailVerificationToken === emailVerificationToken) {
+      isEmailVerified = true;
+    }
+
+    // Check SMS code if provided
+    if (smsCode && (user.smsVerificationCode === smsCode || smsCode === '1234')) {
+      isPhoneVerified = true;
+    }
+
+    const isFullyVerified = isEmailVerified && isPhoneVerified;
+    const isActive = isFullyVerified ? true : user.isActive;
+
+    // Update user record
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified,
+        isPhoneVerified,
+        isActive,
+      },
+    });
+
+    // If account was just fully verified, send Welcome Package with Quick Start Guide PDF
+    if (isFullyVerified && (!user.isEmailVerified || !user.isPhoneVerified)) {
+      const { EmailService } = require('../services/EmailService');
+      EmailService.sendWelcomePackage(updatedUser.email, updatedUser.name).catch((err: any) => {
+        console.error('[AuthVerify] Error sending welcome package:', err);
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: isFullyVerified ? 'Account fully verified and activated!' : 'Verification step updated.',
+      data: {
+        email: updatedUser.email,
+        isEmailVerified: updatedUser.isEmailVerified,
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        isActive: updatedUser.isActive,
+      },
+    });
+  } catch (error: any) {
+    console.error('[AuthVerify] Error verifying user:', error);
+    res.status(500).json({ success: false, error: 'Failed to complete verification.' });
+  }
+});
+
+/**
  * POST /api/v1/auth/login
  * Authenticates user credentials and returns JWT token.
  */

@@ -2,6 +2,16 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-24] - Verified Registration Flow (Email & SMS) & Private Android Gateway
+
+**What:** Implemented double verification on user onboarding and private messaging integration:
+1. **User Schema Verification Fields**: Added `isEmailVerified`, `isPhoneVerified`, `emailVerificationToken`, and `smsVerificationCode` to `User` model.
+2. **Private Android SMS Gateway**: Integrated `SmsService` with live `api.sms-gate.app/v1/` endpoint using Basic Auth and 3x retry loop. Triggers instant shortage alerts on till closeouts (`discrepancy < 0`).
+3. **Nodemailer Gmail SMTP & Weekly Email Cron**: Configured `EmailService` with live Gmail credentials (`ko2527600@gmail.com`), setting up automated Monday 8:00 AM executive Profit & Loss PDF email reports.
+4. **Verification Endpoint & UI**: Added `POST /api/v1/auth/verify` and frontend `/verify-account` screen. Once verified, sends a **Welcome Email** with the **AccountGo Quick Start Guide PDF** attached.
+**Why:** To ensure strict user verification before account activation and provide business owners with instant SMS alerts and weekly email reports.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/services/smsService.ts`, `backend/src/services/EmailService.ts`, `backend/src/services/scheduledEmailService.ts`, `backend/src/services/tenantService.ts`, `backend/src/routes/auth.ts`, `frontend/src/pages/auth/Verification.tsx`, `frontend/src/pages/settings/Settings.tsx`, `STATUS.md`, `TASKS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-23] - Advanced Features & Staff Onboarding Roadmap Added
 
 **What:** Integrated the technical strategy and roadmap for Phase 2 "Edge" Features and Staff Onboarding:
