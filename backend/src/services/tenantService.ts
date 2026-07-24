@@ -189,16 +189,39 @@ export async function onboardTenant(
     throw new TenantOnboardingError(`Failed to provision tenant schema: ${(error as Error).message}`, 500);
   }
 
-  // 5. Register Tenant Admin user in public.users
+  // 5. Register Tenant Admin user in public.users with verification tokens
   let adminUser;
+  const crypto = require('crypto');
+  const emailVerificationToken = crypto.randomUUID();
+  const smsVerificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+  const phone = (dto as any).phone || (dto as any).mobile || '+233201234567';
+
   try {
     const hashedPassword = hashPassword(adminPassword);
     adminUser = await userRepository.createUser(prisma, {
       email: adminEmail,
       password: hashedPassword,
       name: adminName,
+      phone,
       role: 'Admin',
       tenantId: tenantRecord.id,
+      isActive: false, // Inactive until verified
+      isEmailVerified: false,
+      isPhoneVerified: false,
+      emailVerificationToken,
+      smsVerificationCode,
+    });
+
+    // Dispatch Verification Email & SMS
+    const { EmailService } = require('./EmailService');
+    const { SmsService } = require('./smsService');
+
+    EmailService.sendVerificationEmail(adminEmail, adminName, emailVerificationToken).catch((err: any) => {
+      console.error('[TenantService] Failed to send verification email:', err);
+    });
+
+    SmsService.send(phone, `AccountGo Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
+      console.error('[TenantService] Failed to send verification SMS:', err);
     });
   } catch (error) {
     // Cleanup tenant entry and schema on user creation failure

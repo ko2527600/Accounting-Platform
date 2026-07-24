@@ -17,6 +17,10 @@ const startServer = async () => {
     
     // Initialize Redis connection
     await connectRedis();
+
+    // Initialize Monday 8:00 AM Automated Email Reporting Cron Job
+    const { ScheduledEmailCronService } = require('./services/scheduledEmailService');
+    ScheduledEmailCronService.init();
   });
 
   const gracefulShutdown = async () => {

@@ -30,7 +30,7 @@ const navigationGroups: NavGroup[] = [
   {
     sectionTitle: "OVERVIEW",
     items: [
-      { name: "Dashboard", href: "/", icon: LayoutDashboard },
+      { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     ],
   },
   {
