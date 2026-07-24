@@ -96,8 +96,8 @@ export function LandingPage() {
           {/* Quick Metrics Banner */}
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto p-6 bg-secondary-900/60 border border-secondary-800 rounded-2xl backdrop-blur-sm">
             <div>
-              <div className="text-2xl font-extrabold text-emerald-400">GH₵ 0</div>
-              <div className="text-xs text-secondary-400 mt-1">Per-SMS Cost (Android SIM)</div>
+              <div className="text-2xl font-extrabold text-amber-400">Instant SMS</div>
+              <div className="text-xs text-secondary-400 mt-1">Shortage Alerts Included</div>
             </div>
             <div>
               <div className="text-2xl font-extrabold text-blue-400">99.9%</div>
@@ -130,9 +130,9 @@ export function LandingPage() {
               <div className="p-3 bg-amber-500/10 rounded-xl text-amber-400 w-fit mb-6 group-hover:scale-110 transition-transform">
                 <Smartphone className="h-7 w-7" />
               </div>
-              <h3 className="text-xl font-bold text-white mb-3">$0 SMS Cash Till Shortage Warnings</h3>
+              <h3 className="text-xl font-bold text-white mb-3">Instant SMS Cash Shortage Warnings</h3>
               <p className="text-sm text-secondary-400 leading-relaxed">
-                Connect your Android gateway (92,000+ free SMS SIM card) to get instant SMS alerts on your mobile phone whenever a shop drawer closes short.
+                Receive instant SMS shortage warnings directly on your mobile phone whenever a shop drawer closes short. Managed centrally by AccountGo and included in your subscription.
               </p>
             </div>
 

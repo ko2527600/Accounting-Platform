@@ -211,40 +211,36 @@ export function Settings() {
         </form>
       )}
 
-      {/* Android SMS Gateway Card */}
+      {/* Platform-Managed SMS Warning Alerts Card */}
       {activeTab === "sms" && (
         <Card className="border-amber-200 bg-amber-50/20 dark:bg-amber-950/10">
           <CardHeader>
             <CardTitle className="text-amber-900 dark:text-amber-300 flex items-center">
               <Smartphone className="mr-2 h-5 w-5 text-amber-600" />
-              Private Android SMS Gateway & Shortage Alerts
+              Platform-Managed SMS Shortage Alert Service
             </CardTitle>
             <CardDescription>
-              Connects to your local Android Gateway phone (92,000+ Free SIM SMS) to send instant SMS alerts when a cash drawer closes short.
+              Instant SMS shortage warnings are managed centrally by AccountGo and included in your subscription. You only need to maintain your alert phone number below.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Business Owner Mobile Phone</label>
+              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Target Owner Mobile Phone Number</label>
               <Input
                 value={smsData.ownerPhone}
                 onChange={(e) => setSmsData({ ...smsData, ownerPhone: e.target.value })}
                 placeholder="+233201234567"
               />
-              <p className="text-[11px] text-secondary-500">Instant SMS shortages will be sent to this number.</p>
+              <p className="text-[11px] text-secondary-500">Instant cash till shortage SMS alerts will be sent to this mobile number.</p>
             </div>
 
             <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-amber-200 dark:border-amber-900/50 space-y-2 text-xs">
               <div className="flex justify-between">
-                <span>Gateway Status:</span>
-                <strong className="text-emerald-600 font-bold">{smsData.gatewayStatus}</strong>
+                <span>AccountGo Gateway Service:</span>
+                <strong className="text-emerald-600 font-bold">Active & Managed (Included in Subscription)</strong>
               </div>
               <div className="flex justify-between">
-                <span>Failure Fallback:</span>
-                <strong>3x Retry Loop ➔ Log "Gateway Offline" Audit</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Message Template:</span>
+                <span>Shortage Template:</span>
                 <em className="text-secondary-600">"AccountGo Alert: [Shop] till closed by [Staff]. Shortage: [Amount]. Please check."</em>
               </div>
             </div>
@@ -259,52 +255,49 @@ export function Settings() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setSmsMsg("Test SMS queued to Android Gateway (3x retry enabled).")}
+              onClick={() => setSmsMsg("Test shortage alert queued via AccountGo Gateway Service.")}
             >
-              Test Android Gateway
+              Test Shortage Alert
             </Button>
-            <Button type="button" variant="primary" onClick={() => setSaveSuccessMsg("Owner mobile phone saved.")}>
-              Save Gateway Config
+            <Button type="button" variant="primary" onClick={() => setSaveSuccessMsg("Owner alert mobile phone updated.")}>
+              Update Alert Mobile Number
             </Button>
           </CardFooter>
         </Card>
       )}
 
-      {/* Weekly Scheduled Email Reports Card */}
+      {/* Platform-Managed Weekly Email Reports Card */}
       {activeTab === "scheduled" && (
         <Card className="border-blue-200 bg-blue-50/20 dark:bg-blue-950/10">
           <CardHeader>
             <CardTitle className="text-blue-900 dark:text-blue-300 flex items-center">
               <Mail className="mr-2 h-5 w-5 text-blue-600" />
-              Automated Weekly Email Reports (Nodemailer & Gmail)
+              Automated Weekly Email Report Service
             </CardTitle>
             <CardDescription>
-              Dispatches automated weekly Profit & Loss PDF executive performance statements to business owners every Monday at 8:00 AM.
+              Executive weekly Profit & Loss PDF performance statements are compiled automatically by AccountGo every Monday at 8:00 AM.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Recipient Email Address</label>
+              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Recipient Email Address for Executive Reports</label>
               <Input
                 value={scheduleData.recipients}
                 onChange={(e) => setScheduleData({ ...scheduleData, recipients: e.target.value })}
                 placeholder="owner@company.com"
               />
+              <p className="text-[11px] text-secondary-500">Weekly PDF executive summaries will be delivered to this email address every Monday morning.</p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Automated Schedule</label>
+              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Automated Dispatch Schedule</label>
               <Input value={scheduleData.frequency} disabled className="bg-secondary-100 dark:bg-secondary-800 opacity-70" />
             </div>
 
             <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-blue-200 dark:border-blue-900/50 space-y-2 text-xs">
               <div className="flex justify-between">
-                <span>SMTP Transport:</span>
-                <strong className="text-emerald-600">Nodemailer + Gmail (Port 465 SSL)</strong>
-              </div>
-              <div className="flex justify-between">
-                <span>Retry & Audit Rules:</span>
-                <strong>Retry once after 5 min ➔ Log "Critical Failure"</strong>
+                <span>AccountGo Mail Infrastructure:</span>
+                <strong className="text-emerald-600">Active & Managed (Included in Subscription)</strong>
               </div>
             </div>
 
@@ -319,8 +312,8 @@ export function Settings() {
               <Send className="mr-2 h-4 w-4 text-blue-600" />
               Send Test Report Now
             </Button>
-            <Button type="button" variant="primary" onClick={() => setSaveSuccessMsg("Weekly email schedule saved.")}>
-              Save Schedule Settings
+            <Button type="button" variant="primary" onClick={() => setSaveSuccessMsg("Weekly report email updated.")}>
+              Update Report Email Address
             </Button>
           </CardFooter>
         </Card>
