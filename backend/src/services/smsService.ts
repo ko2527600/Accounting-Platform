@@ -26,15 +26,67 @@ export class SmsService {
     return process.env.SMS_GATEWAY_DEVICE_ID || 'ke6CPUcczoxCIGS7fA6la';
   }
 
+  private static get senderId() {
+    return process.env.SMS_SENDER_ID || 'AccountGo';
+  }
+
   /**
-   * Sends an SMS via sms-gate.app 3rdparty API using Basic Auth.
-   * Retries up to 3 times if offline before logging "Gateway Offline" to audit_logs.
+   * Sends an SMS via configured Bulk SMS Gateway (Arkesel / mNotify / Hubtel / Android Gateway).
+   * Supports Alphanumeric Sender ID ("AccountGo") so receivers see "AccountGo" instead of a phone number.
    */
   public static async send(recipientPhone: string, message: string): Promise<boolean> {
     const formattedMessage = message.startsWith('AccountGo') ? message : `AccountGo ERP: ${message}`;
-    // Construct payload per sms-gate.app 3rdparty API specification
+    const cleanPhone = recipientPhone.replace(/[\s\-\(\)]/g, '');
+
+    // 1. Arkesel Bulk SMS Gateway (Supports Alphanumeric Sender ID "AccountGo")
+    if (process.env.ARKESEL_API_KEY) {
+      try {
+        const response = await axios.post(
+          'https://sms.arkesel.com/api/v2/sms/send',
+          {
+            sender: this.senderId,
+            recipients: [cleanPhone],
+            message: formattedMessage,
+          },
+          {
+            headers: {
+              'api-key': process.env.ARKESEL_API_KEY,
+            },
+          }
+        );
+        if (response.status >= 200 && response.status < 300) {
+          console.log(`[SmsService] ✅ SMS sent with Sender ID "${this.senderId}" to ${cleanPhone} via Arkesel.`);
+          return true;
+        }
+      } catch (err: any) {
+        console.error('[SmsService] Arkesel SMS dispatch error:', err.response?.data || err.message);
+      }
+    }
+
+    // 2. mNotify Bulk SMS Gateway (Supports Alphanumeric Sender ID "AccountGo")
+    if (process.env.MNOTIFY_API_KEY) {
+      try {
+        const response = await axios.post(
+          `https://api.mnotify.com/api/sms/quick?key=${process.env.MNOTIFY_API_KEY}`,
+          {
+            recipient: [cleanPhone],
+            sender: this.senderId,
+            message: formattedMessage,
+            is_schedule: false,
+          }
+        );
+        if (response.status >= 200 && response.status < 300) {
+          console.log(`[SmsService] ✅ SMS sent with Sender ID "${this.senderId}" to ${cleanPhone} via mNotify.`);
+          return true;
+        }
+      } catch (err: any) {
+        console.error('[SmsService] mNotify SMS dispatch error:', err.response?.data || err.message);
+      }
+    }
+
+    // 3. Android SMS Gateway (Default)
     const payload = {
-      phoneNumbers: [recipientPhone],
+      phoneNumbers: [cleanPhone],
       message: formattedMessage,
     };
 
