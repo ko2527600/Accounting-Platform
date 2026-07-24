@@ -14,8 +14,8 @@ export class EmailService {
     port: Number(process.env.EMAIL_PORT) || 465,
     secure: process.env.EMAIL_SECURE !== 'false',
     auth: {
-      user: process.env.EMAIL_USER || 'admin@accountgo.com',
-      pass: process.env.EMAIL_PASS || '16_char_app_password',
+      user: process.env.EMAIL_USER || 'ko2527600@gmail.com',
+      pass: process.env.EMAIL_PASS || 'hvrb jnbh pmdi bowm',
     },
   });
 
@@ -30,7 +30,7 @@ export class EmailService {
     html: string,
     attachments: EmailAttachment[] = []
   ): Promise<boolean> {
-    const from = process.env.EMAIL_USER || 'admin@accountgo.com';
+    const from = process.env.EMAIL_USER || 'ko2527600@gmail.com';
 
     const mailOptions = {
       from: `"AccountGo ERP" <${from}>`,
