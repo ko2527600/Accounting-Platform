@@ -57,7 +57,7 @@ model User {
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
 
-  tenant    Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([email, tenantId])
@@ -121,13 +121,13 @@ model JournalEntry {
 }
 
 model JournalEntryLine {
-  id             String       @id @default(uuid())
-  journalEntryId String       @map("journal_entry_id")
-  accountId      String       @map("account_id")
-  debit          Decimal      @default(0.00) @db.Decimal(15, 2)
-  credit         Decimal      @default(0.00) @db.Decimal(15, 2)
+  id             String   @id @default(uuid())
+  journalEntryId String   @map("journal_entry_id")
+  accountId      String   @map("account_id")
+  debit          Decimal  @default(0.00) @db.Decimal(15, 2)
+  credit         Decimal  @default(0.00) @db.Decimal(15, 2)
   description    String?
-  createdAt      DateTime     @default(now()) @map("created_at")
+  createdAt      DateTime @default(now()) @map("created_at")
 
   journalEntry JournalEntry @relation(fields: [journalEntryId], references: [id], onDelete: Cascade)
   account      Account      @relation(fields: [accountId], references: [id], onDelete: Restrict)
@@ -139,15 +139,15 @@ model JournalEntryLine {
 }
 
 model Ledger {
-  id              String       @id @default(uuid())
-  accountId       String       @map("account_id")
-  transactionDate DateTime     @default(now()) @map("transaction_date")
-  journalEntryId  String?      @map("journal_entry_id")
-  debit           Decimal      @default(0.00) @db.Decimal(15, 2)
-  credit          Decimal      @default(0.00) @db.Decimal(15, 2)
-  balance         Decimal      @default(0.00) @db.Decimal(15, 2)
+  id              String   @id @default(uuid())
+  accountId       String   @map("account_id")
+  transactionDate DateTime @default(now()) @map("transaction_date")
+  journalEntryId  String?  @map("journal_entry_id")
+  debit           Decimal  @default(0.00) @db.Decimal(15, 2)
+  credit          Decimal  @default(0.00) @db.Decimal(15, 2)
+  balance         Decimal  @default(0.00) @db.Decimal(15, 2)
   description     String?
-  createdAt       DateTime     @default(now()) @map("created_at")
+  createdAt       DateTime @default(now()) @map("created_at")
 
   account      Account       @relation(fields: [accountId], references: [id], onDelete: Restrict)
   journalEntry JournalEntry? @relation(fields: [journalEntryId], references: [id], onDelete: SetNull)
@@ -431,3 +431,253 @@ model Notification {
   @@map("notifications")
 }
 
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  LOGOUT
+  APPROVE
+  REJECT
+  POST
+  VOID
+}
+
+enum CustomFieldType {
+  TEXT
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+  MULTI_SELECT
+}
+
+model CustomField {
+  id           String          @id @default(uuid())
+  entityType   String          @map("entity_type")
+  fieldName    String          @map("field_name")
+  fieldLabel   String          @map("field_label")
+  fieldType    CustomFieldType @map("field_type")
+  isRequired   Boolean         @default(false) @map("is_required")
+  options      Json?
+  defaultValue String?         @map("default_value")
+  displayOrder Int             @default(0) @map("display_order")
+  isActive     Boolean         @default(true) @map("is_active")
+  createdAt    DateTime        @default(now()) @map("created_at")
+  updatedAt    DateTime        @updatedAt @map("updated_at")
+
+  values CustomFieldValue[]
+
+  @@unique([entityType, fieldName])
+  @@index([entityType, isActive])
+  @@map("custom_fields")
+}
+
+model CustomFieldValue {
+  id            String   @id @default(uuid())
+  customFieldId String   @map("custom_field_id")
+  entityId      String   @map("entity_id")
+  value         String?
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
+
+  @@unique([customFieldId, entityId])
+  @@index([entityId])
+  @@map("custom_field_values")
+}
+
+enum ReportType {
+  BALANCE_SHEET
+  INCOME_STATEMENT
+  CASH_FLOW
+  TRIAL_BALANCE
+  GENERAL_LEDGER
+  ACCOUNT_ACTIVITY
+  CUSTOM
+}
+
+model ReportDefinition {
+  id          String     @id @default(uuid())
+  name        String
+  reportType  ReportType @map("report_type")
+  description String?
+  filters     Json?
+  columns     Json?
+  sortOrder   Json?      @map("sort_order")
+  isPublic    Boolean    @default(false) @map("is_public")
+  createdBy   String     @map("created_by")
+  createdAt   DateTime   @default(now()) @map("created_at")
+  updatedAt   DateTime   @updatedAt @map("updated_at")
+
+  @@index([reportType])
+  @@index([createdBy])
+  @@index([isPublic])
+  @@map("report_definitions")
+}
+
+model TaxRate {
+  id            String    @id @default(uuid())
+  name          String
+  code          String    @unique
+  rate          Decimal   @db.Decimal(5, 4)
+  description   String?
+  accountId     String?   @map("account_id")
+  isActive      Boolean   @default(true) @map("is_active")
+  effectiveFrom DateTime  @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@index([code])
+  @@index([isActive, effectiveFrom, effectiveTo])
+  @@map("tax_rates")
+}
+
+enum PeriodStatus {
+  OPEN
+  CLOSED
+  LOCKED
+}
+
+model FiscalPeriod {
+  id           String       @id @default(uuid())
+  name         String
+  fiscalYear   Int          @map("fiscal_year")
+  periodNumber Int          @map("period_number")
+  startDate    DateTime     @map("start_date")
+  endDate      DateTime     @map("end_date")
+  status       PeriodStatus @default(OPEN)
+  closedAt     DateTime?    @map("closed_at")
+  closedBy     String?      @map("closed_by")
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  budgets Budget[]
+
+  @@unique([fiscalYear, periodNumber])
+  @@index([fiscalYear])
+  @@index([status])
+  @@index([startDate, endDate])
+  @@map("fiscal_periods")
+}
+
+model Budget {
+  id             String   @id @default(uuid())
+  accountId      String   @map("account_id")
+  fiscalPeriodId String   @map("fiscal_period_id")
+  budgetAmount   Decimal  @map("budget_amount") @db.Decimal(15, 2)
+  actualAmount   Decimal  @default(0.00) @map("actual_amount") @db.Decimal(15, 2)
+  variance       Decimal  @default(0.00) @db.Decimal(15, 2)
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  fiscalPeriod FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
+
+  @@unique([accountId, fiscalPeriodId])
+  @@index([accountId])
+  @@index([fiscalPeriodId])
+  @@map("budgets")
+}
+
+enum RecurrenceFrequency {
+  DAILY
+  WEEKLY
+  MONTHLY
+  QUARTERLY
+  YEARLY
+}
+
+model RecurringTransaction {
+  id           String              @id @default(uuid())
+  name         String
+  description  String?
+  frequency    RecurrenceFrequency
+  startDate    DateTime            @map("start_date")
+  endDate      DateTime?           @map("end_date")
+  lastRun      DateTime?           @map("last_run")
+  nextRun      DateTime            @map("next_run")
+  templateData Json                @map("template_data")
+  isActive     Boolean             @default(true) @map("is_active")
+  createdAt    DateTime            @default(now()) @map("created_at")
+  updatedAt    DateTime            @updatedAt @map("updated_at")
+
+  @@index([isActive, nextRun])
+  @@index([frequency])
+  @@map("recurring_transactions")
+}
+
+enum DocumentType {
+  INVOICE
+  RECEIPT
+  CONTRACT
+  STATEMENT
+  OTHER
+}
+
+model AttachedDocument {
+  id           String       @id @default(uuid())
+  entityType   String       @map("entity_type")
+  entityId     String       @map("entity_id")
+  documentType DocumentType @map("document_type")
+  fileName     String       @map("file_name")
+  fileSize     Int          @map("file_size")
+  mimeType     String       @map("mime_type")
+  storageUrl   String       @map("storage_url")
+  uploadedBy   String       @map("uploaded_by")
+  description  String?
+  createdAt    DateTime     @default(now()) @map("created_at")
+
+  @@index([entityType, entityId])
+  @@index([uploadedBy])
+  @@index([documentType])
+  @@map("attached_documents")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model ApprovalWorkflow {
+  id            String         @id @default(uuid())
+  entityType    String         @map("entity_type")
+  entityId      String         @map("entity_id")
+  requiredLevel Int            @map("required_level")
+  currentLevel  Int            @default(0) @map("current_level")
+  status        ApprovalStatus @default(PENDING)
+  requestedBy   String         @map("requested_by")
+  requestedAt   DateTime       @default(now()) @map("requested_at")
+  completedAt   DateTime?      @map("completed_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  approvals ApprovalStep[]
+
+  @@index([entityType, entityId])
+  @@index([status])
+  @@index([requestedBy])
+  @@map("approval_workflows")
+}
+
+model ApprovalStep {
+  id         String         @id @default(uuid())
+  workflowId String         @map("workflow_id")
+  level      Int
+  approverId String?        @map("approver_id")
+  status     ApprovalStatus @default(PENDING)
+  comments   String?
+  approvedAt DateTime?      @map("approved_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+
+  workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+
+  @@index([workflowId])
+  @@index([approverId])
+  @@index([status])
+  @@map("approval_steps")
+}
