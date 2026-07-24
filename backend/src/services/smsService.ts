@@ -11,7 +11,7 @@ interface ShortageAlertDTO {
 
 export class SmsService {
   private static get gatewayUrl() {
-    return process.env.SMS_GATEWAY_URL || 'https://api.sms-gate.app/v1/';
+    return process.env.SMS_GATEWAY_URL || 'https://api.sms-gate.app/3rdparty/v1/message';
   }
 
   private static get username() {
@@ -27,15 +27,15 @@ export class SmsService {
   }
 
   /**
-   * Sends an SMS via sms-gate.app API using Basic Auth.
+   * Sends an SMS via sms-gate.app 3rdparty API using Basic Auth.
    * Retries up to 3 times if offline before logging "Gateway Offline" to audit_logs.
    */
   public static async send(recipientPhone: string, message: string): Promise<boolean> {
-    // Construct payload per sms-gate.app specification
+    const formattedMessage = message.startsWith('AccountGo') ? message : `AccountGo ERP: ${message}`;
+    // Construct payload per sms-gate.app 3rdparty API specification
     const payload = {
-      device_id: this.deviceId,
-      phone_number: recipientPhone,
-      message,
+      phoneNumbers: [recipientPhone],
+      message: formattedMessage,
     };
 
     const maxRetries = 3;
@@ -49,7 +49,7 @@ export class SmsService {
           return true;
         }
 
-        const endpoint = this.gatewayUrl.endsWith('/') ? `${this.gatewayUrl}message` : `${this.gatewayUrl}/message`;
+        const endpoint = this.gatewayUrl;
 
         const response = await axios.post(endpoint, payload, {
           timeout: 10000,
@@ -63,7 +63,7 @@ export class SmsService {
         });
 
         if (response.status >= 200 && response.status < 300) {
-          console.log(`[SmsService] SMS dispatched successfully to ${recipientPhone} via sms-gate.app`);
+          console.log(`[SmsService] ✅ SMS dispatched successfully to ${recipientPhone} via sms-gate.app (ID: ${response.data?.id})`);
           return true;
         }
       } catch (err: any) {
@@ -74,7 +74,7 @@ export class SmsService {
       }
     }
 
-    // 3 Retries Failed -> Log "Gateway Offline" in AuditLog
+    // 3 Retries Failed -> Log "Gateway Offline" in AuditLog if context active
     console.error(`[SmsService] Android Gateway Offline after ${maxRetries} failed attempts.`);
     try {
       await withCurrentTenantDb(prisma, async (client) => {
@@ -86,8 +86,8 @@ export class SmsService {
           },
         });
       });
-    } catch (auditErr) {
-      console.error('[SmsService] Failed to write Gateway Offline audit log:', auditErr);
+    } catch (_auditErr) {
+      // Ignore if outside tenant context
     }
 
     return false;
