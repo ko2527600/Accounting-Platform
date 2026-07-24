@@ -10,11 +10,9 @@ import {
   ChevronRight
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
-import { AdminBroadcastModal } from "../../components/admin/AdminBroadcastModal";
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "sla" | "tier">("terms");
 
   return (
@@ -359,9 +357,9 @@ export function LandingPage() {
           {/* SECRET ENCRYPTED FOOTER LINK (Mocking AccountGo Accounting Engine) */}
           <div>
             <button
-              onClick={() => setIsAdminModalOpen(true)}
+              onClick={() => navigate("/admin/core-engine")}
               className="text-[11px] font-mono text-secondary-600 hover:text-amber-400 transition-colors flex items-center space-x-1"
-              title="Click to open Encrypted Admin Broadcast Console"
+              title="Click to open Encrypted Admin Core Engine Hub"
             >
               <Lock className="h-3 w-3 mr-1" />
               <span>AccountGo Accounting Engine v2.4 (Encrypted)</span>
@@ -369,12 +367,6 @@ export function LandingPage() {
           </div>
         </div>
       </footer>
-
-      {/* Secret Encrypted Admin Broadcast Modal */}
-      <AdminBroadcastModal
-        isOpen={isAdminModalOpen}
-        onClose={() => setIsAdminModalOpen(false)}
-      />
     </div>
   );
 }
