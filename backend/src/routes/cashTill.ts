@@ -105,7 +105,8 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         throw new Error('Inventory item not found.');
       }
 
-      // Check warehouse stock
+      // Check warehouse stock (existence / friendly error message only - the actual
+      // deduction below is guarded atomically, same as inventory transfers).
       const stock = await (client as any).warehouseStock.findUnique({
         where: { warehouseId_itemId: { warehouseId: till.warehouseId, itemId } },
       });
@@ -121,11 +122,17 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         throw new Error(`Cash given (GH₵ ${cashGiven}) is less than total bill amount (GH₵ ${totalAmount}).`);
       }
 
-      // 1. Deduct stock from shop warehouse
-      await (client as any).warehouseStock.update({
-        where: { id: stock.id },
-        data: { quantityOnHand: stock.quantityOnHand - Number(quantity) },
+      // 1. Deduct stock from shop warehouse - atomic guarded decrement so two
+      // concurrent sales of the same item can't both read the same stale
+      // quantity and both succeed (lost-update / phantom-stock bug).
+      const deduction = await (client as any).warehouseStock.updateMany({
+        where: { id: stock.id, quantityOnHand: { gte: Number(quantity) } },
+        data: { quantityOnHand: { decrement: Number(quantity) } },
       });
+
+      if (deduction.count === 0) {
+        throw new Error(`Insufficient stock in ${till.warehouse.name} (stock changed concurrently, please retry).`);
+      }
 
       // 2. Record cash sale
       const receiptNo = `REC-${Date.now().toString().slice(-6)}`;
@@ -139,10 +146,11 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
-      // 3. Increment till total cash sales
+      // 3. Increment till total cash sales atomically - avoids losing concurrent
+      // sales' contributions to the running total.
       await (client as any).cashTill.update({
         where: { id: tillId },
-        data: { cashSalesTotal: Number(till.cashSalesTotal) + totalAmount },
+        data: { cashSalesTotal: { increment: totalAmount } },
       });
 
       return { sale, item, totalAmount, changeGiven };

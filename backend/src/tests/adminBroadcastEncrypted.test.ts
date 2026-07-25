@@ -14,7 +14,10 @@ describe('Encrypted Admin Broadcast Engine Suite', () => {
   });
 
   it('POST /api/v1/admin/broadcast/verify-passcode - should verify valid master passcode', async () => {
-    const validPasscode = process.env.BROADCAST_MASTER_SECRET || 'secret_admin_broadcast_passcode';
+    const validPasscode = process.env.BROADCAST_MASTER_SECRET;
+    if (!validPasscode) {
+      throw new Error('BROADCAST_MASTER_SECRET must be set in the test environment to run this suite.');
+    }
 
     const res = await request(app)
       .post('/api/v1/admin/broadcast/verify-passcode')
@@ -25,7 +28,10 @@ describe('Encrypted Admin Broadcast Engine Suite', () => {
   });
 
   it('POST /api/v1/admin/broadcast/send - should execute batch broadcast to tenant business owners', async () => {
-    const validPasscode = process.env.BROADCAST_MASTER_SECRET || 'secret_admin_broadcast_passcode';
+    const validPasscode = process.env.BROADCAST_MASTER_SECRET;
+    if (!validPasscode) {
+      throw new Error('BROADCAST_MASTER_SECRET must be set in the test environment to run this suite.');
+    }
 
     const res = await request(app)
       .post('/api/v1/admin/broadcast/send')

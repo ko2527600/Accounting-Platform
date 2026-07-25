@@ -11,8 +11,6 @@ export interface JwtPayload {
   [key: string]: any;
 }
 
-const DEFAULT_JWT_SECRET = 'super-secret-jwt-key-for-accounting-platform-dev';
-
 // In-memory LRU cache for validated JWT tokens
 // Prevents repeated HMAC signature verification for the same token
 interface CachedToken {
@@ -92,7 +90,13 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 function getJwtSecret(): string {
-  return process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    throw new Error(
+      'JWT_SECRET environment variable is not set. Refusing to sign or verify tokens with a default secret.'
+    );
+  }
+  return secret;
 }
 
 /**

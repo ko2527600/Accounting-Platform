@@ -108,8 +108,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     const tax = subtotal * 0.10; // 10% tax
     const total = subtotal + tax;
 
-    const invCount = await withCurrentTenantDb(prisma, async (client) => (client as any).invoice.count());
-    const invoiceNumber = `INV-${String(invCount + 1001).padStart(5, '0')}`;
+    const invoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).invoice.create({

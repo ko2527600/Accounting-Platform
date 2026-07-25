@@ -99,9 +99,14 @@ router.put('/:id/read', async (req: Request, res: Response): Promise<void> => {
  */
 router.put('/read-all', async (req: Request, res: Response): Promise<void> => {
   try {
+    const userId = (req as any).user?.id;
+
     await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).notification.updateMany({
-        where: { read: false },
+        where: {
+          read: false,
+          OR: [{ userId: null }, { userId }],
+        },
         data: { read: true },
       });
     });

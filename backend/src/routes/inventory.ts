@@ -151,7 +151,9 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
     }
 
     const transfer = await withCurrentTenantDb(prisma, async (client) => {
-      // Check source stock
+      // Check source stock (existence / friendly error message only - the actual
+      // deduction below is guarded atomically so concurrent transfers can't both
+      // read the same stale quantity and both succeed, driving it negative).
       const sourceStock = await (client as any).warehouseStock.findUnique({
         where: { warehouseId_itemId: { warehouseId: fromWarehouseId, itemId } },
       });
@@ -160,31 +162,28 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
         throw new Error(`Insufficient stock in origin warehouse (Available: ${sourceStock?.quantityOnHand || 0} pcs).`);
       }
 
-      // Deduct from source warehouse
-      await (client as any).warehouseStock.update({
-        where: { id: sourceStock.id },
-        data: { quantityOnHand: sourceStock.quantityOnHand - Number(quantity) },
+      // Atomic guarded decrement: only succeeds if quantityOnHand is still >= quantity
+      // at the moment the row lock is acquired, so a concurrent transfer that already
+      // consumed the stock causes this to affect 0 rows instead of going negative.
+      const deduction = await (client as any).warehouseStock.updateMany({
+        where: { id: sourceStock.id, quantityOnHand: { gte: Number(quantity) } },
+        data: { quantityOnHand: { decrement: Number(quantity) } },
       });
 
-      // Add to destination warehouse (upsert)
-      const destStock = await (client as any).warehouseStock.findUnique({
-        where: { warehouseId_itemId: { warehouseId: toWarehouseId, itemId } },
-      });
-
-      if (destStock) {
-        await (client as any).warehouseStock.update({
-          where: { id: destStock.id },
-          data: { quantityOnHand: destStock.quantityOnHand + Number(quantity) },
-        });
-      } else {
-        await (client as any).warehouseStock.create({
-          data: { warehouseId: toWarehouseId, itemId, quantityOnHand: Number(quantity) },
-        });
+      if (deduction.count === 0) {
+        throw new Error('Insufficient stock in origin warehouse (stock changed concurrently, please retry).');
       }
 
+      // Add to destination warehouse - atomic increment via upsert so a concurrent
+      // transfer into the same (warehouse, item) pair can't overwrite this one.
+      await (client as any).warehouseStock.upsert({
+        where: { warehouseId_itemId: { warehouseId: toWarehouseId, itemId } },
+        update: { quantityOnHand: { increment: Number(quantity) } },
+        create: { warehouseId: toWarehouseId, itemId, quantityOnHand: Number(quantity) },
+      });
+
       // Record Transfer Audit
-      const count = await (client as any).stockTransfer.count();
-      const transferNumber = `TRF-${String(count + 1001).padStart(5, '0')}`;
+      const transferNumber = `TRF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
       return (client as any).stockTransfer.create({
         data: {

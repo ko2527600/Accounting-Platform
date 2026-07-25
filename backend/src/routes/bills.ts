@@ -88,8 +88,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       return;
     }
 
-    const billCount = await withCurrentTenantDb(prisma, async (client) => (client as any).vendorBill.count());
-    const billNumber = `BILL-${String(billCount + 5001).padStart(5, '0')}`;
+    const billNumber = `BILL-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).vendorBill.create({

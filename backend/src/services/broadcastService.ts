@@ -21,7 +21,13 @@ export interface BroadcastResult {
 
 export class BroadcastService {
   private static get masterPasscode(): string {
-    return process.env.BROADCAST_MASTER_SECRET || 'secret_admin_broadcast_passcode';
+    const secret = process.env.BROADCAST_MASTER_SECRET;
+    if (!secret) {
+      throw new Error(
+        'BROADCAST_MASTER_SECRET environment variable is not set. Refusing to fall back to a default passcode.'
+      );
+    }
+    return secret;
   }
 
   public static verifyPasscode(passcode: string): boolean {

@@ -197,9 +197,9 @@ describe('Auth & RBAC Service Tests', () => {
       expect(response.body.data.user.email).toBe(testAdminEmail);
     });
 
-    it('POST /api/v1/auth/verify should verify token payload', async () => {
+    it('POST /api/v1/auth/verify-token should verify token payload', async () => {
       const response = await request(app)
-        .post('/api/v1/auth/verify')
+        .post('/api/v1/auth/verify-token')
         .set('Authorization', `Bearer ${adminToken}`);
 
       expect(response.status).toBe(200);
