@@ -11,6 +11,7 @@ import * as accountRepository from '../repository/accountRepository';
 import * as ledgerRepository from '../repository/ledgerRepository';
 import { requireTenantContext } from '../context/tenantContext';
 import * as fiscalPeriodService from './fiscalPeriodService';
+import * as approvalWorkflowService from './approvalWorkflowService';
 
 export class JournalEntryServiceError extends Error {
   statusCode: number;
@@ -232,6 +233,17 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
 
     const { tenantId } = requireTenantContext();
     await assertPeriodOpenOrThrowJournalError(tenantId, entry.entryDate);
+
+    // Opt-in approval gate: only blocks if someone actually requested
+    // approval for this journal entry - most entries have no workflow at all.
+    try {
+      await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'JournalEntry', id);
+    } catch (error: any) {
+      if (error instanceof approvalWorkflowService.ApprovalWorkflowServiceError) {
+        throw new JournalEntryServiceError(error.message, error.statusCode);
+      }
+      throw error;
+    }
 
     // Update status to POSTED
     const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'POSTED');

@@ -7,6 +7,8 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as journalService from '../services/journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
+import * as approvalWorkflowService from '../services/approvalWorkflowService';
+import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
 
 const router = Router();
 
@@ -156,6 +158,9 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
       return;
     }
 
+    // Opt-in approval gate: only blocks if approval was actually requested for this bill.
+    await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'VendorBill', id);
+
     // Find accounts for AP Posting (5010 Expense, 1010 Cash/Bank). See the identical
     // note in invoices.ts's /pay handler: this must use accountRepository's raw SQL,
     // not a Prisma-typed `client.account.findMany()` call, which always queries the
@@ -192,6 +197,10 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     });
   } catch (error: any) {
     console.error('[Bills] Error paying bill:', error);
+    if (error instanceof ApprovalWorkflowServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to record bill payment.' });
   }
 });

@@ -74,6 +74,7 @@ const navigationGroups: NavGroup[] = [
   {
     sectionTitle: "ADMINISTRATION",
     items: [
+      { name: "Approvals", href: "/approvals", icon: ShieldCheck },
       { name: "Audit Trail", href: "/audit-logs", icon: ShieldCheck },
       { name: "Bulk Data Import", href: "/import", icon: FileUp },
       { name: "Team Management", href: "/team", icon: Users },

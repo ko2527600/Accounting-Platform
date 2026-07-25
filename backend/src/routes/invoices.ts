@@ -9,6 +9,8 @@ import * as journalService from '../services/journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
 import * as taxRateService from '../services/taxRateService';
 import { TaxRateServiceError } from '../services/taxRateService';
+import * as approvalWorkflowService from '../services/approvalWorkflowService';
+import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
 
 const router = Router();
 
@@ -212,6 +214,9 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
       return;
     }
 
+    // Opt-in approval gate: only blocks if approval was actually requested for this invoice.
+    await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'Invoice', id);
+
     // Find accounts for AR Posting (1010 Cash/Bank, 4010 Revenue or Accounts Receivable).
     // Accounts live in the tenant's own Postgres schema, not `public`, so this must go
     // through accountRepository's raw SQL (which respects the SET LOCAL search_path set
@@ -250,6 +255,10 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     });
   } catch (error: any) {
     console.error('[Invoices] Error paying invoice:', error);
+    if (error instanceof ApprovalWorkflowServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to record invoice payment.' });
   }
 });
