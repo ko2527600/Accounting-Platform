@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
+import MonoConnect from "@mono.co/connect.js";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
-import { Input } from "../../components/ui/Input";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
-import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
+import { useAuth } from "../../contexts/AuthContext";
 import { Landmark, Plus, CheckCircle, RefreshCw, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+
+const MONO_PUBLIC_KEY = import.meta.env.VITE_MONO_PUBLIC_KEY as string | undefined;
 
 interface BankAccount {
   id: string;
@@ -29,17 +31,13 @@ interface BankTx {
 }
 
 export function BankReconciliation() {
+  const { user } = useAuth();
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isConnectOpen, setIsConnectOpen] = useState(false);
-
-  // Link Form State
-  const [bankName, setBankName] = useState("Chase Bank");
-  const [accountName, setAccountName] = useState("Business Checking");
-  const [accountNumber, setAccountNumber] = useState("4589");
-  const [initialBalance, setInitialBalance] = useState("15000");
-  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isConnecting, setIsConnecting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [connectError, setConnectError] = useState<string | null>(null);
 
   const fetchBankingData = useCallback(async () => {
     setIsLoading(true);
@@ -62,25 +60,45 @@ export function BankReconciliation() {
     fetchBankingData();
   }, [fetchBankingData]);
 
-  const handleConnectBank = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmitting(true);
-    try {
-      const res = await api.post("/banking/connect", {
-        bankName,
-        accountName,
-        accountNumber,
-        initialBalance: Number(initialBalance),
-      });
-
-      if (res.data.success) {
-        setIsConnectOpen(false);
-        fetchBankingData();
+  const handleMonoCode = useCallback(
+    async ({ code }: { code: string }) => {
+      setIsConnecting(true);
+      setConnectError(null);
+      try {
+        const res = await api.post("/banking/connect", { monoCode: code });
+        if (res.data.success) {
+          fetchBankingData();
+        }
+      } catch (err: any) {
+        setConnectError(err.response?.data?.error || "Failed to link bank account.");
+      } finally {
+        setIsConnecting(false);
       }
+    },
+    [fetchBankingData]
+  );
+
+  const monoConnect = useMemo(() => {
+    if (!MONO_PUBLIC_KEY) return null;
+    const instance = new MonoConnect({
+      key: MONO_PUBLIC_KEY,
+      data: { customer: { name: user?.name || "", email: user?.email || "" } },
+      onSuccess: handleMonoCode,
+      onClose: () => {},
+    });
+    instance.setup();
+    return instance;
+  }, [user, handleMonoCode]);
+
+  const handleSyncFeeds = async () => {
+    setIsSyncing(true);
+    try {
+      await Promise.all(bankAccounts.map((acc) => api.post(`/banking/accounts/${acc.id}/sync`)));
+      await fetchBankingData();
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to link bank account.");
+      alert(err.response?.data?.error || "Failed to sync bank feeds.");
     } finally {
-      setIsSubmitting(false);
+      setIsSyncing(false);
     }
   };
 
@@ -95,8 +113,8 @@ export function BankReconciliation() {
     }
   };
 
-  const formatCurrency = (amt: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amt);
+  const formatCurrency = (amt: number, currency: string = "USD") => {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amt);
   };
 
   return (
@@ -112,16 +130,38 @@ export function BankReconciliation() {
         </div>
 
         <div className="flex gap-2">
-          <Button variant="outline" onClick={fetchBankingData} className="flex items-center">
+          <Button
+            variant="outline"
+            onClick={handleSyncFeeds}
+            disabled={isSyncing || bankAccounts.length === 0}
+            className="flex items-center"
+          >
             <RefreshCw className="mr-2 h-4 w-4" />
-            Sync Feeds
+            {isSyncing ? "Syncing..." : "Sync Feeds"}
           </Button>
-          <Button variant="primary" onClick={() => setIsConnectOpen(true)} className="flex items-center">
+          <Button
+            variant="primary"
+            onClick={() => monoConnect?.open()}
+            disabled={!monoConnect || isConnecting}
+            className="flex items-center"
+          >
             <Plus className="mr-2 h-4 w-4" />
-            Link Bank Account
+            {isConnecting ? "Linking..." : "Link Bank Account"}
           </Button>
         </div>
       </div>
+
+      {!MONO_PUBLIC_KEY && (
+        <div className="p-3 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 rounded-lg text-sm text-amber-800 dark:text-amber-300">
+          Bank integration is not configured for this environment. Set <code>VITE_MONO_PUBLIC_KEY</code> to enable linking real bank feeds via Mono.
+        </div>
+      )}
+
+      {connectError && (
+        <div className="p-3 bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 rounded-lg text-sm text-rose-800 dark:text-rose-300">
+          {connectError}
+        </div>
+      )}
 
       {/* Bank Account Cards Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
@@ -136,7 +176,7 @@ export function BankReconciliation() {
                 {acc.bankName} •••• {acc.accountNumber}
               </div>
               <div className="text-2xl font-bold text-secondary-900 dark:text-secondary-50">
-                {formatCurrency(Number(acc.currentBalance))}
+                {formatCurrency(Number(acc.currentBalance), acc.currency)}
               </div>
             </CardContent>
           </Card>
@@ -193,7 +233,7 @@ export function BankReconciliation() {
                       <TableCell className="font-semibold">
                         <span className={`inline-flex items-center ${isCredit ? 'text-emerald-600 dark:text-emerald-400' : 'text-secondary-900 dark:text-secondary-50'}`}>
                           {isCredit ? <ArrowDownLeft className="mr-1 h-3.5 w-3.5" /> : <ArrowUpRight className="mr-1 h-3.5 w-3.5" />}
-                          {formatCurrency(Math.abs(Number(tx.amount)))}
+                          {formatCurrency(Math.abs(Number(tx.amount)), tx.bankAccount?.currency)}
                         </span>
                       </TableCell>
                       <TableCell>
@@ -228,69 +268,6 @@ export function BankReconciliation() {
         </CardContent>
       </Card>
 
-      {/* Link Bank Account Modal */}
-      <Modal isOpen={isConnectOpen} onClose={() => setIsConnectOpen(false)} title="Link Bank Feed">
-        <form onSubmit={handleConnectBank} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-              Financial Institution
-            </label>
-            <Input
-              required
-              placeholder="e.g. Chase Bank, SVB, Wells Fargo"
-              value={bankName}
-              onChange={(e) => setBankName(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-              Account Name
-            </label>
-            <Input
-              required
-              placeholder="e.g. Primary Operating Checking"
-              value={accountName}
-              onChange={(e) => setAccountName(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-              Last 4 Digits of Account Number
-            </label>
-            <Input
-              required
-              maxLength={4}
-              placeholder="4589"
-              value={accountNumber}
-              onChange={(e) => setAccountNumber(e.target.value)}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-              Initial Statement Balance ($)
-            </label>
-            <Input
-              type="number"
-              required
-              placeholder="15000"
-              value={initialBalance}
-              onChange={(e) => setInitialBalance(e.target.value)}
-            />
-          </div>
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button type="button" variant="outline" onClick={() => setIsConnectOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" variant="primary" disabled={isSubmitting}>
-              {isSubmitting ? "Linking Feed..." : "Link Bank Feed"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
