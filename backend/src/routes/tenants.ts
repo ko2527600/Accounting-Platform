@@ -6,6 +6,7 @@ import * as tenantRepository from '../repository/tenantRepository';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { BroadcastService } from '../services/broadcastService';
 
 const router = Router();
 
@@ -42,10 +43,19 @@ router.post('/onboard', async (req: Request, res: Response) => {
 
 /**
  * GET /api/v1/tenants
- * Lists all registered tenants.
+ * Lists all registered tenants across the platform. This is a platform-operator
+ * function (used by the Admin Core Engine console), not a tenant-scoped one, so
+ * it's gated by the master broadcast passcode rather than a tenant JWT - no
+ * individual tenant's token should grant visibility into every other tenant.
+ * Previously had no auth at all.
  */
-router.get('/', async (_req: Request, res: Response) => {
+router.get('/', async (req: Request, res: Response) => {
   try {
+    const passcode = (req.query.passcode as string) || req.headers['x-admin-passcode'];
+    if (!passcode || !BroadcastService.verifyPasscode(passcode as string)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: valid master passcode required.' });
+    }
+
     const tenants = await tenantRepository.listTenants(prisma);
     return res.status(200).json({
       success: true,

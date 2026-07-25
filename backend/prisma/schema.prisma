@@ -166,6 +166,7 @@ model Ledger {
 
 model AuditLog {
   id        String   @id @default(uuid())
+  tenantId  String?  @map("tenant_id")
   action    String
   entity    String
   entityId  String?  @map("entity_id")
@@ -178,6 +179,7 @@ model AuditLog {
   @@index([createdAt(sort: Desc)])
   @@index([entity])
   @@index([userId])
+  @@index([tenantId])
   @@map("audit_logs")
 }
 

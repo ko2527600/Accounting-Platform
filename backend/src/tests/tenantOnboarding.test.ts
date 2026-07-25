@@ -211,8 +211,27 @@ describe('Tenant Onboarding API & Service Integration Tests (BE-104)', () => {
   });
 
   describe('4. Tenants List API Endpoint (GET /api/v1/tenants)', () => {
-    it('should return list of registered tenants', async () => {
+    const validPasscode = process.env.BROADCAST_MASTER_SECRET;
+    if (!validPasscode) {
+      throw new Error('BROADCAST_MASTER_SECRET must be set in the test environment to run this suite.');
+    }
+
+    it('rejects requests with no passcode', async () => {
       const response = await request(app).get('/api/v1/tenants');
+
+      expect(response.status).toBe(401);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('rejects requests with an incorrect passcode', async () => {
+      const response = await request(app).get('/api/v1/tenants').query({ passcode: 'wrong-passcode' });
+
+      expect(response.status).toBe(401);
+      expect(response.body.success).toBe(false);
+    });
+
+    it('should return list of registered tenants when the master passcode is provided', async () => {
+      const response = await request(app).get('/api/v1/tenants').query({ passcode: validPasscode });
 
       expect(response.status).toBe(200);
       expect(response.body.success).toBe(true);

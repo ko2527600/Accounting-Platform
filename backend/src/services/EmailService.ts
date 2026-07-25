@@ -1,6 +1,6 @@
 import nodemailer from 'nodemailer';
 import { prisma } from '../config/db';
-import { withCurrentTenantDb } from '../database/tenantClient';
+import { getTenantContext } from '../context/tenantContext';
 
 export interface EmailAttachment {
   filename: string;
@@ -187,14 +187,14 @@ export class EmailService {
 
   private static async logAudit(action: string, details: string): Promise<void> {
     try {
-      await withCurrentTenantDb(prisma, async (client) => {
-        return (client as any).auditLog.create({
-          data: {
-            action,
-            entity: 'EMAIL_SERVICE',
-            details,
-          },
-        });
+      const tenantId = getTenantContext()?.tenantId ?? null;
+      await prisma.auditLog.create({
+        data: {
+          tenantId,
+          action,
+          entity: 'EMAIL_SERVICE',
+          details,
+        },
       });
     } catch (_err) {
       // Audit log optional if outside tenant context

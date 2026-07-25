@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 
 const router = Router();
 
@@ -17,12 +18,14 @@ router.use(tenantContextMiddleware);
  */
 router.get('/', requireRole('Auditor'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { limit = '50', page = '1' } = req.query;
     const take = parseInt(limit as string, 10);
     const skip = (parseInt(page as string, 10) - 1) * take;
 
     const logs = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).auditLog.findMany({
+        where: { tenantId },
         take,
         skip,
         orderBy: { createdAt: 'desc' },
@@ -30,7 +33,7 @@ router.get('/', requireRole('Auditor'), async (req: Request, res: Response): Pro
     });
 
     const totalCount = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).auditLog.count();
+      return (client as any).auditLog.count({ where: { tenantId } });
     });
 
     res.status(200).json({
