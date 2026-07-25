@@ -5,9 +5,14 @@ export interface UserRecord {
   email: string;
   password?: string;
   name: string;
+  phone?: string | null;
   role: string;
   tenantId?: string | null;
   isActive: boolean;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
+  emailVerificationToken?: string | null;
+  smsVerificationCode?: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -16,8 +21,14 @@ export interface CreateUserData {
   email: string;
   password: string;
   name: string;
+  phone?: string | null;
   role?: string;
   tenantId?: string | null;
+  isActive?: boolean;
+  isEmailVerified?: boolean;
+  isPhoneVerified?: boolean;
+  emailVerificationToken?: string | null;
+  smsVerificationCode?: string | null;
 }
 
 /**
@@ -39,9 +50,14 @@ export async function createUser(prisma: PrismaClient, data: CreateUserData): Pr
       email: data.email.toLowerCase().trim(),
       password: data.password,
       name: data.name.trim(),
+      phone: data.phone || null,
       role,
       tenantId: data.tenantId || null,
-      isActive: true,
+      isActive: data.isActive !== undefined ? data.isActive : true,
+      isEmailVerified: data.isEmailVerified !== undefined ? data.isEmailVerified : false,
+      isPhoneVerified: data.isPhoneVerified !== undefined ? data.isPhoneVerified : false,
+      emailVerificationToken: data.emailVerificationToken || null,
+      smsVerificationCode: data.smsVerificationCode || null,
     },
   });
 

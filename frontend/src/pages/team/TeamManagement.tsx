@@ -66,9 +66,12 @@ export function TeamManagement() {
     fetchTeamData();
   }, [fetchTeamData]);
 
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     setInviteError(null);
+    setSuccessMsg(null);
 
     if (!inviteEmail.trim()) {
       setInviteError("Email is required.");
@@ -81,9 +84,10 @@ export function TeamManagement() {
     }
 
     setIsSubmitting(true);
+    const sentEmail = inviteEmail.trim();
     try {
       const res = await api.post("/tenants/invite", {
-        email: inviteEmail.trim(),
+        email: sentEmail,
         role: inviteRole,
       });
 
@@ -91,6 +95,7 @@ export function TeamManagement() {
         setInviteEmail("");
         setInviteRole("");
         setIsInviteOpen(false);
+        setSuccessMsg(`📩 Email invitation dispatched via Nodemailer to ${sentEmail}!`);
         fetchTeamData();
       }
     } catch (err: any) {
@@ -128,6 +133,15 @@ export function TeamManagement() {
           </Button>
         )}
       </div>
+
+      {successMsg && (
+        <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-200 rounded-xl text-xs font-semibold flex items-center justify-between">
+          <span>{successMsg}</span>
+          <button onClick={() => setSuccessMsg(null)} className="text-emerald-600 hover:text-emerald-800 font-bold ml-2">
+            Dismiss
+          </button>
+        </div>
+      )}
 
       {/* Active Team Members Card */}
       <Card>

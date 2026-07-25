@@ -13,6 +13,7 @@ export function Register() {
   const [formData, setFormData] = useState({
     adminName: "",
     email: "",
+    phone: "",
     password: "",
     tenantName: "",
     tenantSlug: ""
@@ -55,8 +56,8 @@ export function Register() {
   const handleAccountSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!formData.email || !formData.password || !formData.adminName) {
-      setError("Please fill in your name, email, and password.");
+    if (!formData.email || !formData.password || !formData.adminName || !formData.phone) {
+      setError("Please fill in your name, email, mobile phone number, and password.");
       return;
     }
     setStep("tenant");
@@ -79,6 +80,7 @@ export function Register() {
         companyName: formData.tenantName,
         slug: formData.tenantSlug,
         email: formData.email,
+        phone: formData.phone,
         password: formData.password,
         adminName: formData.adminName,
         termsAccepted: true,
@@ -96,7 +98,7 @@ export function Register() {
         };
 
         login(token, userObj);
-        navigate("/");
+        navigate(`/verify-account?email=${encodeURIComponent(formData.email)}`);
       }
     } catch (err: any) {
       setError(err.response?.data?.error || "Failed to onboard business workspace.");
@@ -161,6 +163,22 @@ export function Register() {
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   />
+                </div>
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                    Owner Alert Mobile Phone Number (For Instant SMS Alerts & Verification)
+                  </label>
+                  <Input
+                    id="phone"
+                    type="tel"
+                    required
+                    placeholder="+233201234567 or 0256334758"
+                    value={formData.phone}
+                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  />
+                  <p className="text-[11px] text-secondary-500 mt-1">
+                    Instant till shortage warning SMS alerts & account 4-digit verification codes will be sent to this mobile number.
+                  </p>
                 </div>
                 <div>
                   <label htmlFor="password" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">

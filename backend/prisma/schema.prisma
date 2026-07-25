@@ -47,15 +47,20 @@ model Invitation {
 }
 
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  name      String
-  role      String   @default("Viewer")
-  tenantId  String?  @map("tenant_id")
-  isActive  Boolean  @default(true) @map("is_active")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  id                     String   @id @default(uuid())
+  email                  String   @unique
+  password               String
+  name                   String
+  phone                  String?
+  role                   String   @default("Viewer")
+  tenantId               String?  @map("tenant_id")
+  isActive               Boolean  @default(true) @map("is_active")
+  isEmailVerified        Boolean  @default(false) @map("is_email_verified")
+  isPhoneVerified        Boolean  @default(false) @map("is_phone_verified")
+  emailVerificationToken String?  @map("email_verification_token")
+  smsVerificationCode    String?  @map("sms_verification_code")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 

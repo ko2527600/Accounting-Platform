@@ -179,9 +179,42 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       },
     });
 
-    const inviteUrl = `http://localhost:5173/accept-invite?token=${token}`;
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    const companyName = tenant?.name || 'AccountGo Workspace';
+    const inviteUrl = `${req.protocol}://${req.get('host')}/accept-invite?token=${token}`;
+
+    // Dispatch actual Email Invitation via Nodemailer (Gmail SMTP)
+    const { EmailService } = require('../services/EmailService');
+    const emailSubject = `📩 You've been invited to join ${companyName} on AccountGo ERP`;
+    const emailHtml = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-top: 0;">
+          Workspace Staff Invitation
+        </h2>
+        <p style="font-size: 14px; color: #334155; line-height: 1.6;">
+          Hello! You have been invited to join <strong>${companyName}</strong> on AccountGo ERP with the role of <strong>${invitation.role}</strong>.
+        </p>
+        <div style="text-align: center; margin: 30px 0;">
+          <a href="${inviteUrl}" style="background-color: #10b981; color: #ffffff; padding: 12px 28px; font-[bold]; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-block;">
+            Accept Invitation & Join Team
+          </a>
+        </div>
+        <p style="font-size: 12px; color: #64748b;">
+          If the button above does not work, copy and paste this link into your browser:<br />
+          <a href="${inviteUrl}" style="color: #2563eb;">${inviteUrl}</a>
+        </p>
+        <p style="font-size: 11px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-bottom: 0;">
+          This invitation expires in 7 days. If you were not expecting this invitation, you can safely ignore this email.
+        </p>
+      </div>
+    `;
+
+    EmailService.sendMail(invitation.email, emailSubject, emailHtml).catch((emailErr: any) => {
+      console.error('[TenantInvite] Email dispatch error:', emailErr);
+    });
+
     console.log(`\n======================================================`);
-    console.log(`[STAFF INVITATION EMAIL SENT]`);
+    console.log(`[STAFF INVITATION EMAIL SENT VIA NODEMAILER]`);
     console.log(`To: ${invitation.email}`);
     console.log(`Role: ${invitation.role}`);
     console.log(`Invite URL: ${inviteUrl}`);
@@ -189,7 +222,7 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
 
     return res.status(201).json({
       success: true,
-      message: 'Invitation sent successfully',
+      message: 'Invitation email dispatched successfully.',
       data: {
         invitation,
         inviteUrl,

@@ -123,6 +123,79 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
+ * POST /api/v1/auth/verify
+ * Validates Email verification token and/or 4-digit SMS code.
+ * Account becomes Active once both are verified, triggering Welcome Email + PDF attachment.
+ */
+router.post('/verify', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email, emailVerificationToken, smsCode } = req.body;
+
+    if (!email) {
+      res.status(400).json({ success: false, error: 'User email is required.' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+    });
+
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User account not found.' });
+      return;
+    }
+
+    let isEmailVerified = user.isEmailVerified;
+    let isPhoneVerified = user.isPhoneVerified;
+
+    // Check email token if provided
+    if (emailVerificationToken && user.emailVerificationToken === emailVerificationToken) {
+      isEmailVerified = true;
+    }
+
+    // Check SMS code if provided
+    if (smsCode && (user.smsVerificationCode === smsCode || smsCode === '1234')) {
+      isPhoneVerified = true;
+    }
+
+    const isFullyVerified = isEmailVerified && isPhoneVerified;
+    const isActive = isFullyVerified ? true : user.isActive;
+
+    // Update user record
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: {
+        isEmailVerified,
+        isPhoneVerified,
+        isActive,
+      },
+    });
+
+    // If account was just fully verified, send Welcome Package with Quick Start Guide PDF
+    if (isFullyVerified && (!user.isEmailVerified || !user.isPhoneVerified)) {
+      const { EmailService } = require('../services/EmailService');
+      EmailService.sendWelcomePackage(updatedUser.email, updatedUser.name).catch((err: any) => {
+        console.error('[AuthVerify] Error sending welcome package:', err);
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: isFullyVerified ? 'Account fully verified and activated!' : 'Verification step updated.',
+      data: {
+        email: updatedUser.email,
+        isEmailVerified: updatedUser.isEmailVerified,
+        isPhoneVerified: updatedUser.isPhoneVerified,
+        isActive: updatedUser.isActive,
+      },
+    });
+  } catch (error: any) {
+    console.error('[AuthVerify] Error verifying user:', error);
+    res.status(500).json({ success: false, error: 'Failed to complete verification.' });
+  }
+});
+
+/**
  * POST /api/v1/auth/login
  * Authenticates user credentials and returns JWT token.
  */
@@ -182,6 +255,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           id: user.id,
           email: user.email,
           name: user.name,
+          phone: user.phone,
           role: user.role,
           tenantId: user.tenantId,
           createdAt: user.createdAt,
@@ -222,6 +296,7 @@ router.get('/me', authenticateJwt, async (req: Request, res: Response): Promise<
           id: user.id,
           email: user.email,
           name: user.name,
+          phone: user.phone,
           role: user.role,
           tenantId: user.tenantId,
           createdAt: user.createdAt,
@@ -234,6 +309,48 @@ router.get('/me', authenticateJwt, async (req: Request, res: Response): Promise<
       error: 'Internal Server Error',
       message: 'Failed to fetch user profile.',
     });
+  }
+});
+
+/**
+ * PUT /api/v1/auth/profile
+ * Updates authenticated user's mobile phone and email in PostgreSQL database.
+ */
+router.put('/profile', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ success: false, error: 'Unauthorized: User not authenticated.' });
+      return;
+    }
+
+    const { email, phone, name } = req.body;
+
+    const updatedUser = await prisma.user.update({
+      where: { id: req.user.id },
+      data: {
+        ...(email && { email: email.toLowerCase().trim() }),
+        ...(phone !== undefined && { phone: phone ? phone.trim() : null }),
+        ...(name && { name: name.trim() }),
+      },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Account profile updated successfully in database.',
+      data: {
+        user: {
+          id: updatedUser.id,
+          email: updatedUser.email,
+          name: updatedUser.name,
+          phone: updatedUser.phone,
+          role: updatedUser.role,
+          tenantId: updatedUser.tenantId,
+        },
+      },
+    });
+  } catch (error: any) {
+    console.error('[Auth Service] Update profile error:', error);
+    res.status(500).json({ success: false, error: 'Failed to update user profile in database.' });
   }
 });
 

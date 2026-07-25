@@ -53,7 +53,7 @@ export function CommandMenu() {
 
         <Command.Group heading="Navigation" className="px-2 text-xs font-medium text-secondary-500 py-2">
           <Command.Item
-            onSelect={() => runCommand(() => navigate("/"))}
+            onSelect={() => runCommand(() => navigate("/dashboard"))}
             className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
           >
             <LayoutDashboard className="mr-2 h-4 w-4" />

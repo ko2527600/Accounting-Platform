@@ -8,6 +8,9 @@ import { CommandMenu } from "./components/ui/CommandMenu";
 import { Login } from "./pages/auth/Login";
 import { Register } from "./pages/auth/Register";
 import { AcceptInvitation } from "./pages/auth/AcceptInvitation";
+import { Verification } from "./pages/auth/Verification";
+import { LandingPage } from "./pages/landing/LandingPage";
+import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
 import { Settings } from "./pages/settings/Settings";
 import { TeamManagement } from "./pages/team/TeamManagement";
@@ -118,12 +121,15 @@ function App() {
         <BrowserRouter>
           <CommandMenu />
           <Routes>
+            <Route path="/" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route path="/accept-invite" element={<AcceptInvitation />} />
+            <Route path="/verify-account" element={<Verification />} />
+            <Route path="/admin/core-engine" element={<AdminCoreEngine />} />
             
             {/* Protected Routes */}
-            <Route path="/" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
+            <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />

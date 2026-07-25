@@ -27,6 +27,7 @@ import inventoryRouter from './routes/inventory';
 import cashTillRouter from './routes/cashTill';
 import analyticsRouter from './routes/analytics';
 import notificationsRouter from './routes/notifications';
+import adminBroadcastRouter from './routes/adminBroadcast';
 
 dotenv.config();
 
@@ -95,6 +96,9 @@ app.use('/api/v1/analytics', analyticsRouter);
 
 // Real-Time & Persistent Notifications endpoints
 app.use('/api/v1/notifications', notificationsRouter);
+
+// System-wide Admin Broadcast endpoints (Encrypted Footer Gate)
+app.use('/api/v1/admin/broadcast', adminBroadcastRouter);
 
 // AI Categorization endpoints
 app.use('/api/v1/ai', aiCategorizationRouter);

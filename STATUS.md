@@ -2,6 +2,26 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-24] - Public Landing Page, Onboarding Requirements & Encrypted Footer Admin Broadcast Engine
+
+**What:** Designed and deployed a stunning public landing page with password-encrypted administrative broadcast capabilities:
+1. **Public Platform Landing Page (`/`)**: Built a modern landing page showcasing $0 SMS shortage alerts, automated Monday executive email reports, multi-warehouse logistics, step-by-step onboarding guide, and onboarding requirements checklist.
+2. **Legal & Compliance Trust Center**: Integrated interactive accordions for **Terms & Conditions**, **SLA 99.9% Uptime Guarantee**, and **Customization Tier Policies**.
+3. **Discrete Password-Encrypted Footer Link**: Added `"AccountGo Accounting Engine v2.4 (Encrypted)"` link in the footer. Clicking opens a master passcode modal (`BROADCAST_MASTER_SECRET`).
+4. **System-Wide Admin Broadcast Engine**: Unlocks a batch-processing broadcast composer with pre-built templates (🚀 **System Upgrade**, 🛠 **Scheduled Maintenance**, 🎁 **Feature Release**) that sends batch SMS via Android Gateway and Email via Gmail SMTP to all tenant business owners with a 500ms safety delay between chunks.
+**Why:** To attract new business owners, clarify onboarding requirements and legal SLA commitments, and provide platform administrators with a secure broadcast gate to notify all businesses of system upgrades.
+**Files Affected:** `backend/src/services/broadcastService.ts`, `backend/src/routes/adminBroadcast.ts`, `backend/src/app.ts`, `frontend/src/pages/landing/LandingPage.tsx`, `frontend/src/components/admin/AdminBroadcastModal.tsx`, `frontend/src/App.tsx`, `STATUS.md`, `TASKS.md`, `walkthrough.md`.
+
+## [Date: 2026-07-24] - Verified Registration Flow (Email & SMS) & Private Android Gateway
+
+**What:** Implemented double verification on user onboarding and private messaging integration:
+1. **User Schema Verification Fields**: Added `isEmailVerified`, `isPhoneVerified`, `emailVerificationToken`, and `smsVerificationCode` to `User` model.
+2. **Private Android SMS Gateway**: Integrated `SmsService` with live `api.sms-gate.app/v1/` endpoint using Basic Auth and 3x retry loop. Triggers instant shortage alerts on till closeouts (`discrepancy < 0`).
+3. **Nodemailer Gmail SMTP & Weekly Email Cron**: Configured `EmailService` with live Gmail credentials (`ko2527600@gmail.com`), setting up automated Monday 8:00 AM executive Profit & Loss PDF email reports.
+4. **Verification Endpoint & UI**: Added `POST /api/v1/auth/verify` and frontend `/verify-account` screen. Once verified, sends a **Welcome Email** with the **AccountGo Quick Start Guide PDF** attached.
+**Why:** To ensure strict user verification before account activation and provide business owners with instant SMS alerts and weekly email reports.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/src/services/smsService.ts`, `backend/src/services/EmailService.ts`, `backend/src/services/scheduledEmailService.ts`, `backend/src/services/tenantService.ts`, `backend/src/routes/auth.ts`, `frontend/src/pages/auth/Verification.tsx`, `frontend/src/pages/settings/Settings.tsx`, `STATUS.md`, `TASKS.md`, `walkthrough.md`.
+
 ## [Date: 2026-07-23] - Advanced Features & Staff Onboarding Roadmap Added
 
 **What:** Integrated the technical strategy and roadmap for Phase 2 "Edge" Features and Staff Onboarding:
