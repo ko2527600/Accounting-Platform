@@ -11,9 +11,9 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Develop API endpoints for Chart of Accounts management (CRUD) (w:10)
 - [x] Develop API endpoints for Journal Entry creation and management (w:12)
 - [x] Develop API endpoints for Ledger viewing and transaction history (w:10)
-- [ ] Build frontend UI for Chart of Accounts management (w:8)
-- [ ] Build frontend UI for Journal Entry creation (w:10)
-- [ ] Build frontend UI for Ledger viewing (w:8)
+- [x] Build frontend UI for Chart of Accounts management (w:8)
+- [x] Build frontend UI for Journal Entry creation (w:10)
+- [x] Build frontend UI for Ledger viewing (w:8)
 - [x] Implement basic reporting: Trial Balance, P&L, Balance Sheet (API) (w:15)
 - [x] Implement tenant-specific data isolation logic across all services (w:10)
 - [ ] Set up CI/CD pipeline for automated deployments (w:7)
@@ -34,6 +34,10 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [ ] Enhance Taxation & Compliance features (e.g., advanced GST/VAT) (w:15)
 - [ ] Implement "Go To" feature for enhanced navigation (w:8)
 - [ ] Develop advanced reporting and analytics dashboards (w:10)
+
+## Known Issues
+
+- [ ] `GET /api/v1/ledgers` list endpoint response shape doesn't match its own integration test expectations (`data.pagination.{page,limit,total,totalPages}` expected, API returns those fields flat on `data`). Pre-existing, found while verifying BE-108/BE-109; not blocking Chart of Accounts, Journal Entries, or General Ledger pages, which use the `/ledgers/summary` and `/ledgers/accounts/:id` endpoints instead.
 
 ## Phase 3: Further Enhancements
 

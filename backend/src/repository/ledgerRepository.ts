@@ -103,14 +103,20 @@ export async function postJournalEntryToLedger(
   // Batch fetch latest balances for all affected accounts in a single query
   // Uses DISTINCT ON to get the most recent ledger entry per account
   // Includes FOR UPDATE to lock rows and prevent race conditions
+  // Postgres rejects FOR UPDATE combined with DISTINCT ON in the same query,
+  // so the row lock is taken in the inner query and the latest-per-account
+  // row is picked in the (lock-free) outer DISTINCT ON.
   const balanceQuery = `
-    SELECT DISTINCT ON (account_id) 
-      account_id, 
+    SELECT DISTINCT ON (account_id)
+      account_id,
       balance
-    FROM ledgers
-    WHERE account_id = ANY($1::uuid[])
+    FROM (
+      SELECT account_id, balance, transaction_date, created_at
+      FROM ledgers
+      WHERE account_id = ANY($1::uuid[])
+      FOR UPDATE
+    ) locked_rows
     ORDER BY account_id, transaction_date DESC, created_at DESC
-    FOR UPDATE
   `;
 
   const balanceRows: any[] = await prisma.$queryRawUnsafe(balanceQuery, accountIds);
