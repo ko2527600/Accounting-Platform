@@ -7,13 +7,21 @@ import {
   Lock,
   ArrowRight,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  Download,
+  Share
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { useInstallPrompt } from "../../hooks/useInstallPrompt";
+
+function isIos(): boolean {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
 
 export function LandingPage() {
   const navigate = useNavigate();
   const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "sla" | "tier">("terms");
+  const { isInstallable, isInstalled, promptInstall } = useInstallPrompt();
 
   return (
     <div className="min-h-screen bg-secondary-950 text-secondary-100 font-sans selection:bg-emerald-500 selection:text-white">
@@ -222,6 +230,49 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* 4b. Get the App */}
+      {!isInstalled && (isInstallable || isIos()) && (
+        <section id="get-the-app" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400 w-fit mx-auto mb-6">
+              <Download className="h-7 w-7" />
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Get the App on Your Device</h2>
+            <p className="mt-4 text-secondary-400 text-base leading-relaxed">
+              Install AccountGo for quick access from your home screen or desktop, just like a native app -
+              no app store required. It's the same workspace you use in the browser, ready in one tap.
+            </p>
+
+            <div className="mt-8">
+              {isInstallable && (
+                <Button
+                  variant="primary"
+                  onClick={promptInstall}
+                  className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-lg rounded-xl shadow-xl shadow-emerald-950/50 inline-flex items-center justify-center"
+                >
+                  Install App
+                  <Download className="ml-2 h-5 w-5" />
+                </Button>
+              )}
+
+              {!isInstallable && isIos() && (
+                <div className="max-w-md mx-auto p-6 bg-secondary-900 border border-secondary-800 rounded-2xl text-left">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center">
+                    <Share className="h-4 w-4 text-emerald-400 mr-2" />
+                    Add to Home Screen (Safari on iOS)
+                  </h4>
+                  <ol className="space-y-2 text-xs text-secondary-300 list-decimal list-inside">
+                    <li>Tap the Share icon in Safari's toolbar.</li>
+                    <li>Scroll down and tap "Add to Home Screen".</li>
+                    <li>Tap "Add" to confirm - AccountGo will appear as an app icon.</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 5. Pricing Section */}
       <section id="pricing" className="py-24 border-t border-secondary-800/60 bg-secondary-950">

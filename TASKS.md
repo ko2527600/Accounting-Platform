@@ -34,6 +34,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Enhance Taxation & Compliance features (e.g., advanced GST/VAT) (w:15) - Phase 1 of the new-modules plan: real per-tenant `TaxRate` CRUD (`/api/v1/tax-rates`) now drives invoice tax calculation, replacing the hardcoded flat 10% in `invoices.ts`. See STATUS.md 2026-07-25.
 - [ ] Implement "Go To" feature for enhanced navigation (w:8)
 - [ ] Develop advanced reporting and analytics dashboards (w:10)
+- [x] Make the web app installable from the landing page (Progressive Web App) (w:8) - step one of the web → software (desktop) → mobile roadmap. Real manifest + service worker via `vite-plugin-pwa`, an `Install App` button wired to the native `beforeinstallprompt` flow, manual "Add to Home Screen" instructions for iOS Safari, and a hard guarantee that `/api/**` is never served from the service worker cache. See STATUS.md 2026-07-25. Native desktop and mobile apps remain explicitly out of scope / future work.
 
 ## Known Issues
 
