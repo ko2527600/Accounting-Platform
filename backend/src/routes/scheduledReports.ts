@@ -1,23 +1,22 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../config/db';
-import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as reportingService from '../services/reportingService';
+import { computeWeeklyReportData } from '../services/scheduledEmailService';
 
 const router = Router();
 
 router.use(authenticateJwt);
 router.use(tenantContextMiddleware);
 
-// In-memory tenant schedule settings cache
-const tenantSchedules: Record<string, { frequency: string; recipients: string[]; reportType: string; enabled: boolean }> = {};
-
 /**
  * POST /api/v1/reports/schedule
- * Saves recurring report delivery settings.
+ * Saves recurring report delivery settings. ReportSchedule is a
+ * tenantId-column shared table (not per-tenant-schema), so this calls
+ * `prisma` directly rather than through withCurrentTenantDb.
  */
 router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
@@ -32,14 +31,18 @@ router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Re
       return;
     }
 
-    const schedule = {
+    const data = {
       frequency: frequency || 'Weekly',
       recipients,
       reportType: reportType || 'ProfitAndLoss',
       enabled: enabled !== undefined ? Boolean(enabled) : true,
     };
 
-    tenantSchedules[tenantId] = schedule;
+    const schedule = await (prisma as any).reportSchedule.upsert({
+      where: { tenantId },
+      create: { tenantId, ...data },
+      update: data,
+    });
 
     res.status(200).json({
       success: true,
@@ -62,7 +65,8 @@ router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Re
 router.get('/schedule', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const schedule = tenantSchedules[tenantId] || {
+    const existing = await (prisma as any).reportSchedule.findUnique({ where: { tenantId } });
+    const schedule = existing || {
       frequency: 'Weekly',
       recipients: [],
       reportType: 'ProfitAndLoss',
@@ -126,25 +130,7 @@ router.post('/schedule/test-email', async (req: Request, res: Response): Promise
 
     // Pull the tenant's real closeout data from the last 7 days instead of
     // sending hardcoded figures in every test email.
-    const reportData = await withCurrentTenantDb(prisma, async (client) => {
-      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-      const closeouts = await (client as any).dailyCloseoutReport.findMany({
-        where: { tenantId, closedAt: { gte: sevenDaysAgo } },
-        include: { warehouse: true },
-      });
-
-      const weeklySales = closeouts.reduce((sum: number, c: any) => sum + Number(c.cashSales), 0);
-      const totalItemsSold = closeouts.reduce((sum: number, c: any) => sum + (c.itemsSold || 0), 0);
-
-      const salesByShop = new Map<string, number>();
-      for (const c of closeouts) {
-        const name = c.warehouse?.name || 'Unknown Shop';
-        salesByShop.set(name, (salesByShop.get(name) || 0) + Number(c.cashSales));
-      }
-      const topShopName = [...salesByShop.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'No sales recorded this week';
-
-      return { weeklySales, topShopName, totalItemsSold };
-    });
+    const reportData = await computeWeeklyReportData(tenantId);
 
     const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName || 'AccountGo Workspace', reportData);
 
