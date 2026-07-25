@@ -18,6 +18,7 @@ import {
   Percent,
   CalendarClock,
   Target,
+  Repeat,
 } from "lucide-react";
 
 interface NavGroup {
@@ -58,6 +59,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Banking & Feeds", href: "/banking", icon: Landmark },
       { name: "Tax Rates", href: "/settings/tax-rates", icon: Percent },
       { name: "Fiscal Periods", href: "/settings/fiscal-periods", icon: CalendarClock },
+      { name: "Recurring Transactions", href: "/settings/recurring-transactions", icon: Repeat },
     ],
   },
   {

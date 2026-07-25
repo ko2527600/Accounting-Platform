@@ -21,6 +21,10 @@ const startServer = async () => {
     // Initialize Monday 8:00 AM Automated Email Reporting Cron Job
     const { ScheduledEmailCronService } = require('./services/scheduledEmailService');
     ScheduledEmailCronService.init();
+
+    // Initialize hourly Recurring Transactions generator
+    const { RecurringTransactionCronService } = require('./services/recurringTransactionService');
+    RecurringTransactionCronService.init();
   });
 
   const gracefulShutdown = async () => {

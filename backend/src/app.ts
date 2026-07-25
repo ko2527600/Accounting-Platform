@@ -32,6 +32,7 @@ import adminBroadcastRouter from './routes/adminBroadcast';
 import taxRatesRouter from './routes/taxRates';
 import fiscalPeriodsRouter from './routes/fiscalPeriods';
 import budgetsRouter from './routes/budgets';
+import recurringTransactionsRouter from './routes/recurringTransactions';
 
 dotenv.config();
 
@@ -148,6 +149,7 @@ app.use('/api/v1/custom-fields', customFieldsRouter);
 app.use('/api/v1/tax-rates', taxRatesRouter);
 app.use('/api/v1/fiscal-periods', fiscalPeriodsRouter);
 app.use('/api/v1/budgets', budgetsRouter);
+app.use('/api/v1/recurring-transactions', recurringTransactionsRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.
