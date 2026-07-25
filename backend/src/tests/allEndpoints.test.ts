@@ -1,5 +1,6 @@
 import request from 'supertest';
 import app from '../app';
+import { prisma } from '../config/db';
 
 describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
   let adminToken: string;
@@ -66,6 +67,18 @@ describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
   // 2. Auth Flow
   describe('Authentication Flow', () => {
     it('POST /api/v1/auth/login - should authenticate admin user & return JWT', async () => {
+      // Onboarding creates the admin as isActive:false until email+SMS verification
+      // completes, so login must complete that flow first (same pattern as
+      // verifiedRegistration.test.ts) rather than logging in immediately.
+      const dbUser = await prisma.user.findUnique({ where: { email: testEmail } });
+      await request(app)
+        .post('/api/v1/auth/verify')
+        .send({
+          email: testEmail,
+          emailVerificationToken: dbUser?.emailVerificationToken,
+          smsCode: dbUser?.smsVerificationCode,
+        });
+
       const res = await request(app)
         .post('/api/v1/auth/login')
         .send({

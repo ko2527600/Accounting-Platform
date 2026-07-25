@@ -185,10 +185,12 @@ export interface ListLedgerFilter {
 
 export interface ListLedgerResult {
   transactions: LedgerTransactionRecord[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
 }
 
 export interface AccountLedgerStatement {
@@ -321,10 +323,12 @@ export async function listLedgerTransactions(
 
   return {
     transactions,
-    total,
-    page,
-    limit,
-    totalPages,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+    },
   };
 }
 

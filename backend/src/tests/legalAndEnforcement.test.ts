@@ -150,6 +150,18 @@ describe('Legal Policy & Customization Enforcement API', () => {
     let tier2Token: string;
 
     beforeAll(async () => {
+      // The Tier 1 admin created in the first test block is isActive:false until
+      // email+SMS verification completes, so complete that flow before logging in
+      // (same pattern as verifiedRegistration.test.ts).
+      const dbUser = await prisma.user.findUnique({ where: { email: testEmail } });
+      await request(app)
+        .post('/api/v1/auth/verify')
+        .send({
+          email: testEmail,
+          emailVerificationToken: dbUser?.emailVerificationToken,
+          smsCode: dbUser?.smsVerificationCode,
+        });
+
       // Login/Fetch token for Tier 1 admin created in first test block
       const loginRes1 = await request(app)
         .post('/api/v1/auth/login')
