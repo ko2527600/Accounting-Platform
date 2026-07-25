@@ -139,7 +139,7 @@ export function JournalBuilder() {
                     className="text-xs text-primary-600 dark:text-primary-400 hover:underline flex items-center font-medium"
                   >
                     <Sparkles className="mr-1 h-3 w-3" />
-                    {isAiLoading ? "Analyzing..." : "AI Suggest Category"}
+                    {isAiLoading ? "Analyzing..." : "Suggest Category"}
                   </button>
                 </div>
                 <Input
@@ -157,7 +157,7 @@ export function JournalBuilder() {
                     <div>
                       <span className="font-semibold text-primary-700 dark:text-primary-300 flex items-center">
                         <Sparkles className="mr-1 h-3.5 w-3.5 text-primary-600" />
-                        AI Recommendation ({Math.round(aiSuggestion.confidence * 100)}% match):
+                        Suggested Category ({Math.round(aiSuggestion.confidence * 100)}% match):
                       </span>
                       <span className="text-secondary-600 dark:text-secondary-400">
                         {aiSuggestion.accountName} • {aiSuggestion.rationale}
