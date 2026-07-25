@@ -2,6 +2,13 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-25] - Fixed Rate Limiter Key Collision Between api/auth/onboarding Limiters
+
+**What:** `apiRateLimiter`, `authRateLimiter`, and `onboardingRateLimiter` (`backend/src/middleware/rateLimiterMiddleware.ts`) all built their Redis counter key identically - `rate_limit:${tenantOrIp}` - with no way to tell which limiter incremented it. Since `apiRateLimiter` is mounted globally on every `/api/` route, ordinary traffic (e.g. a single page load firing several parallel GETs) inflated the exact same counter the much stricter `authRateLimiter` (10/min) and `onboardingRateLimiter` (5/min) check against. A real user's first login-then-save on a data-heavy page (confirmed live: the new Scheduled Reports Settings tab) could get spuriously 429'd by their own unrelated page-load traffic, with the error surfacing as a confusing "Too Many Requests" on an action that made only one or two actual calls to the limited route.
+**Fix:** Added a required `name` field to each limiter's options (`'api'`/`'auth'`/`'onboarding'`) and namespaced the cache key by it: `rate_limit:${name}:${tenantOrIp}`. Each limiter now has its own isolated budget per tenant/IP, as originally intended.
+**Verification:** New `rateLimiterKeyIsolation.test.ts` - fires 15 requests through `apiRateLimiter` for a tenant (over `authRateLimiter`'s 10/min limit, under `apiRateLimiter`'s own 100/min), then confirms a single `authRateLimiter` check for the same tenant still passes. Confirmed the test **fails** against the pre-fix shared-key code (auth check blocked at count 16) and passes after the fix - the rate limiter module bypasses itself under `NODE_ENV=test`, so the test temporarily flips it to exercise the real Redis-backed path. Full backend suite: 201/202 (same pre-existing unrelated stale-mock flake documented in every prior entry this session). Reproduced and confirmed fixed live: the exact "Settings page save gets 429'd" scenario found while verifying the Scheduled Reports feature no longer occurs after this fix.
+**Files Affected:** `backend/src/middleware/rateLimiterMiddleware.ts`, `backend/src/tests/rateLimiterKeyIsolation.test.ts` (new), `STATUS.md`, `TASKS.md`.
+
 ## [Date: 2026-07-25] - Built a Real Scheduled Reports System (Persistent, Per-Tenant, Actually Dispatches)
 
 **What:** Replaced the entirely in-memory, never-actually-scheduled "Scheduled Reports" feature with a real one:
