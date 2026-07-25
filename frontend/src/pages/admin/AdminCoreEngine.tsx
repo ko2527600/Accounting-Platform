@@ -35,6 +35,17 @@ export function AdminCoreEngine() {
   // Active Hub Tab
   const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "schemas" | "audit">("broadcast");
 
+  // Engine Diagnostics State
+  const [healthData, setHealthData] = useState<{
+    status: string;
+    database: string;
+    redis: string;
+    uptime: number;
+    timestamp: string;
+  } | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
   const [message, setMessage] = useState(
@@ -54,6 +65,40 @@ export function AdminCoreEngine() {
       setIsUnlocked(true);
     }
   }, []);
+
+  // Fetch real infrastructure health once unlocked (the top status card and the
+  // Engine Diagnostics tab both read from this, so it isn't gated to one tab).
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    let cancelled = false;
+    setIsLoadingHealth(true);
+    setHealthError(null);
+
+    api
+      .get("/health")
+      .then((res) => {
+        if (!cancelled) setHealthData(res.data);
+      })
+      .catch((err) => {
+        // A degraded backend responds 503 with the same health payload shape,
+        // so still show it if present rather than treating it as a fetch failure.
+        if (!cancelled) {
+          if (err.response?.data?.status) {
+            setHealthData(err.response.data);
+          } else {
+            setHealthError("Failed to reach the backend health endpoint.");
+          }
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingHealth(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked]);
 
   const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -218,31 +263,33 @@ export function AdminCoreEngine() {
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Core System Status</div>
-                    <div className="text-lg font-extrabold text-emerald-400">Operational 99.9%</div>
+                    <div className={`text-lg font-extrabold ${healthData?.status === "healthy" ? "text-emerald-400" : healthData ? "text-red-400" : "text-secondary-500"}`}>
+                      {healthData ? (healthData.status === "healthy" ? "Operational" : "Degraded") : "Checking..."}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="bg-secondary-900 border-secondary-800 text-white">
                 <CardContent className="p-4 flex items-center space-x-4">
-                  <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
+                  <div className="p-3 bg-secondary-500/10 text-secondary-400 rounded-xl">
                     <Smartphone className="h-6 w-6" />
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Android SMS Gateway</div>
-                    <div className="text-lg font-extrabold text-amber-400">Online (SIM 92k+)</div>
+                    <div className="text-lg font-extrabold text-secondary-400">Not Monitored</div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="bg-secondary-900 border-secondary-800 text-white">
                 <CardContent className="p-4 flex items-center space-x-4">
-                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+                  <div className="p-3 bg-secondary-500/10 text-secondary-400 rounded-xl">
                     <Mail className="h-6 w-6" />
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Gmail SMTP Service</div>
-                    <div className="text-lg font-extrabold text-emerald-400">Connected (SSL:465)</div>
+                    <div className="text-lg font-extrabold text-secondary-400">Not Monitored</div>
                   </div>
                 </CardContent>
               </Card>
@@ -465,39 +512,62 @@ export function AdminCoreEngine() {
                 <CardHeader>
                   <CardTitle className="text-xl font-bold">Platform Diagnostics & Service Uptime</CardTitle>
                   <CardDescription className="text-secondary-400 text-xs">
-                    Live system metrics and operational statuses for AccountGo infrastructure.
+                    Live status from the backend's /health endpoint.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>PostgreSQL Database Pool</span>
-                      <span className="text-emerald-400 font-bold">CONNECTED (Pooled SSL)</span>
+                  {isLoadingHealth && !healthData && (
+                    <div className="flex items-center justify-center py-8 text-secondary-400 text-sm gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Checking infrastructure status...
                     </div>
-                    <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full w-[99.9%]" />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>Android SMS Gateway API (`api.sms-gate.app`)</span>
-                      <span className="text-emerald-400 font-bold">READY (SIM Active)</span>
+                  {healthError && (
+                    <div className="p-4 bg-red-950/30 border border-red-900 rounded-lg text-red-300 text-xs">
+                      {healthError}
                     </div>
-                    <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
-                      <div className="bg-amber-400 h-full w-[100%]" />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>Gmail SMTP Mail Transport (`smtp.gmail.com:465`)</span>
-                      <span className="text-emerald-400 font-bold">AUTHENTICATED</span>
-                    </div>
-                    <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
-                      <div className="bg-blue-400 h-full w-[100%]" />
-                    </div>
-                  </div>
+                  {healthData && (
+                    <>
+                      <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span>PostgreSQL Database</span>
+                          <span className={healthData.database === "connected" ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                            {healthData.database === "connected" ? "CONNECTED" : "DISCONNECTED"}
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${healthData.database === "connected" ? "bg-emerald-500 w-full" : "bg-red-500 w-[10%]"}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span>Redis Cache</span>
+                          <span className={healthData.redis === "connected" ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                            {healthData.redis === "connected" ? "CONNECTED" : "DISCONNECTED (fallback mode)"}
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${healthData.redis === "connected" ? "bg-emerald-500 w-full" : "bg-amber-500 w-[10%]"}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-secondary-400 pt-2">
+                        <span>Overall status: <span className="text-white font-semibold">{healthData.status}</span></span>
+                        <span>Uptime: {Math.floor(healthData.uptime / 60)}m {Math.floor(healthData.uptime % 60)}s</span>
+                      </div>
+                      <p className="text-[11px] text-secondary-500">
+                        SMS gateway and email transport have no live health-check endpoint yet, so they aren't shown here rather than displaying a fabricated status.
+                      </p>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}

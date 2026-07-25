@@ -1,7 +1,7 @@
 import { prisma } from '../config/db';
 import { EmailService } from './EmailService';
 import { SmsService } from './smsService';
-import { withCurrentTenantDb } from '../database/tenantClient';
+import { getTenantContext } from '../context/tenantContext';
 
 export interface BroadcastRequestDTO {
   subject: string;
@@ -21,7 +21,13 @@ export interface BroadcastResult {
 
 export class BroadcastService {
   private static get masterPasscode(): string {
-    return process.env.BROADCAST_MASTER_SECRET || 'secret_admin_broadcast_passcode';
+    const secret = process.env.BROADCAST_MASTER_SECRET;
+    if (!secret) {
+      throw new Error(
+        'BROADCAST_MASTER_SECRET environment variable is not set. Refusing to fall back to a default passcode.'
+      );
+    }
+    return secret;
   }
 
   public static verifyPasscode(passcode: string): boolean {
@@ -104,16 +110,20 @@ export class BroadcastService {
       }
     }
 
-    // 3. Log System Broadcast in AuditLog
+    // 3. Log System Broadcast in AuditLog. AuditLog is a plain public-schema
+    // table (not per-tenant), so this writes directly rather than through
+    // withCurrentTenantDb, which requires an active tenant context - this
+    // route (adminBroadcast.ts) intentionally has none, so that call would
+    // always throw and this log entry would silently never be written.
     try {
-      await withCurrentTenantDb(prisma, async (client) => {
-        return (client as any).auditLog.create({
-          data: {
-            action: 'SYSTEM_BROADCAST',
-            entity: 'ADMIN_CONSOLE',
-            details: `Admin broadcast dispatched (${dto.channel}). Subject: "${dto.subject}". Targeted: ${totalTargeted}, Emails Sent: ${emailSentCount}, SMS Sent: ${smsSentCount}, Failures: ${failedCount}`,
-          },
-        });
+      const tenantId = getTenantContext()?.tenantId ?? null;
+      await prisma.auditLog.create({
+        data: {
+          tenantId,
+          action: 'SYSTEM_BROADCAST',
+          entity: 'ADMIN_CONSOLE',
+          details: `Admin broadcast dispatched (${dto.channel}). Subject: "${dto.subject}". Targeted: ${totalTargeted}, Emails Sent: ${emailSentCount}, SMS Sent: ${smsSentCount}, Failures: ${failedCount}`,
+        },
       });
     } catch (auditErr) {
       console.error('[BroadcastService] Audit log write error:', auditErr);

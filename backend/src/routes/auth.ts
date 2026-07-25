@@ -355,10 +355,13 @@ router.put('/profile', authenticateJwt, async (req: Request, res: Response): Pro
 });
 
 /**
- * POST /api/v1/auth/verify
+ * POST /api/v1/auth/verify-token
  * Verifies JWT token validity and returns claims.
+ * Note: named distinctly from POST /verify (email/SMS account verification above),
+ * which would otherwise shadow this handler since Express dispatches to the first
+ * matching route registration.
  */
-router.post('/verify', (req: Request, res: Response): void => {
+router.post('/verify-token', (req: Request, res: Response): void => {
   const authHeader = req.headers.authorization || (req.headers['x-auth-token'] as string) || req.body.token;
 
   if (!authHeader) {

@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 import * as journalService from '../services/journalEntryService';
 
 const router = Router();
@@ -17,8 +18,10 @@ router.use(tenantContextMiddleware);
  */
 router.get('/customers', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const customers = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.findMany({
+        where: { tenantId },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -39,6 +42,7 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/customers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { name, email, phone, address } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Customer name and email are required.' });
@@ -47,7 +51,7 @@ router.post('/customers', requireRole('Accountant'), async (req: Request, res: R
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.create({
-        data: { name: name.trim(), email: email.trim().toLowerCase(), phone, address },
+        data: { tenantId, name: name.trim(), email: email.trim().toLowerCase(), phone, address },
       });
     });
 
@@ -64,8 +68,10 @@ router.post('/customers', requireRole('Accountant'), async (req: Request, res: R
  */
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const invoices = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).invoice.findMany({
+        where: { tenantId },
         include: { customer: true, items: true },
         orderBy: { createdAt: 'desc' },
       });
@@ -84,6 +90,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items } = req.body;
 
     if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
@@ -98,6 +105,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       const amt = qty * price;
       subtotal += amt;
       return {
+        tenantId,
         description: it.description || 'Service/Product',
         quantity: qty,
         unitPrice: price,
@@ -108,12 +116,19 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     const tax = subtotal * 0.10; // 10% tax
     const total = subtotal + tax;
 
-    const invCount = await withCurrentTenantDb(prisma, async (client) => (client as any).invoice.count());
-    const invoiceNumber = `INV-${String(invCount + 1001).padStart(5, '0')}`;
+    const invoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
+      // Verify the customer actually belongs to this tenant before linking it,
+      // so a caller can't attach an invoice to another tenant's customer record.
+      const customer = await (client as any).customer.findFirst({ where: { id: customerId, tenantId } });
+      if (!customer) {
+        throw new Error('Customer not found.');
+      }
+
       return (client as any).invoice.create({
         data: {
+          tenantId,
           invoiceNumber,
           customerId,
           dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
@@ -132,6 +147,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     res.status(201).json({ success: true, message: 'Invoice created successfully', data: { invoice: created } });
   } catch (error: any) {
     console.error('[Invoices] Error creating invoice:', error);
+    if (error.message === 'Customer not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to create invoice.' });
   }
 });
@@ -142,11 +161,12 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
  */
 router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { id } = req.params;
 
     const invoice = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).invoice.findUnique({
-        where: { id },
+      return (client as any).invoice.findFirst({
+        where: { id, tenantId },
         include: { customer: true },
       });
     });

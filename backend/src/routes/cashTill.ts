@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 
 const router = Router();
 
@@ -15,11 +16,13 @@ router.use(tenantContextMiddleware);
  */
 router.get('/current', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { warehouseId } = req.query;
 
     const till = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).cashTill.findFirst({
         where: {
+          tenantId,
           ...(warehouseId && { warehouseId: String(warehouseId) }),
           status: 'OPEN',
         },
@@ -41,6 +44,7 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/open', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { warehouseId, openingCash } = req.body;
     const userName = (req as any).user?.name || 'Shop Manager';
 
@@ -50,14 +54,20 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
     }
 
     const createdTill = await withCurrentTenantDb(prisma, async (client) => {
+      const warehouse = await (client as any).warehouse.findFirst({ where: { id: warehouseId, tenantId } });
+      if (!warehouse) {
+        throw new Error('Warehouse not found.');
+      }
+
       // Close any previously open till for this warehouse
       await (client as any).cashTill.updateMany({
-        where: { warehouseId, status: 'OPEN' },
+        where: { tenantId, warehouseId, status: 'OPEN' },
         data: { status: 'CLOSED', closedAt: new Date() },
       });
 
       return (client as any).cashTill.create({
         data: {
+          tenantId,
           warehouseId,
           openedBy: userName,
           openingCash: Number(openingCash),
@@ -70,6 +80,10 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
     res.status(201).json({ success: true, message: 'Cash till opened successfully', data: { till: createdTill } });
   } catch (error: any) {
     console.error('[CashTill] Error opening till:', error);
+    if (error.message === 'Warehouse not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to open cash till.' });
   }
 });
@@ -80,6 +94,7 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { tillId, itemId, quantity, cashGiven } = req.body;
 
     if (!tillId || !itemId || !quantity || !cashGiven) {
@@ -88,8 +103,8 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
     }
 
     const result = await withCurrentTenantDb(prisma, async (client) => {
-      const till = await (client as any).cashTill.findUnique({
-        where: { id: tillId },
+      const till = await (client as any).cashTill.findFirst({
+        where: { id: tillId, tenantId },
         include: { warehouse: true },
       });
 
@@ -97,15 +112,16 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         throw new Error('Cash till is not open or does not exist.');
       }
 
-      const item = await (client as any).inventoryItem.findUnique({
-        where: { id: itemId },
+      const item = await (client as any).inventoryItem.findFirst({
+        where: { id: itemId, tenantId },
       });
 
       if (!item) {
         throw new Error('Inventory item not found.');
       }
 
-      // Check warehouse stock
+      // Check warehouse stock (existence / friendly error message only - the actual
+      // deduction below is guarded atomically, same as inventory transfers).
       const stock = await (client as any).warehouseStock.findUnique({
         where: { warehouseId_itemId: { warehouseId: till.warehouseId, itemId } },
       });
@@ -121,16 +137,23 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         throw new Error(`Cash given (GH₵ ${cashGiven}) is less than total bill amount (GH₵ ${totalAmount}).`);
       }
 
-      // 1. Deduct stock from shop warehouse
-      await (client as any).warehouseStock.update({
-        where: { id: stock.id },
-        data: { quantityOnHand: stock.quantityOnHand - Number(quantity) },
+      // 1. Deduct stock from shop warehouse - atomic guarded decrement so two
+      // concurrent sales of the same item can't both read the same stale
+      // quantity and both succeed (lost-update / phantom-stock bug).
+      const deduction = await (client as any).warehouseStock.updateMany({
+        where: { id: stock.id, quantityOnHand: { gte: Number(quantity) } },
+        data: { quantityOnHand: { decrement: Number(quantity) } },
       });
 
+      if (deduction.count === 0) {
+        throw new Error(`Insufficient stock in ${till.warehouse.name} (stock changed concurrently, please retry).`);
+      }
+
       // 2. Record cash sale
-      const receiptNo = `REC-${Date.now().toString().slice(-6)}`;
+      const receiptNo = `REC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
       const sale = await (client as any).cashSale.create({
         data: {
+          tenantId,
           tillId,
           receiptNo,
           amount: totalAmount,
@@ -139,10 +162,11 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
-      // 3. Increment till total cash sales
+      // 3. Increment till total cash sales atomically - avoids losing concurrent
+      // sales' contributions to the running total.
       await (client as any).cashTill.update({
         where: { id: tillId },
-        data: { cashSalesTotal: Number(till.cashSalesTotal) + totalAmount },
+        data: { cashSalesTotal: { increment: totalAmount } },
       });
 
       return { sale, item, totalAmount, changeGiven };
@@ -161,6 +185,7 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/close', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { tillId, actualEndingCash, notes } = req.body;
     const userName = (req as any).user?.name || 'Shop Manager';
 
@@ -170,8 +195,8 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
     }
 
     const report = await withCurrentTenantDb(prisma, async (client) => {
-      const till = await (client as any).cashTill.findUnique({
-        where: { id: tillId },
+      const till = await (client as any).cashTill.findFirst({
+        where: { id: tillId, tenantId },
         include: { sales: true, warehouse: true },
       });
 
@@ -196,6 +221,7 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
       // Create Daily Closeout Report
       const report = await (client as any).dailyCloseoutReport.create({
         data: {
+          tenantId,
           tillId,
           warehouseId: till.warehouseId,
           closedBy: userName,
@@ -214,6 +240,7 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
       const discText = discrepancy === 0 ? 'BALANCED' : discrepancy > 0 ? `OVER (+GH₵ ${discrepancy})` : `SHORT (-GH₵ ${Math.abs(discrepancy)})`;
       await (client as any).notification.create({
         data: {
+          tenantId,
           title: `Till Closed: ${till.warehouse?.name}`,
           message: `${userName} closed daily cash drawer. Cash Sales: GH₵ ${sales}. Discrepancy: ${discText}.`,
           type: discrepancy !== 0 ? 'DISCREPANCY' : 'TILL_CLOSEOUT',
@@ -250,8 +277,10 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
  */
 router.get('/closeouts', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const closeouts = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).dailyCloseoutReport.findMany({
+        where: { tenantId },
         include: { warehouse: true, till: true },
         orderBy: { closedAt: 'desc' },
       });
