@@ -8,6 +8,7 @@ export interface TenantRecord {
   acceptedTermsVersion: string | null;
   termsAcceptedAt: Date | null;
   tier: number;
+  baseCurrency: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,6 +20,7 @@ export interface CreateTenantData {
   acceptedTermsVersion?: string | null;
   termsAcceptedAt?: Date | null;
   tier?: number;
+  baseCurrency?: string;
 }
 
 /**
@@ -43,6 +45,7 @@ export async function createTenant(prisma: PrismaClient, data: CreateTenantData)
       acceptedTermsVersion: data.acceptedTermsVersion || null,
       termsAcceptedAt: data.termsAcceptedAt || null,
       tier,
+      ...(data.baseCurrency ? { baseCurrency: data.baseCurrency } : {}),
     },
   });
 

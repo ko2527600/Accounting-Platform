@@ -11,6 +11,8 @@ import * as taxRateService from '../services/taxRateService';
 import { TaxRateServiceError } from '../services/taxRateService';
 import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
+import * as fxRateService from '../services/fxRateService';
+import { FxRateServiceError } from '../services/fxRateService';
 
 const router = Router();
 
@@ -143,6 +145,12 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     }
     const total = subtotal + tax;
 
+    // Convert to the tenant's base currency at creation time so the ledger
+    // (implicitly single-currency) can post the right figure on payment,
+    // rather than the raw amount in whatever currency the invoice was billed in.
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    const baseCurrencyAmount = await fxRateService.convertAmount(total, currency, tenant?.baseCurrency || 'USD');
+
     const invoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
@@ -166,6 +174,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           tax,
           taxRateId: resolvedTaxRateId,
           total,
+          baseCurrencyAmount,
           status: 'SENT',
           items: { create: itemData },
         },
@@ -180,7 +189,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       res.status(404).json({ success: false, error: error.message });
       return;
     }
-    if (error instanceof TaxRateServiceError) {
+    if (error instanceof TaxRateServiceError || error instanceof FxRateServiceError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
@@ -227,6 +236,12 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
     const revenueAcc = accounts.find((a: any) => a.code === '4010') || accounts[1] || accounts[0];
 
+    // Post the tenant-base-currency equivalent, not the raw native-currency
+    // total - the ledger is implicitly single-currency. Falls back to the raw
+    // total for invoices created before this field existed (same currency
+    // as base in the overwhelming majority of cases anyway).
+    const postingAmount = invoice.baseCurrencyAmount != null ? Number(invoice.baseCurrencyAmount) : Number(invoice.total);
+
     let journalId = null;
     if (cashAcc && revenueAcc) {
       const journal = await journalService.createJournalEntry({
@@ -234,8 +249,8 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
         lines: [
-          { accountId: cashAcc.id, debit: Number(invoice.total), credit: 0, description: `Cash Received - ${invoice.invoiceNumber}` },
-          { accountId: revenueAcc.id, debit: 0, credit: Number(invoice.total), description: `Revenue - ${invoice.invoiceNumber}` },
+          { accountId: cashAcc.id, debit: postingAmount, credit: 0, description: `Cash Received - ${invoice.invoiceNumber}` },
+          { accountId: revenueAcc.id, debit: 0, credit: postingAmount, description: `Revenue - ${invoice.invoiceNumber}` },
         ],
       });
       journalId = journal.id;

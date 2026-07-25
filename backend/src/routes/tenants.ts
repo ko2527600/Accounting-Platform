@@ -103,7 +103,7 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug } = req.body;
+    const { companyName, name, slug, baseCurrency } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
@@ -115,6 +115,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       data: {
         ...(newName && { name: newName }),
         ...(slug && { slug: slug.trim().toLowerCase() }),
+        ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
       },
     });
 

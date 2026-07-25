@@ -26,7 +26,7 @@ export function useTenantSettings() {
           id: t.id,
           companyName: t.name || 'My Workspace',
           slug: t.slug || '',
-          baseCurrency: 'USD',
+          baseCurrency: t.baseCurrency || 'USD',
           financialYearStart: '01-01',
           timezone: 'UTC',
           updatedAt: t.updatedAt || new Date().toISOString(),

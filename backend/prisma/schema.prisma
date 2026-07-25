@@ -17,6 +17,7 @@ model Tenant {
   acceptedTermsVersion String?   @map("accepted_terms_version")
   termsAcceptedAt      DateTime? @map("terms_accepted_at")
   tier                 Int       @default(1)
+  baseCurrency         String    @default("USD") @map("base_currency")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -268,6 +269,7 @@ model Invoice {
   tax           Decimal       @default(0.00) @db.Decimal(15, 2)
   taxRateId     String?       @map("tax_rate_id")
   total         Decimal       @db.Decimal(15, 2)
+  baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
   status        String        @default("DRAFT")
   journalId     String?       @map("journal_id")
   createdAt     DateTime      @default(now()) @map("created_at")
@@ -323,6 +325,7 @@ model VendorBill {
   dueDate    DateTime @map("due_date")
   amount     Decimal  @db.Decimal(15, 2)
   currency   String   @default("USD")
+  baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
   status     String   @default("UNPAID")
   journalId  String?  @map("journal_id")
   createdAt  DateTime @default(now()) @map("created_at")

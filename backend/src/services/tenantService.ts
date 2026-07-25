@@ -20,6 +20,7 @@ export interface OnboardTenantDTO {
   acceptedTermsVersion?: string;
   termsAccepted?: boolean;
   tier?: number;
+  baseCurrency?: string;
 }
 
 export interface OnboardTenantResult {
@@ -170,6 +171,7 @@ export async function onboardTenant(
       acceptedTermsVersion,
       termsAcceptedAt: new Date(),
       tier,
+      baseCurrency: dto.baseCurrency,
     });
   } catch (err: any) {
     if (err.message && err.message.includes('unique constraint')) {

@@ -16,7 +16,8 @@ export function Register() {
     phone: "",
     password: "",
     tenantName: "",
-    tenantSlug: ""
+    tenantSlug: "",
+    baseCurrency: "USD"
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
@@ -83,6 +84,7 @@ export function Register() {
         phone: formData.phone,
         password: formData.password,
         adminName: formData.adminName,
+        baseCurrency: formData.baseCurrency,
         termsAccepted: true,
         acceptedTermsVersion: "v1.0",
       });
@@ -238,6 +240,23 @@ export function Register() {
                       onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '') })}
                     />
                   </div>
+                </div>
+                <div>
+                  <label htmlFor="baseCurrency" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                    Base Operating Currency
+                  </label>
+                  <select
+                    id="baseCurrency"
+                    className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+                    value={formData.baseCurrency}
+                    onChange={(e) => setFormData({ ...formData, baseCurrency: e.target.value })}
+                  >
+                    <option value="USD">USD - US Dollar ($)</option>
+                    <option value="GHS">GHS - Ghanaian Cedi (GH₵)</option>
+                    <option value="EUR">EUR - Euro (€)</option>
+                    <option value="GBP">GBP - British Pound (£)</option>
+                    <option value="NGN">NGN - Nigerian Naira (₦)</option>
+                  </select>
                 </div>
 
                 {/* Terms and Conditions Checkbox */}

@@ -9,6 +9,8 @@ import * as journalService from '../services/journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
 import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
+import * as fxRateService from '../services/fxRateService';
+import { FxRateServiceError } from '../services/fxRateService';
 
 const router = Router();
 
@@ -100,6 +102,11 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 
     const billNumber = `BILL-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+    // Convert to the tenant's base currency at creation time, same as invoices -
+    // the ledger is implicitly single-currency, so this is what actually gets posted on payment.
+    const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+    const baseCurrencyAmount = await fxRateService.convertAmount(Number(amount), currency, tenant?.baseCurrency || 'USD');
+
     const created = await withCurrentTenantDb(prisma, async (client) => {
       // Verify the vendor actually belongs to this tenant before linking it.
       const vendor = await (client as any).vendor.findFirst({ where: { id: vendorId, tenantId } });
@@ -113,6 +120,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           billNumber,
           vendorId,
           amount: Number(amount),
+          baseCurrencyAmount,
           dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 14 * 24 * 60 * 60 * 1000),
           currency,
           status: 'UNPAID',
@@ -126,6 +134,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     console.error('[Bills] Error creating bill:', error);
     if (error.message === 'Vendor not found.') {
       res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    if (error instanceof FxRateServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to create vendor bill.' });
@@ -169,6 +181,10 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     const expenseAcc = accounts.find((a: any) => a.code === '5010') || accounts[accounts.length - 1] || accounts[0];
     const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
 
+    // Same reasoning as invoices.ts's /pay handler: post the tenant-base-currency
+    // equivalent, not the raw native-currency amount.
+    const postingAmount = bill.baseCurrencyAmount != null ? Number(bill.baseCurrencyAmount) : Number(bill.amount);
+
     let journalId = null;
     if (expenseAcc && cashAcc) {
       const journal = await journalService.createJournalEntry({
@@ -176,8 +192,8 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
         lines: [
-          { accountId: expenseAcc.id, debit: Number(bill.amount), credit: 0, description: `Expense - ${bill.billNumber}` },
-          { accountId: cashAcc.id, debit: 0, credit: Number(bill.amount), description: `Cash Payment - ${bill.billNumber}` },
+          { accountId: expenseAcc.id, debit: postingAmount, credit: 0, description: `Expense - ${bill.billNumber}` },
+          { accountId: cashAcc.id, debit: 0, credit: postingAmount, description: `Cash Payment - ${bill.billNumber}` },
         ],
       });
       journalId = journal.id;

@@ -25,6 +25,10 @@ const startServer = async () => {
     // Initialize hourly Recurring Transactions generator
     const { RecurringTransactionCronService } = require('./services/recurringTransactionService');
     RecurringTransactionCronService.init();
+
+    // Initialize FX rate cache refresher (no-op if FX_RATE_API_KEY isn't configured)
+    const { FxRateCronService } = require('./services/fxRateCronService');
+    FxRateCronService.init();
   });
 
   const gracefulShutdown = async () => {
