@@ -41,7 +41,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [ ] Scheduled Reports (`scheduledReports.ts`) persists schedules to an in-memory object only (lost on restart) and nothing actually triggers a send - distinct from the already-working Monday 8am P&L email cron.
 - [ ] "AI Ledger Categorization" (`aiCategorization.ts`) is keyword-matching with hardcoded confidence scores, not ML/AI - functionally real, but the name overstates what it does.
 - [ ] Multi-currency support is cosmetic: `currency.ts` has a static FX table that's never applied to convert any amount; `ExecutiveReports.tsx` hardcodes GHS; several other UI spots hardcode a currency instead of using the record's own `currency` field.
-- [ ] `AdminCoreEngine.tsx`'s "Engine Diagnostics", "Tenant Schemas & Tiers", and "System Audit Logs" tabs show static hardcoded/placeholder data instead of calling the real `/health` endpoint or fetching real data.
+- [ ] `AdminCoreEngine.tsx`'s "Tenant Schemas & Tiers" and "System Audit Logs" tabs still show static placeholder text (no data fetching). The "Engine Diagnostics" tab and top status cards were fixed on 2026-07-25 - they now call the real `/health` endpoint; SMS/Email cards were changed to say "Not Monitored" since the backend has no real health check for those.
 - [ ] DB tables with no corresponding API at all: `approval_workflows`, `approval_steps`, `budgets`, `fiscal_periods`, `tax_rates`, `recurring_transactions`, `report_definitions`, `attached_documents`.
 
 ## Phase 3: Further Enhancements

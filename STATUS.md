@@ -2,6 +2,13 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-25] - Wired AdminCoreEngine Diagnostics to Real /health Data
+
+**What:** `AdminCoreEngine.tsx`'s "Engine Diagnostics" tab showed permanently-hardcoded "Operational 99.9%" / "CONNECTED (Pooled SSL)" / "READY (SIM Active)" / "AUTHENTICATED" bars regardless of actual system state, despite a real `/health` endpoint (checking live DB/Redis connectivity) already existing and never being called. Also fixed the top "Core System Status" stat card, visible across every tab, which had the same problem. Fetches `/health` once the console is unlocked and displays the real `database`/`redis`/`status`/`uptime` fields. Since the backend has no real health-check for the SMS gateway or Gmail SMTP transport, those cards/rows now say "Not Monitored" instead of showing a fabricated "Online"/"Connected" status - showing real data next to fabricated data would have been more misleading than the original all-fake version.
+**Why:** A previous audit flagged this as an admin-facing tool giving operators false confidence about system health, unrelated to the actual `/health` endpoint that already existed and worked.
+**Verification:** Ran the backend and frontend together, unlocked the console with the local dev passcode, and confirmed via Playwright screenshot that the diagnostics tab and top card show real `connected`/`healthy` values and a live uptime counter that increases between page loads.
+**Files Affected:** `frontend/src/pages/admin/AdminCoreEngine.tsx`, `STATUS.md`, `TASKS.md`.
+
 ## [Date: 2026-07-25] - Fixed Critical Cross-Tenant Data Leak (Invoices, Banking, Inventory, Cash Till, Notifications, Custom Fields)
 
 **What:** Fixed the critical tenant-isolation bug flagged (unfixed) in the previous entry - every tenant on the platform was reading and writing the exact same rows for Invoicing, Vendor Bills, Banking, Inventory/Warehouses, Cash Till, Notifications, Customers, Vendors, and Custom Fields.
