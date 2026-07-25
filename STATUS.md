@@ -2,6 +2,13 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-25] - Phase 0 of New-Modules Plan: Added `tenantId` to the 6 Orphaned Tables
+
+**What:** Kicking off a larger, user-approved multi-phase plan to build real functionality for `tax_rates`, `fiscal_periods`, `budgets`, `recurring_transactions`, `approval_workflows`, and `approval_steps` (all previously DB tables with zero API surface - see TASKS.md Known Issues), plus real multi-currency conversion and a platform-wide audit log view. Investigation found none of these 6 tables had a `tenantId` column at all, unlike every other shared business-data table in the schema - this had to be fixed first since it's the foundation every subsequent phase depends on.
+**Fix:** Added `tenantId String @map("tenant_id")` + `@@index([tenantId])` to all 6 models, matching the established bare-column (no `@relation`) shared-table pattern used by `BankAccount`/`Customer`/etc. Also fixed two related global-uniqueness bugs discovered while doing this - `TaxRate.code` was declared `@unique` (globally, across all tenants) and `FiscalPeriod` had `@@unique([fiscalYear, periodNumber])` (also global) - both would have silently prevented two different tenants from ever using the same tax code or having a "Period 1 of fiscal year 2026," which is obviously wrong for a multi-tenant system. Changed both to tenant-scoped composite uniques (`@@unique([tenantId, code])` / `@@unique([tenantId, fiscalYear, periodNumber])`). Confirmed all 6 tables were completely empty (zero rows, nothing has ever used them) before adding the columns as `NOT NULL` directly, no backfill/default needed.
+**Verification:** Full backend suite: 207/207 passing. `tsc --noEmit` clean.
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260725070000_add_tenant_id_to_orphaned_tables/` (new), `STATUS.md`.
+
 ## [Date: 2026-07-25] - Fixed the 5 Pre-Existing Backend Test Failures (Ledger Posting Mock + Mono Banking Test Isolation)
 
 **What:** Investigated the 5 test failures flagged as a Known Issue while fixing the Quick Start Guide PDF. Both were confirmed real but non-production bugs via targeted investigation (one via `git stash` diffing against the base commit, the other via a live Postgres run capturing the actual thrown error):

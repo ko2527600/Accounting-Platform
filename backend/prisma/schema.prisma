@@ -589,8 +589,9 @@ model ReportDefinition {
 
 model TaxRate {
   id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
   name          String
-  code          String    @unique
+  code          String
   rate          Decimal   @db.Decimal(5, 4)
   description   String?
   accountId     String?   @map("account_id")
@@ -600,7 +601,8 @@ model TaxRate {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  @@index([code])
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@index([isActive, effectiveFrom, effectiveTo])
   @@map("tax_rates")
 }
@@ -613,6 +615,7 @@ enum PeriodStatus {
 
 model FiscalPeriod {
   id           String       @id @default(uuid())
+  tenantId     String       @map("tenant_id")
   name         String
   fiscalYear   Int          @map("fiscal_year")
   periodNumber Int          @map("period_number")
@@ -626,7 +629,8 @@ model FiscalPeriod {
 
   budgets Budget[]
 
-  @@unique([fiscalYear, periodNumber])
+  @@unique([tenantId, fiscalYear, periodNumber])
+  @@index([tenantId])
   @@index([fiscalYear])
   @@index([status])
   @@index([startDate, endDate])
@@ -635,6 +639,7 @@ model FiscalPeriod {
 
 model Budget {
   id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
   accountId      String   @map("account_id")
   fiscalPeriodId String   @map("fiscal_period_id")
   budgetAmount   Decimal  @map("budget_amount") @db.Decimal(15, 2)
@@ -647,6 +652,7 @@ model Budget {
   fiscalPeriod FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, fiscalPeriodId])
+  @@index([tenantId])
   @@index([accountId])
   @@index([fiscalPeriodId])
   @@map("budgets")
@@ -662,6 +668,7 @@ enum RecurrenceFrequency {
 
 model RecurringTransaction {
   id           String              @id @default(uuid())
+  tenantId     String              @map("tenant_id")
   name         String
   description  String?
   frequency    RecurrenceFrequency
@@ -674,6 +681,7 @@ model RecurringTransaction {
   createdAt    DateTime            @default(now()) @map("created_at")
   updatedAt    DateTime            @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@index([isActive, nextRun])
   @@index([frequency])
   @@map("recurring_transactions")
@@ -715,6 +723,7 @@ enum ApprovalStatus {
 
 model ApprovalWorkflow {
   id            String         @id @default(uuid())
+  tenantId      String         @map("tenant_id")
   entityType    String         @map("entity_type")
   entityId      String         @map("entity_id")
   requiredLevel Int            @map("required_level")
@@ -728,6 +737,7 @@ model ApprovalWorkflow {
 
   approvals ApprovalStep[]
 
+  @@index([tenantId])
   @@index([entityType, entityId])
   @@index([status])
   @@index([requestedBy])
@@ -736,6 +746,7 @@ model ApprovalWorkflow {
 
 model ApprovalStep {
   id         String         @id @default(uuid())
+  tenantId   String         @map("tenant_id")
   workflowId String         @map("workflow_id")
   level      Int
   approverId String?        @map("approver_id")
@@ -746,6 +757,7 @@ model ApprovalStep {
 
   workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([workflowId])
   @@index([approverId])
   @@index([status])
