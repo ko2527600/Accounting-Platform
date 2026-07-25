@@ -7,9 +7,10 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Cash Till API - concurrent sale safety', () => {
-  const tenantSlug = 'till-corp-1';
-  const tenantSchema = 'tenant_till_corp_1';
-  const adminEmail = 'admin_till@corp1.com';
+  const runId = Date.now();
+  const tenantSlug = `till-corp-1-${runId}`;
+  const tenantSchema = `tenant_till_corp_1_${runId}`;
+  const adminEmail = `admin_till_${runId}@corp1.com`;
 
   let adminToken: string;
   let warehouseId: string;

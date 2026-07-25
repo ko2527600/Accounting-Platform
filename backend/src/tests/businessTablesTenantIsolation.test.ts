@@ -17,13 +17,14 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * filtering every query by it.
  */
 describe('Tenant isolation for business tables (Invoices, Warehouses, Notifications)', () => {
-  const tenant1Slug = 'iso-corp-1';
-  const tenant1Schema = 'tenant_iso_corp_1';
-  const admin1Email = 'admin_iso1@corp1.com';
+  const runId = Date.now();
+  const tenant1Slug = `iso-corp-1-${runId}`;
+  const tenant1Schema = `tenant_iso_corp_1_${runId}`;
+  const admin1Email = `admin_iso1_${runId}@corp1.com`;
 
-  const tenant2Slug = 'iso-corp-2';
-  const tenant2Schema = 'tenant_iso_corp_2';
-  const admin2Email = 'admin_iso2@corp2.com';
+  const tenant2Slug = `iso-corp-2-${runId}`;
+  const tenant2Schema = `tenant_iso_corp_2_${runId}`;
+  const admin2Email = `admin_iso2_${runId}@corp2.com`;
 
   let token1: string;
   let token2: string;

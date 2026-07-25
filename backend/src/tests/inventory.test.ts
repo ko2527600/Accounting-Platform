@@ -7,9 +7,10 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Inventory API - concurrent stock transfer safety', () => {
-  const tenantSlug = 'inv-corp-1';
-  const tenantSchema = 'tenant_inv_corp_1';
-  const adminEmail = 'admin_inv@corp1.com';
+  const runId = Date.now();
+  const tenantSlug = `inv-corp-1-${runId}`;
+  const tenantSchema = `tenant_inv_corp_1_${runId}`;
+  const adminEmail = `admin_inv_${runId}@corp1.com`;
 
   let adminToken: string;
   let warehouseAId: string;

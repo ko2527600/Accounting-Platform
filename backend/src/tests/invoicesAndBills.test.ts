@@ -7,9 +7,10 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Invoices & Bills API - concurrent numbering safety', () => {
-  const tenantSlug = 'billing-corp-1';
-  const tenantSchema = 'tenant_billing_corp_1';
-  const adminEmail = 'admin_billing@corp1.com';
+  const runId = Date.now();
+  const tenantSlug = `billing-corp-1-${runId}`;
+  const tenantSchema = `tenant_billing_corp_1_${runId}`;
+  const adminEmail = `admin_billing_${runId}@corp1.com`;
 
   let adminToken: string;
   let customerId: string;

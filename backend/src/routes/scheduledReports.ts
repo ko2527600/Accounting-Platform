@@ -1,7 +1,10 @@
 import { Router, Request, Response } from 'express';
+import { prisma } from '../config/db';
+import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 import * as reportingService from '../services/reportingService';
 
 const router = Router();
@@ -18,7 +21,7 @@ const tenantSchedules: Record<string, { frequency: string; recipients: string[];
  */
 router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const tenantId = (req as any).tenantId;
+    const { tenantId } = requireTenantContext();
     const { frequency, recipients, reportType, enabled } = req.body;
 
     if (!Array.isArray(recipients) || recipients.length === 0) {
@@ -58,7 +61,7 @@ router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Re
  */
 router.get('/schedule', async (req: Request, res: Response): Promise<void> => {
   try {
-    const tenantId = (req as any).tenantId;
+    const { tenantId } = requireTenantContext();
     const schedule = tenantSchedules[tenantId] || {
       frequency: 'Weekly',
       recipients: [],
@@ -115,17 +118,35 @@ router.get('/export/pdf', async (req: Request, res: Response): Promise<void> => 
  */
 router.post('/schedule/test-email', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId, tenantName } = requireTenantContext();
     const { recipientEmail } = req.body;
     const { EmailService } = require('../services/EmailService');
 
     const email = recipientEmail || (req as any).user?.email || 'owner@example.com';
-    const tenantName = (req as any).tenantName || 'AccountGo Workspace';
 
-    const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName, {
-      weeklySales: 3450.00,
-      topShopName: 'Osu Downtown Shop',
-      totalItemsSold: 28,
+    // Pull the tenant's real closeout data from the last 7 days instead of
+    // sending hardcoded figures in every test email.
+    const reportData = await withCurrentTenantDb(prisma, async (client) => {
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+      const closeouts = await (client as any).dailyCloseoutReport.findMany({
+        where: { tenantId, closedAt: { gte: sevenDaysAgo } },
+        include: { warehouse: true },
+      });
+
+      const weeklySales = closeouts.reduce((sum: number, c: any) => sum + Number(c.cashSales), 0);
+      const totalItemsSold = closeouts.reduce((sum: number, c: any) => sum + (c.itemsSold || 0), 0);
+
+      const salesByShop = new Map<string, number>();
+      for (const c of closeouts) {
+        const name = c.warehouse?.name || 'Unknown Shop';
+        salesByShop.set(name, (salesByShop.get(name) || 0) + Number(c.cashSales));
+      }
+      const topShopName = [...salesByShop.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'No sales recorded this week';
+
+      return { weeklySales, topShopName, totalItemsSold };
     });
+
+    const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName || 'AccountGo Workspace', reportData);
 
     if (success) {
       res.status(200).json({ success: true, message: `Test executive email dispatched to ${email}.` });
