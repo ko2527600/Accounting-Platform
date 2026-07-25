@@ -15,6 +15,7 @@ import {
   Lightbulb,
   BarChart3,
   Settings,
+  Percent,
 } from "lucide-react";
 
 interface NavGroup {
@@ -53,6 +54,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Chart of Accounts", href: "/accounts", icon: BookOpen },
       { name: "Journal Entries", href: "/journals", icon: FileSpreadsheet },
       { name: "Banking & Feeds", href: "/banking", icon: Landmark },
+      { name: "Tax Rates", href: "/settings/tax-rates", icon: Percent },
     ],
   },
   {

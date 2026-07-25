@@ -266,18 +266,21 @@ model Invoice {
   exchangeRate  Decimal       @default(1.0000) @db.Decimal(10, 4) @map("exchange_rate")
   subtotal      Decimal       @db.Decimal(15, 2)
   tax           Decimal       @default(0.00) @db.Decimal(15, 2)
+  taxRateId     String?       @map("tax_rate_id")
   total         Decimal       @db.Decimal(15, 2)
   status        String        @default("DRAFT")
   journalId     String?       @map("journal_id")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
   items         InvoiceItem[]
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
   @@index([customerId])
   @@index([status])
+  @@index([taxRateId])
   @@map("invoices")
 }
 
@@ -600,6 +603,8 @@ model TaxRate {
   effectiveTo   DateTime? @map("effective_to")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  invoices      Invoice[]
 
   @@unique([tenantId, code])
   @@index([tenantId])

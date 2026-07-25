@@ -7,6 +7,8 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as journalService from '../services/journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
+import * as taxRateService from '../services/taxRateService';
+import { TaxRateServiceError } from '../services/taxRateService';
 
 const router = Router();
 
@@ -92,7 +94,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items } = req.body;
+    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId } = req.body;
 
     if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: 'Customer and at least one item are required.' });
@@ -114,7 +116,29 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       };
     });
 
-    const tax = subtotal * 0.10; // 10% tax
+    const issueDate = new Date();
+
+    // Resolve the real tax rate to apply - either the one explicitly requested,
+    // or the tenant's single active default for this date. No hardcoded percentage.
+    let resolvedTaxRateId: string | null = null;
+    let tax = 0;
+    if (taxRateId) {
+      const explicitRate = await taxRateService.getTaxRateById(tenantId, taxRateId);
+      if (!explicitRate) {
+        res.status(400).json({ success: false, error: `Tax rate with ID "${taxRateId}" not found.` });
+        return;
+      }
+      resolvedTaxRateId = explicitRate.id;
+      tax = subtotal * Number(explicitRate.rate);
+    } else {
+      const defaultRate = await taxRateService.resolveDefaultTaxRate(tenantId, issueDate);
+      if (defaultRate) {
+        resolvedTaxRateId = defaultRate.id;
+        tax = subtotal * Number(defaultRate.rate);
+      }
+      // No active tax rate configured for this tenant/date: tax stays 0
+      // rather than silently guessing a percentage.
+    }
     const total = subtotal + tax;
 
     const invoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
@@ -132,16 +156,18 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           tenantId,
           invoiceNumber,
           customerId,
+          issueDate,
           dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           currency,
           exchangeRate,
           subtotal,
           tax,
+          taxRateId: resolvedTaxRateId,
           total,
           status: 'SENT',
           items: { create: itemData },
         },
-        include: { customer: true, items: true },
+        include: { customer: true, items: true, taxRate: true },
       });
     });
 
@@ -150,6 +176,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     console.error('[Invoices] Error creating invoice:', error);
     if (error.message === 'Customer not found.') {
       res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    if (error instanceof TaxRateServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to create invoice.' });

@@ -29,6 +29,7 @@ import cashTillRouter from './routes/cashTill';
 import analyticsRouter from './routes/analytics';
 import notificationsRouter from './routes/notifications';
 import adminBroadcastRouter from './routes/adminBroadcast';
+import taxRatesRouter from './routes/taxRates';
 
 dotenv.config();
 
@@ -141,6 +142,8 @@ app.use('/api/v1/legal', legalRouter);
 
 // Custom fields endpoints (Tier 2 Customization Enforcement Showcase)
 app.use('/api/v1/custom-fields', customFieldsRouter);
+
+app.use('/api/v1/tax-rates', taxRatesRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.
