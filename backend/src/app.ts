@@ -1,5 +1,6 @@
 import express, { Express } from 'express';
 import cors from 'cors';
+import helmet from 'helmet';
 import dotenv from 'dotenv';
 import healthRouter from './routes/health';
 import metricsRouter from './routes/metrics';
@@ -33,7 +34,29 @@ dotenv.config();
 
 const app: Express = express();
 
-app.use(cors());
+// CORS is restricted to an explicit allowlist (CORS_ALLOWED_ORIGINS, comma-separated)
+// rather than reflecting/allowing every origin - an open cors() lets any site make
+// credentialed cross-origin requests against tenant data. Falls back to APP_URL
+// (the frontend's own origin) so local dev keeps working without extra config.
+const allowedOrigins = (process.env.CORS_ALLOWED_ORIGINS || process.env.APP_URL || 'http://localhost:5173')
+  .split(',')
+  .map((origin) => origin.trim())
+  .filter(Boolean);
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Allow same-origin/non-browser requests (no Origin header, e.g. curl, server-to-server)
+      if (!origin || allowedOrigins.includes(origin)) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
+    credentials: true,
+  })
+);
+app.use(helmet());
 app.use(express.json());
 
 // ── Observability ──────────────────────────────────────────────────────────────
@@ -118,6 +141,16 @@ app.use('/api/v1/legal', legalRouter);
 
 // Custom fields endpoints (Tier 2 Customization Enforcement Showcase)
 app.use('/api/v1/custom-fields', customFieldsRouter);
+
+// Rejected CORS requests otherwise fall through to Express's default HTML
+// error handler, which leaks a stack trace and breaks the API's JSON contract.
+app.use((err: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+  if (err.message === 'Not allowed by CORS') {
+    res.status(403).json({ success: false, error: 'Origin not allowed by CORS policy.' });
+    return;
+  }
+  next(err);
+});
 
 export default app;
 

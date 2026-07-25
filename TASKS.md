@@ -17,7 +17,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Implement basic reporting: Trial Balance, P&L, Balance Sheet (API) (w:15)
 - [x] Implement tenant-specific data isolation logic across all services (w:10)
 - [ ] Set up CI/CD pipeline for automated deployments (w:7)
-- [ ] Conduct initial security audit and penetration testing (w:5)
+- [ ] Conduct initial security audit and penetration testing (w:5) - `helmet` security headers and a CORS origin allowlist were added on 2026-07-25 (previously wide-open `cors()` with zero hardening headers), but a full audit/pentest has not been performed.
 
 ## Phase 3: Enterprise Automation & Messaging
 

@@ -9,7 +9,7 @@ import { CheckCircle, AlertTriangle, ArrowRight, ArrowLeft } from "lucide-react"
 export function BulkImportWizard() {
   const navigate = useNavigate();
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [importType, setImportType] = useState<"accounts" | "journals">("accounts");
+  const [importType] = useState<"accounts">("accounts");
 
   const sampleCsvAccounts = `Code, Name, Type\n1010, Petty Cash, Asset\n2010, Accounts Payable, Liability\n4010, Consulting Income, Revenue\n5010, Office Rent, Expense`;
 
@@ -111,7 +111,7 @@ export function BulkImportWizard() {
               </label>
               <select
                 value={importType}
-                onChange={(e) => setImportType(e.target.value as any)}
+                disabled
                 className="w-full h-10 px-3 rounded-md border border-secondary-300 dark:border-secondary-700 bg-white dark:bg-secondary-900 text-secondary-900 dark:text-secondary-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               >
                 <option value="accounts">Chart of Accounts (Code, Name, Type)</option>
