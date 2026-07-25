@@ -21,6 +21,7 @@ import {
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../../components/ui/Card";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 
 export function AdminCoreEngine() {
@@ -45,6 +46,13 @@ export function AdminCoreEngine() {
   } | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+
+  // Tenant Schemas & Tiers state
+  const [tenants, setTenants] = useState<
+    { id: string; name: string; slug: string; schema: string; tier: number; createdAt: string }[] | null
+  >(null);
+  const [tenantsError, setTenantsError] = useState<string | null>(null);
+  const [isLoadingTenants, setIsLoadingTenants] = useState(false);
 
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
@@ -99,6 +107,33 @@ export function AdminCoreEngine() {
       cancelled = true;
     };
   }, [isUnlocked]);
+
+  // Fetch the real platform-wide tenant roster for the "Tenant Schemas & Tiers"
+  // tab once unlocked, using the same master passcode already used to unlock
+  // this console (GET /api/v1/tenants is passcode-gated, not tenant-JWT-scoped).
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    let cancelled = false;
+    setIsLoadingTenants(true);
+    setTenantsError(null);
+
+    api
+      .get("/tenants", { params: { passcode } })
+      .then((res) => {
+        if (!cancelled) setTenants(res.data.data.tenants);
+      })
+      .catch(() => {
+        if (!cancelled) setTenantsError("Failed to load the tenant roster.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingTenants(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked, passcode]);
 
   const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -586,6 +621,46 @@ export function AdminCoreEngine() {
                     <h4 className="font-bold text-white mb-2">Schema Isolation Architecture</h4>
                     <p>Every onboarded business operates in a dedicated PostgreSQL schema to ensure zero cross-tenant data leakage and enterprise compliance.</p>
                   </div>
+
+                  {isLoadingTenants && (
+                    <div className="text-center py-6 text-secondary-500">Loading tenant roster...</div>
+                  )}
+
+                  {tenantsError && (
+                    <div className="text-rose-400 bg-rose-950/40 p-3 rounded-lg border border-rose-900">
+                      {tenantsError}
+                    </div>
+                  )}
+
+                  {!isLoadingTenants && !tenantsError && tenants && (
+                    <div className="rounded-lg border border-secondary-800 overflow-x-auto">
+                      <Table>
+                        <TableHeader className="!bg-secondary-950">
+                          <TableRow className="border-secondary-800 hover:bg-transparent">
+                            <TableHead className="text-secondary-400">Name</TableHead>
+                            <TableHead className="text-secondary-400">Slug</TableHead>
+                            <TableHead className="text-secondary-400">Schema</TableHead>
+                            <TableHead className="text-secondary-400">Tier</TableHead>
+                            <TableHead className="text-secondary-400">Onboarded</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tenants.map((t) => (
+                            <TableRow key={t.id} className="border-secondary-800 hover:bg-secondary-950/60">
+                              <TableCell className="font-semibold text-white">{t.name}</TableCell>
+                              <TableCell className="font-mono text-secondary-300">{t.slug}</TableCell>
+                              <TableCell className="font-mono text-secondary-300">{t.schema}</TableCell>
+                              <TableCell className="text-secondary-300">Tier {t.tier}</TableCell>
+                              <TableCell className="text-secondary-300">{new Date(t.createdAt).toLocaleDateString()}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {tenants.length === 0 && (
+                        <div className="text-center py-6 text-secondary-500">No tenants onboarded yet.</div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

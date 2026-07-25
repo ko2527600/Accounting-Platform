@@ -31,7 +31,7 @@ export function Settings() {
   const [scheduleData, setScheduleData] = useState({
     frequency: "Weekly (Every Monday at 8:00 AM)",
     recipients: user?.email || "",
-    enabled: true
+    enabled: false
   });
 
   const [smsMsg, setSmsMsg] = useState<string | null>(null);
@@ -56,6 +56,29 @@ export function Settings() {
       setScheduleData((prev) => ({ ...prev, recipients: user.email || "" }));
     }
   }, [settings, user]);
+
+  // Load the tenant's actual persisted schedule (enabled/recipients), rather
+  // than only ever showing the locally-seeded default.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/reports/schedule")
+      .then((res) => {
+        if (cancelled) return;
+        const schedule = res.data?.data?.schedule;
+        if (schedule) {
+          setScheduleData((prev) => ({
+            ...prev,
+            enabled: Boolean(schedule.enabled),
+            recipients: schedule.recipients?.[0] || prev.recipients,
+          }));
+        }
+      })
+      .catch((err) => console.error("Failed to load schedule settings:", err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -91,15 +114,25 @@ export function Settings() {
     }
   };
 
-  const handleUpdateEmail = async () => {
+  const handleSaveSchedule = async () => {
     setSaveSuccessMsg(null);
     try {
-      const res = await api.put("/auth/profile", { email: scheduleData.recipients });
+      await api.put("/auth/profile", { email: scheduleData.recipients });
+      const res = await api.post("/reports/schedule", {
+        frequency: "Weekly",
+        recipients: [scheduleData.recipients],
+        reportType: "ProfitAndLoss",
+        enabled: scheduleData.enabled,
+      });
       if (res.data.success) {
-        setSaveSuccessMsg("✅ Report email address updated permanently in account DB.");
+        setSaveSuccessMsg(
+          scheduleData.enabled
+            ? "✅ Schedule saved - weekly executive reports are now enabled for this address."
+            : "✅ Schedule saved - weekly executive reports are disabled."
+        );
       }
     } catch (err: any) {
-      setSaveSuccessMsg(`❌ Error saving email: ${err.response?.data?.error || err.message}`);
+      setSaveSuccessMsg(`❌ Error saving schedule: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -305,10 +338,22 @@ export function Settings() {
               Automated Weekly Email Report Service
             </CardTitle>
             <CardDescription>
-              Executive weekly Profit & Loss PDF performance statements are compiled automatically by AccountGo every Monday at 8:00 AM.
+              Executive weekly Profit & Loss PDF performance statements can be sent automatically every Monday at 8:00 AM - enable below and save to start receiving them.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
+            <label className="flex items-center space-x-2 p-3 bg-white dark:bg-secondary-900 rounded-lg border border-blue-200 dark:border-blue-900/50 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={scheduleData.enabled}
+                onChange={(e) => setScheduleData({ ...scheduleData, enabled: e.target.checked })}
+                className="h-4 w-4"
+              />
+              <span className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                Enable automated weekly executive email reports
+              </span>
+            </label>
+
             <div className="space-y-2">
               <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Recipient Email Address for Executive Reports</label>
               <Input
@@ -316,7 +361,11 @@ export function Settings() {
                 onChange={(e) => setScheduleData({ ...scheduleData, recipients: e.target.value })}
                 placeholder="owner@company.com"
               />
-              <p className="text-[11px] text-secondary-500">Weekly PDF executive summaries will be delivered to this email address every Monday morning.</p>
+              <p className="text-[11px] text-secondary-500">
+                {scheduleData.enabled
+                  ? "Weekly PDF executive summaries will be delivered to this email address every Monday morning."
+                  : "Reports are currently disabled - enable the checkbox above and save to start receiving them."}
+              </p>
             </div>
 
             <div className="space-y-2">
@@ -342,8 +391,8 @@ export function Settings() {
               <Send className="mr-2 h-4 w-4 text-blue-600" />
               Send Test Report Now
             </Button>
-            <Button type="button" variant="primary" onClick={handleUpdateEmail}>
-              Update Report Email Address
+            <Button type="button" variant="primary" onClick={handleSaveSchedule}>
+              Save Schedule Settings
             </Button>
           </CardFooter>
         </Card>

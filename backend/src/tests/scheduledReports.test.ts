@@ -6,6 +6,7 @@ import { deleteTenantBySlug, ensureTenantTableExists } from '../repository/tenan
 import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepository';
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { EmailService } from '../services/EmailService';
+import { ScheduledEmailCronService } from '../services/scheduledEmailService';
 
 describe('Scheduled Reports API', () => {
   const runId = Date.now();
@@ -139,6 +140,143 @@ describe('Scheduled Reports API', () => {
     expect(reportData.weeklySales).toBe(30);
     expect(reportData.totalItemsSold).toBe(1); // itemsSold on the closeout counts sale transactions, not units
     expect(reportData.topShopName).toBe('Sched Test Shop');
+
+    sendSpy.mockRestore();
+  });
+});
+
+describe('Scheduled Reports Dispatcher (runDueSchedulesJob)', () => {
+  const runId = Date.now();
+  const dueSlug = `sched-due-${runId}`;
+  const dueSchema = `tenant_sched_due_${runId}`;
+  const dueAdminEmail = `admin_sched_due_${runId}@corp.com`;
+
+  const notDueSlug = `sched-notdue-${runId}`;
+  const notDueSchema = `tenant_sched_notdue_${runId}`;
+  const notDueAdminEmail = `admin_sched_notdue_${runId}@corp.com`;
+
+  const disabledSlug = `sched-disabled-${runId}`;
+  const disabledSchema = `tenant_sched_disabled_${runId}`;
+  const disabledAdminEmail = `admin_sched_disabled_${runId}@corp.com`;
+
+  let dueTenantId: string;
+  let notDueTenantId: string;
+  let disabledTenantId: string;
+
+  async function cleanupTestData() {
+    await (prisma as any).reportSchedule
+      .deleteMany({ where: { tenantId: { in: [dueTenantId, notDueTenantId, disabledTenantId].filter(Boolean) } } })
+      .catch(() => {});
+    await deleteTenantBySlug(prisma, dueSlug).catch(() => {});
+    await deleteTenantBySlug(prisma, notDueSlug).catch(() => {});
+    await deleteTenantBySlug(prisma, disabledSlug).catch(() => {});
+    await deleteUserByEmail(prisma, dueAdminEmail).catch(() => {});
+    await deleteUserByEmail(prisma, notDueAdminEmail).catch(() => {});
+    await deleteUserByEmail(prisma, disabledAdminEmail).catch(() => {});
+    await dropTenantSchema(prisma, dueSchema).catch(() => {});
+    await dropTenantSchema(prisma, notDueSchema).catch(() => {});
+    await dropTenantSchema(prisma, disabledSchema).catch(() => {});
+  }
+
+  beforeAll(async () => {
+    await prisma.$connect();
+    await ensureTenantTableExists(prisma);
+    await ensureUserTableExists(prisma);
+    await cleanupTestData();
+
+    const dueOnboard = await onboardTenant(prisma, {
+      companyName: 'Sched Due Corp',
+      slug: dueSlug,
+      adminEmail: dueAdminEmail,
+      adminPassword: 'Password123!',
+      adminName: 'Sched Due Admin',
+    });
+    dueTenantId = dueOnboard.tenant.id;
+
+    const notDueOnboard = await onboardTenant(prisma, {
+      companyName: 'Sched Not Due Corp',
+      slug: notDueSlug,
+      adminEmail: notDueAdminEmail,
+      adminPassword: 'Password123!',
+      adminName: 'Sched Not Due Admin',
+    });
+    notDueTenantId = notDueOnboard.tenant.id;
+
+    const disabledOnboard = await onboardTenant(prisma, {
+      companyName: 'Sched Disabled Corp',
+      slug: disabledSlug,
+      adminEmail: disabledAdminEmail,
+      adminPassword: 'Password123!',
+      adminName: 'Sched Disabled Admin',
+    });
+    disabledTenantId = disabledOnboard.tenant.id;
+
+    const now = new Date();
+
+    // Due now: enabled, dayOfWeek/hourUtc match the current UTC time, never sent before.
+    await (prisma as any).reportSchedule.create({
+      data: {
+        tenantId: dueTenantId,
+        dayOfWeek: now.getUTCDay(),
+        hourUtc: now.getUTCHours(),
+        recipients: ['due-owner@corp.com'],
+        enabled: true,
+      },
+    });
+
+    // Not due: enabled, but dayOfWeek deliberately does not match "now".
+    await (prisma as any).reportSchedule.create({
+      data: {
+        tenantId: notDueTenantId,
+        dayOfWeek: (now.getUTCDay() + 3) % 7,
+        hourUtc: now.getUTCHours(),
+        recipients: ['notdue-owner@corp.com'],
+        enabled: true,
+      },
+    });
+
+    // Disabled: matches "now" exactly, but enabled is false.
+    await (prisma as any).reportSchedule.create({
+      data: {
+        tenantId: disabledTenantId,
+        dayOfWeek: now.getUTCDay(),
+        hourUtc: now.getUTCHours(),
+        recipients: ['disabled-owner@corp.com'],
+        enabled: false,
+      },
+    });
+  });
+
+  afterAll(async () => {
+    await cleanupTestData();
+    await prisma.$disconnect();
+  });
+
+  it('sends only to the schedule that is due now, updates lastSentAt, and skips disabled/not-due schedules', async () => {
+    const sendSpy = jest.spyOn(EmailService, 'sendWeeklyExecutiveReport').mockResolvedValue(true);
+
+    await ScheduledEmailCronService.runDueSchedulesJob();
+
+    const dueRecipients = sendSpy.mock.calls.map((call) => call[0]);
+    expect(dueRecipients).toContain('due-owner@corp.com');
+    expect(dueRecipients).not.toContain('notdue-owner@corp.com');
+    expect(dueRecipients).not.toContain('disabled-owner@corp.com');
+
+    const dueRow = await (prisma as any).reportSchedule.findUnique({ where: { tenantId: dueTenantId } });
+    expect(dueRow.lastSentAt).not.toBeNull();
+
+    const notDueRow = await (prisma as any).reportSchedule.findUnique({ where: { tenantId: notDueTenantId } });
+    expect(notDueRow.lastSentAt).toBeNull();
+
+    const disabledRow = await (prisma as any).reportSchedule.findUnique({ where: { tenantId: disabledTenantId } });
+    expect(disabledRow.lastSentAt).toBeNull();
+
+    // Running it again immediately must not double-send the just-sent due schedule
+    // (guarded by the 6-day lastSentAt check).
+    sendSpy.mockClear();
+    await ScheduledEmailCronService.runDueSchedulesJob();
+    const secondRunRecipients = sendSpy.mock.calls.map((call) => call[0]);
+    expect(secondRunRecipients).not.toContain('due-owner@corp.com');
 
     sendSpy.mockRestore();
   });

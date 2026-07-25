@@ -3,6 +3,10 @@ import { logger } from '../utils/logger';
 import { cacheUtils } from '../config/redis';
 
 interface RateLimitOptions {
+  /** Distinguishes this limiter's counters from every other limiter's, so
+   * e.g. general API traffic never inflates the stricter auth/onboarding
+   * limiters' budget for the same tenant/IP. */
+  name: string;
   /** Max requests allowed in the window */
   maxRequests: number;
   /** Window duration in milliseconds */
@@ -26,9 +30,10 @@ function createRateLimiter(options: RateLimitOptions) {
     const tenantId = req.headers['x-tenant-id'] as string | undefined;
     const ip = req.ip || req.socket.remoteAddress || 'unknown';
 
-    // Key = per-tenant if available, otherwise per-IP
+    // Key = per-tenant if available, otherwise per-IP, namespaced by limiter
+    // name so distinct limiters (api/auth/onboarding) never share a counter.
     const identifier = tenantId ? `tenant:${tenantId}` : `ip:${ip}`;
-    const cacheKey = `rate_limit:${identifier}`;
+    const cacheKey = `rate_limit:${options.name}:${identifier}`;
     const now = Date.now();
     const windowSeconds = Math.ceil(options.windowMs / 1000);
 
@@ -46,6 +51,7 @@ function createRateLimiter(options: RateLimitOptions) {
       const retryAfterSec = windowSeconds;
 
       logger.warn('Rate limit exceeded', {
+        limiter: options.name,
         key: identifier,
         path: req.originalUrl,
         method: req.method,
@@ -82,6 +88,7 @@ function createRateLimiter(options: RateLimitOptions) {
  * Standard API rate limiter: 100 requests per 60 seconds per tenant/IP.
  */
 export const apiRateLimiter = createRateLimiter({
+  name: 'api',
   maxRequests: 100,
   windowMs: 60 * 1000,
   message: 'API rate limit exceeded. Maximum 100 requests per minute.',
@@ -91,6 +98,7 @@ export const apiRateLimiter = createRateLimiter({
  * Strict auth rate limiter: 10 requests per 60 seconds to prevent brute force.
  */
 export const authRateLimiter = createRateLimiter({
+  name: 'auth',
   maxRequests: 10,
   windowMs: 60 * 1000,
   message: 'Too many authentication attempts. Please wait 60 seconds.',
@@ -100,6 +108,7 @@ export const authRateLimiter = createRateLimiter({
  * Strict onboarding rate limiter: 5 tenant creation requests per 60 seconds.
  */
 export const onboardingRateLimiter = createRateLimiter({
+  name: 'onboarding',
   maxRequests: 5,
   windowMs: 60 * 1000,
   message: 'Too many onboarding requests. Please wait before creating another tenant.',
