@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 
 const router = Router();
 
@@ -14,18 +15,22 @@ router.use(tenantContextMiddleware);
  * Analyzes inventory sales velocity to identify Fast-Selling items, Slow-Moving (Dead) stock,
  * and generates Smart Stock Balancing Suggestions.
  */
-router.get('/stock-intelligence', async (_req: Request, res: Response): Promise<void> => {
+router.get('/stock-intelligence', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const intelligence = await withCurrentTenantDb(prisma, async (client) => {
       const items = await (client as any).inventoryItem.findMany({
+        where: { tenantId },
         include: { warehouseStocks: { include: { warehouse: true } } },
       });
 
       const transfers = await (client as any).stockTransfer.findMany({
+        where: { tenantId },
         include: { items: true },
       });
 
       const sales = await (client as any).cashSale.findMany({
+        where: { tenantId },
         include: { till: true },
       });
 
@@ -94,15 +99,18 @@ router.get('/stock-intelligence', async (_req: Request, res: Response): Promise<
  * GET /api/v1/analytics/executive-summary
  * Returns Daily, Monthly, and Yearly revenue breakdowns & shop leaderboards.
  */
-router.get('/executive-summary', async (_req: Request, res: Response): Promise<void> => {
+router.get('/executive-summary', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const summary = await withCurrentTenantDb(prisma, async (client) => {
       const closeouts = await (client as any).dailyCloseoutReport.findMany({
+        where: { tenantId },
         include: { warehouse: true },
         orderBy: { closedAt: 'desc' },
       });
 
       const warehouses = await (client as any).warehouse.findMany({
+        where: { tenantId },
         include: { closeouts: true },
       });
 

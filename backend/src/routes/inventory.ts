@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 
 const router = Router();
 
@@ -16,8 +17,10 @@ router.use(tenantContextMiddleware);
  */
 router.get('/warehouses', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const warehouses = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).warehouse.findMany({
+        where: { tenantId },
         include: { stocks: { include: { item: true } } },
         orderBy: { createdAt: 'desc' },
       });
@@ -36,18 +39,19 @@ router.get('/warehouses', async (req: Request, res: Response): Promise<void> => 
  */
 router.post('/warehouses', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { name, location, managerName, isPrimary } = req.body;
     if (!name || !name.trim()) {
       res.status(400).json({ success: false, error: 'Warehouse name is required.' });
       return;
     }
 
-    const whCount = await withCurrentTenantDb(prisma, async (client) => (client as any).warehouse.count());
-    const code = `WH-${String(whCount + 1).padStart(3, '0')}`;
+    const code = `WH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).warehouse.create({
         data: {
+          tenantId,
           name: name.trim(),
           code,
           location: location ? location.trim() : null,
@@ -70,8 +74,10 @@ router.post('/warehouses', requireRole('Accountant'), async (req: Request, res: 
  */
 router.get('/items', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const items = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).inventoryItem.findMany({
+        where: { tenantId },
         include: { warehouseStocks: { include: { warehouse: true } } },
         orderBy: { name: 'asc' },
       });
@@ -90,6 +96,7 @@ router.get('/items', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/items', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = req.body;
 
     if (!name || !costPrice || !sellingPrice) {
@@ -100,8 +107,16 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
     const itemSku = sku ? sku.trim().toUpperCase() : `SKU-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const createdItem = await withCurrentTenantDb(prisma, async (client) => {
+      if (initialWarehouseId) {
+        const warehouse = await (client as any).warehouse.findFirst({ where: { id: initialWarehouseId, tenantId } });
+        if (!warehouse) {
+          throw new Error('Initial warehouse not found.');
+        }
+      }
+
       const item = await (client as any).inventoryItem.create({
         data: {
+          tenantId,
           sku: itemSku,
           name: name.trim(),
           category,
@@ -115,6 +130,7 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
       if (initialWarehouseId && initialQty > 0) {
         await (client as any).warehouseStock.create({
           data: {
+            tenantId,
             warehouseId: initialWarehouseId,
             itemId: item.id,
             quantityOnHand: Number(initialQty),
@@ -128,6 +144,10 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
     res.status(201).json({ success: true, message: 'Item created successfully', data: { item: createdItem } });
   } catch (error: any) {
     console.error('[Inventory] Error creating item:', error);
+    if (error.message === 'Initial warehouse not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to create inventory item.' });
   }
 });
@@ -138,6 +158,7 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
  */
 router.post('/transfers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { fromWarehouseId, toWarehouseId, itemId, quantity, notes } = req.body;
 
     if (!fromWarehouseId || !toWarehouseId || !itemId || !quantity || quantity <= 0) {
@@ -151,6 +172,18 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
     }
 
     const transfer = await withCurrentTenantDb(prisma, async (client) => {
+      // Verify both warehouses and the item actually belong to this tenant
+      // before touching any stock, so a caller can't reference another
+      // tenant's warehouse/item IDs.
+      const [fromWarehouse, toWarehouse, item] = await Promise.all([
+        (client as any).warehouse.findFirst({ where: { id: fromWarehouseId, tenantId } }),
+        (client as any).warehouse.findFirst({ where: { id: toWarehouseId, tenantId } }),
+        (client as any).inventoryItem.findFirst({ where: { id: itemId, tenantId } }),
+      ]);
+      if (!fromWarehouse || !toWarehouse || !item) {
+        throw new Error('Warehouse or item not found.');
+      }
+
       // Check source stock (existence / friendly error message only - the actual
       // deduction below is guarded atomically so concurrent transfers can't both
       // read the same stale quantity and both succeed, driving it negative).
@@ -179,7 +212,7 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
       await (client as any).warehouseStock.upsert({
         where: { warehouseId_itemId: { warehouseId: toWarehouseId, itemId } },
         update: { quantityOnHand: { increment: Number(quantity) } },
-        create: { warehouseId: toWarehouseId, itemId, quantityOnHand: Number(quantity) },
+        create: { tenantId, warehouseId: toWarehouseId, itemId, quantityOnHand: Number(quantity) },
       });
 
       // Record Transfer Audit
@@ -187,12 +220,13 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
 
       return (client as any).stockTransfer.create({
         data: {
+          tenantId,
           transferNumber,
           fromWarehouseId,
           toWarehouseId,
           notes,
           items: {
-            create: [{ itemId, quantity: Number(quantity) }],
+            create: [{ tenantId, itemId, quantity: Number(quantity) }],
           },
         },
         include: { fromWarehouse: true, toWarehouse: true, items: true },
@@ -206,6 +240,10 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
     });
   } catch (error: any) {
     console.error('[Inventory] Error transferring stock:', error);
+    if (error.message === 'Warehouse or item not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: error.message || 'Failed to execute stock transfer.' });
   }
 });

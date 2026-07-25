@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 import * as journalService from '../services/journalEntryService';
 
 const router = Router();
@@ -17,8 +18,10 @@ router.use(tenantContextMiddleware);
  */
 router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const vendors = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).vendor.findMany({
+        where: { tenantId },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -36,6 +39,7 @@ router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/vendors', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { name, email, phone, address } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Vendor name and email are required.' });
@@ -44,7 +48,7 @@ router.post('/vendors', requireRole('Accountant'), async (req: Request, res: Res
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).vendor.create({
-        data: { name: name.trim(), email: email.trim().toLowerCase(), phone, address },
+        data: { tenantId, name: name.trim(), email: email.trim().toLowerCase(), phone, address },
       });
     });
 
@@ -61,8 +65,10 @@ router.post('/vendors', requireRole('Accountant'), async (req: Request, res: Res
  */
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const bills = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).vendorBill.findMany({
+        where: { tenantId },
         include: { vendor: true },
         orderBy: { createdAt: 'desc' },
       });
@@ -81,6 +87,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { vendorId, amount, dueDate, currency = 'USD' } = req.body;
 
     if (!vendorId || !amount) {
@@ -91,8 +98,15 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     const billNumber = `BILL-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
+      // Verify the vendor actually belongs to this tenant before linking it.
+      const vendor = await (client as any).vendor.findFirst({ where: { id: vendorId, tenantId } });
+      if (!vendor) {
+        throw new Error('Vendor not found.');
+      }
+
       return (client as any).vendorBill.create({
         data: {
+          tenantId,
           billNumber,
           vendorId,
           amount: Number(amount),
@@ -107,6 +121,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     res.status(201).json({ success: true, message: 'Vendor bill recorded', data: { bill: created } });
   } catch (error: any) {
     console.error('[Bills] Error creating bill:', error);
+    if (error.message === 'Vendor not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to create vendor bill.' });
   }
 });
@@ -117,11 +135,12 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
  */
 router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { id } = req.params;
 
     const bill = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).vendorBill.findUnique({
-        where: { id },
+      return (client as any).vendorBill.findFirst({
+        where: { id, tenantId },
         include: { vendor: true },
       });
     });

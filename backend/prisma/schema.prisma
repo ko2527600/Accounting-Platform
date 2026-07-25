@@ -183,6 +183,7 @@ model AuditLog {
 
 model BankAccount {
   id             String            @id @default(uuid())
+  tenantId       String            @map("tenant_id")
   accountName    String            @map("account_name")
   accountNumber  String            @map("account_number")
   bankName       String            @map("bank_name")
@@ -193,11 +194,13 @@ model BankAccount {
 
   transactions   BankTransaction[]
 
+  @@index([tenantId])
   @@map("bank_accounts")
 }
 
 model BankTransaction {
   id            String      @id @default(uuid())
+  tenantId      String      @map("tenant_id")
   bankAccountId String      @map("bank_account_id")
   amount        Decimal     @db.Decimal(15, 2)
   payee         String
@@ -208,6 +211,7 @@ model BankTransaction {
 
   bankAccount   BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([bankAccountId])
   @@index([status])
   @@map("bank_transactions")
@@ -215,6 +219,7 @@ model BankTransaction {
 
 model Customer {
   id        String    @id @default(uuid())
+  tenantId  String    @map("tenant_id")
   name      String
   email     String
   phone     String?
@@ -223,12 +228,14 @@ model Customer {
 
   invoices  Invoice[]
 
+  @@index([tenantId])
   @@map("customers")
 }
 
 model Invoice {
   id            String        @id @default(uuid())
-  invoiceNumber String        @unique @map("invoice_number")
+  tenantId      String        @map("tenant_id")
+  invoiceNumber String        @map("invoice_number")
   customerId    String        @map("customer_id")
   issueDate     DateTime      @default(now()) @map("issue_date")
   dueDate       DateTime      @map("due_date")
@@ -244,6 +251,8 @@ model Invoice {
   customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
   items         InvoiceItem[]
 
+  @@unique([tenantId, invoiceNumber])
+  @@index([tenantId])
   @@index([customerId])
   @@index([status])
   @@map("invoices")
@@ -251,6 +260,7 @@ model Invoice {
 
 model InvoiceItem {
   id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
   invoiceId   String   @map("invoice_id")
   description String
   quantity    Decimal  @db.Decimal(10, 2)
@@ -259,11 +269,13 @@ model InvoiceItem {
 
   invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@map("invoice_items")
 }
 
 model Vendor {
   id        String       @id @default(uuid())
+  tenantId  String       @map("tenant_id")
   name      String
   email     String
   phone     String?
@@ -272,12 +284,14 @@ model Vendor {
 
   bills     VendorBill[]
 
+  @@index([tenantId])
   @@map("vendors")
 }
 
 model VendorBill {
   id         String   @id @default(uuid())
-  billNumber String   @unique @map("bill_number")
+  tenantId   String   @map("tenant_id")
+  billNumber String   @map("bill_number")
   vendorId   String   @map("vendor_id")
   billDate   DateTime @default(now()) @map("bill_date")
   dueDate    DateTime @map("due_date")
@@ -289,6 +303,8 @@ model VendorBill {
 
   vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, billNumber])
+  @@index([tenantId])
   @@index([vendorId])
   @@index([status])
   @@map("vendor_bills")
@@ -296,8 +312,9 @@ model VendorBill {
 
 model Warehouse {
   id          String           @id @default(uuid())
+  tenantId    String           @map("tenant_id")
   name        String
-  code        String           @unique
+  code        String
   location    String?
   managerName String?          @map("manager_name")
   isPrimary   Boolean          @default(false) @map("is_primary")
@@ -309,12 +326,15 @@ model Warehouse {
   tills         CashTill[]
   closeouts     DailyCloseoutReport[]
 
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@map("warehouses")
 }
 
 model InventoryItem {
   id            String           @id @default(uuid())
-  sku           String           @unique
+  tenantId      String           @map("tenant_id")
+  sku           String
   name          String
   category      String           @default("General")
   unitOfMeasure String           @default("pcs") @map("unit_of_measure")
@@ -325,11 +345,14 @@ model InventoryItem {
 
   warehouseStocks WarehouseStock[]
 
+  @@unique([tenantId, sku])
+  @@index([tenantId])
   @@map("inventory_items")
 }
 
 model WarehouseStock {
   id             String        @id @default(uuid())
+  tenantId       String        @map("tenant_id")
   warehouseId    String        @map("warehouse_id")
   itemId         String        @map("item_id")
   quantityOnHand Int           @default(0) @map("quantity_on_hand")
@@ -338,12 +361,14 @@ model WarehouseStock {
   item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@unique([warehouseId, itemId])
+  @@index([tenantId])
   @@map("warehouse_stocks")
 }
 
 model StockTransfer {
   id              String              @id @default(uuid())
-  transferNumber  String              @unique @map("transfer_number")
+  tenantId        String              @map("tenant_id")
+  transferNumber  String              @map("transfer_number")
   fromWarehouseId String              @map("from_warehouse_id")
   toWarehouseId   String              @map("to_warehouse_id")
   transferDate    DateTime            @default(now()) @map("transfer_date")
@@ -355,22 +380,27 @@ model StockTransfer {
   toWarehouse     Warehouse           @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
   items           StockTransferItem[]
 
+  @@unique([tenantId, transferNumber])
+  @@index([tenantId])
   @@map("stock_transfers")
 }
 
 model StockTransferItem {
   id          String        @id @default(uuid())
+  tenantId    String        @map("tenant_id")
   transferId  String        @map("transfer_id")
   itemId      String        @map("item_id")
   quantity    Int
 
   transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@map("stock_transfer_items")
 }
 
 model CashTill {
   id              String               @id @default(uuid())
+  tenantId        String               @map("tenant_id")
   warehouseId     String               @map("warehouse_id")
   openedBy        String               @map("opened_by")
   openingCash     Decimal              @db.Decimal(15, 2) @map("opening_cash")
@@ -384,13 +414,15 @@ model CashTill {
   sales           CashSale[]
   closeoutReport  DailyCloseoutReport?
 
+  @@index([tenantId])
   @@map("cash_tills")
 }
 
 model CashSale {
   id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
   tillId      String   @map("till_id")
-  receiptNo   String   @unique @map("receipt_no")
+  receiptNo   String   @map("receipt_no")
   amount      Decimal  @db.Decimal(15, 2)
   cashGiven   Decimal  @db.Decimal(15, 2) @map("cash_given")
   changeGiven Decimal  @db.Decimal(15, 2) @map("change_given")
@@ -398,11 +430,14 @@ model CashSale {
 
   till        CashTill @relation(fields: [tillId], references: [id], onDelete: Cascade)
 
+  @@unique([tenantId, receiptNo])
+  @@index([tenantId])
   @@map("cash_sales")
 }
 
 model DailyCloseoutReport {
   id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
   tillId       String    @unique @map("till_id")
   warehouseId  String    @map("warehouse_id")
   closedBy     String    @map("closed_by")
@@ -418,11 +453,13 @@ model DailyCloseoutReport {
   till         CashTill  @relation(fields: [tillId], references: [id])
   warehouse    Warehouse @relation(fields: [warehouseId], references: [id])
 
+  @@index([tenantId])
   @@map("daily_closeout_reports")
 }
 
 model Notification {
   id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
   userId    String?  @map("user_id")
   title     String
   message   String
@@ -431,6 +468,7 @@ model Notification {
   link      String?
   createdAt DateTime @default(now()) @map("created_at")
 
+  @@index([tenantId])
   @@index([userId])
   @@index([read])
   @@map("notifications")
@@ -459,6 +497,7 @@ enum CustomFieldType {
 
 model CustomField {
   id           String          @id @default(uuid())
+  tenantId     String          @map("tenant_id")
   entityType   String          @map("entity_type")
   fieldName    String          @map("field_name")
   fieldLabel   String          @map("field_label")
@@ -473,13 +512,15 @@ model CustomField {
 
   values CustomFieldValue[]
 
-  @@unique([entityType, fieldName])
+  @@unique([tenantId, entityType, fieldName])
+  @@index([tenantId])
   @@index([entityType, isActive])
   @@map("custom_fields")
 }
 
 model CustomFieldValue {
   id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
   customFieldId String   @map("custom_field_id")
   entityId      String   @map("entity_id")
   value         String?
@@ -489,6 +530,7 @@ model CustomFieldValue {
   customField CustomField @relation(fields: [customFieldId], references: [id], onDelete: Cascade)
 
   @@unique([customFieldId, entityId])
+  @@index([tenantId])
   @@index([entityId])
   @@map("custom_field_values")
 }

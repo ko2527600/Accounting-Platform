@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTenantContext } from '../context/tenantContext';
 
 const router = Router();
 
@@ -16,9 +17,10 @@ router.use(tenantContextMiddleware);
  */
 router.get('/accounts', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const bankAccounts = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).bankAccount.findMany({
-        where: { isActive: true },
+        where: { tenantId, isActive: true },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -42,6 +44,7 @@ router.get('/accounts', async (req: Request, res: Response): Promise<void> => {
  */
 router.post('/connect', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { accountName, bankName, accountNumber, initialBalance, currency = 'USD' } = req.body;
 
     if (!accountName || !bankName || !accountNumber) {
@@ -55,6 +58,7 @@ router.post('/connect', requireRole('Accountant'), async (req: Request, res: Res
     const createdAccount = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).bankAccount.create({
         data: {
+          tenantId,
           accountName: accountName.trim(),
           bankName: bankName.trim(),
           accountNumber: String(accountNumber).slice(-4),
@@ -69,6 +73,7 @@ router.post('/connect', requireRole('Accountant'), async (req: Request, res: Res
       await (client as any).bankTransaction.createMany({
         data: [
           {
+            tenantId,
             bankAccountId: createdAccount.id,
             amount: 2500.00,
             payee: 'Acme Client Corp',
@@ -76,6 +81,7 @@ router.post('/connect', requireRole('Accountant'), async (req: Request, res: Res
             status: 'UNRECONCILED',
           },
           {
+            tenantId,
             bankAccountId: createdAccount.id,
             amount: -450.00,
             payee: 'AWS Web Services',
@@ -106,8 +112,10 @@ router.post('/connect', requireRole('Accountant'), async (req: Request, res: Res
  */
 router.get('/transactions', async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const transactions = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).bankTransaction.findMany({
+        where: { tenantId },
         orderBy: { postedDate: 'desc' },
         include: { bankAccount: true },
       });
@@ -132,6 +140,7 @@ router.get('/transactions', async (req: Request, res: Response): Promise<void> =
  */
 router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { transactionId, ledgerId } = req.body;
 
     if (!transactionId) {
@@ -143,6 +152,11 @@ router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: R
     }
 
     const updatedTx = await withCurrentTenantDb(prisma, async (client) => {
+      const existing = await (client as any).bankTransaction.findFirst({ where: { id: transactionId, tenantId } });
+      if (!existing) {
+        throw new Error('Bank transaction not found.');
+      }
+
       return (client as any).bankTransaction.update({
         where: { id: transactionId },
         data: {
@@ -159,6 +173,10 @@ router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: R
     });
   } catch (error: any) {
     console.error('[Banking] Error reconciling transaction:', error);
+    if (error.message === 'Bank transaction not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({
       success: false,
       error: 'Failed to reconcile bank transaction.',
