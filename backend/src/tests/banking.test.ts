@@ -54,10 +54,20 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
 
   let token1: string;
   let token2: string;
+  let tenant1Id: string | undefined;
+  let tenant2Id: string | undefined;
   let originalMonoSecretKey: string | undefined;
   let originalMonoWebhookSecret: string | undefined;
 
   async function cleanupTestData() {
+    // Bank accounts/transactions live in the shared `public` schema (not the
+    // per-tenant schema dropped below) and have no FK/cascade back to Tenant,
+    // so they must be deleted explicitly or they orphan and can collide with
+    // a future run's Mono account ids (BankAccount.monoAccountId is globally unique).
+    const ids = [tenant1Id, tenant2Id].filter((id): id is string => Boolean(id));
+    if (ids.length > 0) {
+      await prisma.bankAccount.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => {});
+    }
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});
     await deleteUserByEmail(prisma, admin1Email).catch(() => {});
@@ -83,6 +93,7 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
       adminName: 'Bank Corp 1 Admin',
     });
     token1 = onboard1.token;
+    tenant1Id = onboard1.tenant.id;
 
     const onboard2 = await onboardTenant(prisma, {
       companyName: 'Bank Isolation Corp 2',
@@ -92,6 +103,7 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
       adminName: 'Bank Corp 2 Admin',
     });
     token2 = onboard2.token;
+    tenant2Id = onboard2.tenant.id;
   });
 
   afterEach(() => {
@@ -126,7 +138,7 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
 
   it('connects a real bank account via Mono, syncs real transactions, and reconciles one', async () => {
     process.env.MONO_SECRET_KEY = 'test-mono-secret';
-    mockMonoSuccess('mono-acc-tenant1');
+    mockMonoSuccess(`mono-acc-tenant1-${runId}`);
 
     const connectRes = await request(app)
       .post('/api/v1/banking/connect')
@@ -177,7 +189,7 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
 
   it('does not let one tenant see or reconcile another tenant\'s bank accounts/transactions', async () => {
     process.env.MONO_SECRET_KEY = 'test-mono-secret';
-    mockMonoSuccess('mono-acc-tenant1-secret');
+    mockMonoSuccess(`mono-acc-tenant1-secret-${runId}`);
 
     const connectRes = await request(app)
       .post('/api/v1/banking/connect')
@@ -213,7 +225,8 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
 
   it('manual sync (Sync Feeds) pulls new transactions and updates the balance', async () => {
     process.env.MONO_SECRET_KEY = 'test-mono-secret';
-    mockMonoSuccess('mono-acc-sync-test');
+    const syncMonoAccountId = `mono-acc-sync-test-${runId}`;
+    mockMonoSuccess(syncMonoAccountId);
 
     const connectRes = await request(app)
       .post('/api/v1/banking/connect')
@@ -228,9 +241,9 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
         return Promise.resolve({
           data: {
             data: [
-              { id: `mono-tx-credit-mono-acc-sync-test`, type: 'credit', amount: 250000, narration: 'Client Payment - Invoice 001', date: new Date().toISOString() },
-              { id: `mono-tx-debit-mono-acc-sync-test`, type: 'debit', amount: 45000, narration: 'AWS Hosting Bill', date: new Date().toISOString() },
-              { id: `mono-tx-new-sync-test`, type: 'credit', amount: 99900, narration: 'New Sync Transaction', date: new Date().toISOString() },
+              { id: `mono-tx-credit-${syncMonoAccountId}`, type: 'credit', amount: 250000, narration: 'Client Payment - Invoice 001', date: new Date().toISOString() },
+              { id: `mono-tx-debit-${syncMonoAccountId}`, type: 'debit', amount: 45000, narration: 'AWS Hosting Bill', date: new Date().toISOString() },
+              { id: `mono-tx-new-${syncMonoAccountId}`, type: 'credit', amount: 99900, narration: 'New Sync Transaction', date: new Date().toISOString() },
             ],
           },
         });
@@ -264,7 +277,8 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
   it('webhook rejects the wrong mono-webhook-secret and accepts + syncs on the correct one', async () => {
     process.env.MONO_SECRET_KEY = 'test-mono-secret';
     process.env.MONO_WEBHOOK_SECRET = 'test-webhook-secret';
-    mockMonoSuccess('mono-acc-webhook-test');
+    const webhookMonoAccountId = `mono-acc-webhook-test-${runId}`;
+    mockMonoSuccess(webhookMonoAccountId);
 
     const connectRes = await request(app)
       .post('/api/v1/banking/connect')
@@ -276,13 +290,13 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
     const wrongSecretRes = await request(app)
       .post('/api/v1/banking/webhooks/mono')
       .set('mono-webhook-secret', 'wrong-secret')
-      .send({ event: 'mono.events.account_updated', data: { id: 'mono-acc-webhook-test' } });
+      .send({ event: 'mono.events.account_updated', data: { id: webhookMonoAccountId } });
     expect(wrongSecretRes.status).toBe(401);
 
     const correctSecretRes = await request(app)
       .post('/api/v1/banking/webhooks/mono')
       .set('mono-webhook-secret', 'test-webhook-secret')
-      .send({ event: 'mono.events.account_updated', data: { id: 'mono-acc-webhook-test' } });
+      .send({ event: 'mono.events.account_updated', data: { id: webhookMonoAccountId } });
     expect(correctSecretRes.status).toBe(200);
 
     const accountRes = await request(app)
