@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { prisma } from '../config/db';
 import { getTenantContext } from '../context/tenantContext';
+import { generateQuickStartGuidePdf } from './pdfGenerationService';
 
 export interface EmailAttachment {
   filename: string;
@@ -145,7 +146,7 @@ export class EmailService {
   /**
    * Sends "Welcome to AccountGo" sequence with attached Quick Start Guide PDF payload.
    */
-  public static async sendWelcomePackage(to: string, name: string): Promise<boolean> {
+  public static async sendWelcomePackage(to: string, name: string, businessName?: string): Promise<boolean> {
     const subject = '🎉 Welcome to AccountGo - Quick Start Guide Included';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
@@ -169,15 +170,12 @@ export class EmailService {
       </div>
     `;
 
-    // Attached PDF Guide Buffer
-    const samplePdfBuffer = Buffer.from(
-      `%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kinds [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj\n4 0 obj << /Length 55 >> stream\nBT /F1 12 Tf 100 700 TD (AccountGo ERP Quick Start Guide) Tj ET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f\n0000000009 00000 n\n0000000058 00000 n\n0000000115 00000 n\n0000000214 00000 n\ntrailer << /Size 5 /Root 1 0 R >>\nstartxref\n320\n%%EOF`
-    );
+    const guidePdfBuffer = await generateQuickStartGuidePdf(businessName || name, name);
 
     const attachments: EmailAttachment[] = [
       {
         filename: 'AccountGo_Quick_Start_Guide.pdf',
-        content: samplePdfBuffer,
+        content: guidePdfBuffer,
         contentType: 'application/pdf',
       },
     ];

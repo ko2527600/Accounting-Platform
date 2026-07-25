@@ -138,6 +138,7 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
 
     const user = await prisma.user.findUnique({
       where: { email: email.toLowerCase().trim() },
+      include: { tenant: true },
     });
 
     if (!user) {
@@ -174,7 +175,7 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
     // If account was just fully verified, send Welcome Package with Quick Start Guide PDF
     if (isFullyVerified && (!user.isEmailVerified || !user.isPhoneVerified)) {
       const { EmailService } = require('../services/EmailService');
-      EmailService.sendWelcomePackage(updatedUser.email, updatedUser.name).catch((err: any) => {
+      EmailService.sendWelcomePackage(updatedUser.email, updatedUser.name, user.tenant?.name).catch((err: any) => {
         console.error('[AuthVerify] Error sending welcome package:', err);
       });
     }

@@ -24,7 +24,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Implement Verified Registration Flow with Email Verification & 4-Digit SMS Code (w:10)
 - [x] Integrate Private Android SMS Gateway for instant till shortage warnings (w:10)
 - [x] Configure Nodemailer & Gmail SMTP for automated Monday 8:00 AM executive PDF reports (w:10)
-- [x] Create frontend Verification Screen (/verify-account) & Welcome Sequence with Quick Start Guide PDF (w:8)
+- [x] Create frontend Verification Screen (/verify-account) & Welcome Sequence with Quick Start Guide PDF (w:8) - the attached PDF was a hardcoded one-line stub (`samplePdfBuffer`) until 2026-07-25; now generated for real via `pdfGenerationService.ts` (pdfkit) with actual per-tenant onboarding content - see Known Issues/STATUS.md.
 - [x] Build Public Platform Landing Page (/) with Onboarding Requirements, Terms & Conditions, and SLA 99.9% Uptime Guarantee (w:12)
 - [x] Create Password-Encrypted Secret Footer Link & Admin System-Wide Upgrade Broadcast Console (w:15)
 
@@ -45,6 +45,8 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [ ] `AdminCoreEngine.tsx`'s "System Audit Logs" tab still shows static placeholder text (no data fetching) - it would need a new platform-wide audit endpoint, since the existing `/audit-logs` route is intentionally tenant-JWT-scoped (and was itself fixed on 2026-07-25 to actually enforce that scoping - it previously leaked every tenant's entries to every other tenant's Auditors). Not built without a spec for what a platform-wide audit endpoint should expose. The "Engine Diagnostics" tab/top status cards (fixed 2026-07-25, real `/health` data) and "Tenant Schemas & Tiers" tab (fixed 2026-07-25, real data from the already-existing passcode-gated `GET /api/v1/tenants`) are both done.
 - [ ] DB tables with no corresponding API at all: `approval_workflows`, `approval_steps`, `budgets`, `fiscal_periods`, `tax_rates`, `recurring_transactions`, `report_definitions`, `attached_documents`.
 - [x] `apiRateLimiter`, `authRateLimiter`, and `onboardingRateLimiter` shared one Redis key namespace per tenant/IP - fixed 2026-07-25 by giving each limiter its own namespaced key (`rate_limit:${name}:${tenantOrIp}`), so general API traffic no longer inflates the stricter auth/onboarding budgets.
+- [x] The "Quick Start Guide PDF" attached to the post-verification welcome email was a hardcoded, hand-typed one-line PDF stub (`samplePdfBuffer` in `EmailService.ts`) - fixed 2026-07-25 with a real `pdfGenerationService.ts` (pdfkit) generating actual onboarding content per tenant. See STATUS.md.
+- [ ] Full backend suite has 5 pre-existing, unrelated failures discovered while verifying the above (confirmed present on the base commit via `git stash`, not caused by this fix): 1 in `accountingSchema.test.ts` (ledger posting - `mapLedgerRow` reading `.id` of an undefined row) and 4 in `banking.test.ts` (Mono `/connect` returning 500 instead of 201). Appears to be a regression in the Mono banking integration/ledger repository since it last passed 204/205; needs its own investigation.
 
 ## Phase 3: Further Enhancements
 
