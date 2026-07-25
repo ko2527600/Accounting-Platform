@@ -9,16 +9,26 @@ export function useAccounts() {
   const fetchAccounts = useCallback(async () => {
     setIsLoading(true);
     try {
-      const response = await api.get('/accounts');
-      if (response.data.success) {
+      const [accountsResponse, summaryResponse] = await Promise.all([
+        api.get('/accounts'),
+        api.get('/ledgers/summary'),
+      ]);
+
+      if (accountsResponse.data.success) {
+        const balanceByAccountId = new Map<string, number>(
+          summaryResponse.data.success
+            ? summaryResponse.data.data.accounts.map((a: any) => [a.id, a.closingBalance])
+            : []
+        );
+
         // The backend returns { accounts: [...], tree: [...] }
         // We might need to map backend Prisma fields to frontend fields if they differ
         // e.g., mapping type 'ASSET' to 'Asset', isActive to status
-        const mappedAccounts = response.data.data.accounts.map((acc: any) => ({
+        const mappedAccounts = accountsResponse.data.data.accounts.map((acc: any) => ({
           ...acc,
           type: acc.type.charAt(0).toUpperCase() + acc.type.slice(1).toLowerCase(), // "ASSET" -> "Asset"
           status: acc.isActive ? 'Active' : 'Archived',
-          balance: 0 // Balance might need to be fetched separately or calculated, but for basic accounts list we default to 0 if not provided
+          balance: balanceByAccountId.get(acc.id) ?? 0,
         }));
         setAccounts(mappedAccounts);
         return mappedAccounts;

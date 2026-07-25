@@ -56,10 +56,10 @@ export function ChartOfAccounts() {
     setIsModalOpen(true);
   };
 
-  const formatCurrency = (amount: number) => {
+  const formatCurrency = (amount: number, currency: string) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency,
     }).format(amount);
   };
 
@@ -134,7 +134,7 @@ export function ChartOfAccounts() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatCurrency(account.balance)}
+                    {formatCurrency(account.balance, account.currency)}
                   </TableCell>
                   <TableCell>
                     <Button 

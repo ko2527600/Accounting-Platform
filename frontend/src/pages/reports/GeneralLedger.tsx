@@ -18,12 +18,12 @@ import {
 export function GeneralLedger() {
   const { accounts } = useAccounts();
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || "");
-  const { account, lines, totalDebit, totalCredit, closingBalance } = useLedgerReport(selectedAccountId);
+  const { account, lines, openingBalance, totalDebit, totalCredit, closingBalance } = useLedgerReport(selectedAccountId);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency: account?.currency || "USD",
     }).format(amount);
   };
 
@@ -32,8 +32,7 @@ export function GeneralLedger() {
     const exportData = lines.map(line => ({
       Date: line.date,
       Journal_ID: line.journalId,
-      Journal_Description: line.description,
-      Line_Description: line.lineDescription || '',
+      Description: line.description,
       Debit: line.debit,
       Credit: line.credit,
       Balance: line.runningBalance
@@ -98,7 +97,7 @@ export function GeneralLedger() {
             <Card className="shadow-sm">
               <CardContent className="p-4">
                 <p className="text-sm font-medium text-secondary-500 dark:text-secondary-400">Opening Balance</p>
-                <p className="text-2xl font-bold mt-1 text-secondary-900 dark:text-secondary-50">$0.00</p>
+                <p className="text-2xl font-bold mt-1 text-secondary-900 dark:text-secondary-50">{formatCurrency(openingBalance)}</p>
               </CardContent>
             </Card>
             <Card className="shadow-sm">
@@ -159,11 +158,6 @@ export function GeneralLedger() {
                         <span className="font-medium text-secondary-900 dark:text-secondary-50">
                           {line.description}
                         </span>
-                        {line.lineDescription && (
-                          <div className="text-xs text-secondary-500 mt-0.5">
-                            {line.lineDescription}
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell className="text-right text-secondary-900 dark:text-secondary-100">
                         {line.debit > 0 ? formatCurrency(line.debit) : "-"}

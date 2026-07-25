@@ -9,6 +9,7 @@ export interface Account {
   description?: string;
   status: AccountStatus;
   balance: number;
+  currency: string;
   createdAt: string;
   updatedAt: string;
 }
