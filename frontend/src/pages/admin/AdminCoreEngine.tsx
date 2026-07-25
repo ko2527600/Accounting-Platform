@@ -54,6 +54,13 @@ export function AdminCoreEngine() {
   const [tenantsError, setTenantsError] = useState<string | null>(null);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
 
+  // Platform-wide Audit Logs state
+  const [auditLogs, setAuditLogs] = useState<
+    { id: string; action: string; entity: string; entityId: string | null; userEmail: string | null; userId: string | null; details: string | null; createdAt: string; tenant: { name: string; slug: string } | null }[] | null
+  >(null);
+  const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
+  const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false);
+
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
   const [message, setMessage] = useState(
@@ -128,6 +135,32 @@ export function AdminCoreEngine() {
       })
       .finally(() => {
         if (!cancelled) setIsLoadingTenants(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked, passcode]);
+
+  // Fetch the real platform-wide audit log for the "System Audit Logs" tab
+  // once unlocked - same passcode-gated pattern as the tenant roster above.
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    let cancelled = false;
+    setIsLoadingAuditLogs(true);
+    setAuditLogsError(null);
+
+    api
+      .get("/admin/audit-logs", { params: { passcode, limit: 50 } })
+      .then((res) => {
+        if (!cancelled) setAuditLogs(res.data.data.logs);
+      })
+      .catch(() => {
+        if (!cancelled) setAuditLogsError("Failed to load the platform-wide audit log.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingAuditLogs(false);
       });
 
     return () => {
@@ -671,11 +704,64 @@ export function AdminCoreEngine() {
                 <CardHeader>
                   <CardTitle className="text-xl font-bold">System Audit Logs</CardTitle>
                   <CardDescription className="text-secondary-400 text-xs">
-                    Historical record of administrative broadcasts and system configuration events.
+                    Platform-wide activity across every tenant - administrative broadcasts, system configuration events, and tenant-level actions.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="text-xs text-secondary-400 text-center py-8">
-                  Audit logs automatically record all `SYSTEM_BROADCAST` actions in the master database.
+                <CardContent className="space-y-4 text-xs text-secondary-300">
+                  {isLoadingAuditLogs && (
+                    <div className="text-center py-6 text-secondary-500">Loading audit logs...</div>
+                  )}
+
+                  {auditLogsError && (
+                    <div className="text-rose-400 bg-rose-950/40 p-3 rounded-lg border border-rose-900">
+                      {auditLogsError}
+                    </div>
+                  )}
+
+                  {!isLoadingAuditLogs && !auditLogsError && auditLogs && (
+                    <div className="rounded-lg border border-secondary-800 overflow-x-auto">
+                      <Table>
+                        <TableHeader className="!bg-secondary-950">
+                          <TableRow className="border-secondary-800 hover:bg-transparent">
+                            <TableHead className="text-secondary-400">Timestamp</TableHead>
+                            <TableHead className="text-secondary-400">Tenant</TableHead>
+                            <TableHead className="text-secondary-400">Action</TableHead>
+                            <TableHead className="text-secondary-400">Entity</TableHead>
+                            <TableHead className="text-secondary-400">User</TableHead>
+                            <TableHead className="text-secondary-400">Details</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {auditLogs.map((log) => (
+                            <TableRow key={log.id} className="border-secondary-800 hover:bg-secondary-950/60">
+                              <TableCell className="text-secondary-300 whitespace-nowrap">
+                                {new Date(log.createdAt).toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-secondary-300">
+                                {log.tenant ? log.tenant.name : <span className="text-secondary-600">Platform</span>}
+                              </TableCell>
+                              <TableCell>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-900/40 text-amber-300 border border-amber-800">
+                                  {log.action}
+                                </span>
+                              </TableCell>
+                              <TableCell className="font-mono text-secondary-400">
+                                {log.entity}
+                                {log.entityId && <span className="text-secondary-600">:{log.entityId.slice(0, 8)}</span>}
+                              </TableCell>
+                              <TableCell className="text-secondary-300">{log.userEmail || log.userId || "System"}</TableCell>
+                              <TableCell className="text-secondary-400 font-mono max-w-xs truncate" title={log.details || ""}>
+                                {log.details || "-"}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {auditLogs.length === 0 && (
+                        <div className="text-center py-6 text-secondary-500">No audit log entries yet.</div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}

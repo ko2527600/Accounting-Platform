@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-25] - Phase 6 (Final) of New-Modules Plan: Real Platform-Wide Audit Log View
+
+**What:** `AdminCoreEngine.tsx`'s "System Audit Logs" tab was static placeholder text - no data fetching at all - because the existing `/audit-logs` route is intentionally tenant-JWT-scoped (fixed earlier this session to enforce that scoping) and a platform-operator needs to see across every tenant, which no endpoint supported. This was the last of the six planned modules/fixes.
+1. **New `GET /api/v1/admin/audit-logs`** (`backend/src/routes/adminAuditLogs.ts`): reuses the exact passcode-gate mechanism already used by `GET /api/v1/tenants` (`BroadcastService.verifyPasscode`, accepting the passcode via `?passcode=` or the `x-admin-passcode` header, no `authenticateJwt`/tenant context at all - a platform-operator function, not a tenant one). Since `AuditLog.tenantId` has no Prisma relation to `Tenant` (a bare shared column, like every other tenantId-column table in this schema), tenant name/slug are joined in application code (fetch the log page, collect distinct tenant ids, one `tenant.findMany`, map onto each row) rather than adding a new relation/migration just for this read - matching this codebase's established "plain columns, app-level joins" convention.
+2. **Frontend**: `AdminCoreEngine.tsx`'s audit tab now fetches real data with the same three-state (`logs`/`error`/`isLoading`) pattern already used by the adjacent "Tenant Schemas & Tiers" tab (effect gated on `[isUnlocked, passcode]`), rendering Timestamp/Tenant/Action/Entity/User/Details columns - the same columns as the tenant-facing `AuditLogs.tsx` page plus a new Tenant column to distinguish rows across tenants.
+**Verification:** New `backend/src/tests/adminAuditLogs.test.ts` (5 tests): rejects missing/wrong passcode, returns logs across multiple tenants with the correct tenant name/slug joined onto each row, accepts the passcode via the header as an alternative to the query param, pagination works, and confirms a tenant's own JWT alone grants no access (no passcode present). Full backend suite: 240/240 passing, twice in a row. Frontend `tsc -b` clean.
+**Files Affected:** `backend/src/routes/adminAuditLogs.ts` (new), `backend/src/app.ts`, `backend/src/tests/adminAuditLogs.test.ts` (new), `frontend/src/pages/admin/AdminCoreEngine.tsx`, `STATUS.md`, `TASKS.md`.
+
+---
+
+**This closes out the full 6-phase new-modules plan** (Phase 0 tenantId foundation, Phase 1 Tax Rates, Phase 2 Fiscal Periods & Budgets, Phase 3 Recurring Transactions, Phase 4 Approval Workflows, Phase 5 Multi-Currency, Phase 6 this platform audit log view) - all six items the user asked to be scoped out of the three "needs a product decision" TASKS.md entries are now real, tested, and shipped.
+
 ## [Date: 2026-07-25] - Phase 5 of New-Modules Plan: Real Multi-Currency Conversion (Transaction-Time)
 
 **What:** Multi-currency was previously cosmetic: `Tenant` had no `baseCurrency` field at all (the Settings UI's "Base Currency" save was silently dropped by `PUT /tenants/current`, and `useTenantSettings.ts`'s fetch hardcoded `baseCurrency: 'USD'` regardless of what the backend actually returned), and - the real bug - `invoices.ts`'s and `bills.ts`'s `/pay` handlers posted the raw native-currency `total`/`amount` straight into the ledger with zero FX conversion, even though the ledger is implicitly single-currency. A GHS-denominated invoice paid on a USD-ledger tenant would post the wrong number into the books with no error.
