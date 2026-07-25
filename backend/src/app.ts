@@ -30,6 +30,8 @@ import analyticsRouter from './routes/analytics';
 import notificationsRouter from './routes/notifications';
 import adminBroadcastRouter from './routes/adminBroadcast';
 import taxRatesRouter from './routes/taxRates';
+import fiscalPeriodsRouter from './routes/fiscalPeriods';
+import budgetsRouter from './routes/budgets';
 
 dotenv.config();
 
@@ -144,6 +146,8 @@ app.use('/api/v1/legal', legalRouter);
 app.use('/api/v1/custom-fields', customFieldsRouter);
 
 app.use('/api/v1/tax-rates', taxRatesRouter);
+app.use('/api/v1/fiscal-periods', fiscalPeriodsRouter);
+app.use('/api/v1/budgets', budgetsRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.

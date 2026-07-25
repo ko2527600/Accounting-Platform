@@ -16,6 +16,8 @@ import {
   BarChart3,
   Settings,
   Percent,
+  CalendarClock,
+  Target,
 } from "lucide-react";
 
 interface NavGroup {
@@ -55,6 +57,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Journal Entries", href: "/journals", icon: FileSpreadsheet },
       { name: "Banking & Feeds", href: "/banking", icon: Landmark },
       { name: "Tax Rates", href: "/settings/tax-rates", icon: Percent },
+      { name: "Fiscal Periods", href: "/settings/fiscal-periods", icon: CalendarClock },
     ],
   },
   {
@@ -63,6 +66,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Executive Reports", href: "/reports/executive", icon: BarChart3 },
       { name: "General Ledger", href: "/reports/ledger", icon: BookOpen },
       { name: "Profit & Loss", href: "/reports/pnl", icon: PieChart },
+      { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
   {
