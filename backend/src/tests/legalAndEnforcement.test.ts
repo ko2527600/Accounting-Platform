@@ -117,6 +117,16 @@ describe('Legal Policy & Customization Enforcement API', () => {
       expect(res.body.content).toContain('# Terms and Conditions');
     });
 
+    it('should fetch Privacy Policy Markdown successfully', async () => {
+      const res = await request(app).get('/api/legal/privacy-policy');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.policyName).toBe('privacy-policy');
+      expect(res.body.title).toBe('Privacy Policy');
+      expect(res.body.content).toContain('# Privacy Policy');
+    });
+
     it('should fetch SLA Markdown successfully', async () => {
       const res = await request(app).get('/api/v1/legal/sla');
 

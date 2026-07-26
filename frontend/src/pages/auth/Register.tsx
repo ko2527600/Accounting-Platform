@@ -21,8 +21,9 @@ export function Register() {
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
-  const [termsContent, setTermsContent] = useState<string | null>(null);
-  const [isTermsLoading, setIsTermsLoading] = useState(false);
+  const [activeLegalDoc, setActiveLegalDoc] = useState<"terms-and-conditions" | "privacy-policy">("terms-and-conditions");
+  const [legalDocContent, setLegalDocContent] = useState<Record<string, string>>({});
+  const [isLegalDocLoading, setIsLegalDocLoading] = useState(false);
 
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -37,19 +38,25 @@ export function Register() {
     }
   }, [step]);
 
-  const fetchTerms = async () => {
+  const fetchLegalDoc = async (policyName: "terms-and-conditions" | "privacy-policy") => {
+    setActiveLegalDoc(policyName);
     setIsTermsModalOpen(true);
-    if (!termsContent) {
-      setIsTermsLoading(true);
+    if (!legalDocContent[policyName]) {
+      setIsLegalDocLoading(true);
       try {
-        const res = await api.get("/legal/terms-and-conditions");
+        const res = await api.get(`/legal/${policyName}`);
         if (res.data.success) {
-          setTermsContent(res.data.content);
+          setLegalDocContent((prev) => ({ ...prev, [policyName]: res.data.content }));
         }
       } catch (err) {
-        setTermsContent("Failed to load Terms and Conditions. Please try again.");
+        setLegalDocContent((prev) => ({
+          ...prev,
+          [policyName]: policyName === "terms-and-conditions"
+            ? "Failed to load Terms and Conditions. Please try again."
+            : "Failed to load Privacy Policy. Please try again.",
+        }));
       } finally {
-        setIsTermsLoading(false);
+        setIsLegalDocLoading(false);
       }
     }
   };
@@ -274,11 +281,20 @@ export function Register() {
                       I have read and agree to the{" "}
                       <button
                         type="button"
-                        onClick={fetchTerms}
+                        onClick={() => fetchLegalDoc("terms-and-conditions")}
                         className="font-medium text-primary-600 underline hover:text-primary-500 dark:text-primary-400 inline-flex items-center"
                       >
                         <FileText className="inline-block h-3 w-3 mr-0.5" />
-                        Terms and Conditions & Privacy Policy
+                        Terms and Conditions
+                      </button>
+                      {" "}&{" "}
+                      <button
+                        type="button"
+                        onClick={() => fetchLegalDoc("privacy-policy")}
+                        className="font-medium text-primary-600 underline hover:text-primary-500 dark:text-primary-400 inline-flex items-center"
+                      >
+                        <FileText className="inline-block h-3 w-3 mr-0.5" />
+                        Privacy Policy
                       </button>
                     </label>
                   </div>
@@ -308,14 +324,30 @@ export function Register() {
         </Card>
       </div>
 
-      {/* Terms & Conditions Modal */}
-      <Modal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} title="Platform Terms and Conditions">
+      {/* Terms & Conditions / Privacy Policy Modal */}
+      <Modal isOpen={isTermsModalOpen} onClose={() => setIsTermsModalOpen(false)} title="Legal Documents">
+        <div className="flex space-x-4 border-b border-secondary-200 dark:border-secondary-800 mb-4">
+          <button
+            type="button"
+            onClick={() => fetchLegalDoc("terms-and-conditions")}
+            className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalDoc === "terms-and-conditions" ? "border-primary-500 text-primary-600 dark:text-primary-400" : "border-transparent text-secondary-500 hover:text-secondary-800 dark:hover:text-secondary-200"}`}
+          >
+            Terms and Conditions
+          </button>
+          <button
+            type="button"
+            onClick={() => fetchLegalDoc("privacy-policy")}
+            className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalDoc === "privacy-policy" ? "border-primary-500 text-primary-600 dark:text-primary-400" : "border-transparent text-secondary-500 hover:text-secondary-800 dark:hover:text-secondary-200"}`}
+          >
+            Privacy Policy
+          </button>
+        </div>
         <div className="max-h-[60vh] overflow-y-auto space-y-4 pr-2 text-sm text-secondary-700 dark:text-secondary-300">
-          {isTermsLoading ? (
+          {isLegalDocLoading ? (
             <div className="py-8 text-center">Loading document...</div>
           ) : (
             <div className="prose dark:prose-invert max-w-none whitespace-pre-line font-mono text-xs bg-secondary-50 dark:bg-secondary-900 p-4 rounded-lg border border-secondary-200 dark:border-secondary-800">
-              {termsContent}
+              {legalDocContent[activeLegalDoc]}
             </div>
           )}
         </div>

@@ -35,6 +35,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [ ] Implement "Go To" feature for enhanced navigation (w:8)
 - [ ] Develop advanced reporting and analytics dashboards (w:10)
 - [x] Make the web app installable from the landing page (Progressive Web App) (w:8) - step one of the web → software (desktop) → mobile roadmap. Real manifest + service worker via `vite-plugin-pwa`, an `Install App` button wired to the native `beforeinstallprompt` flow, manual "Add to Home Screen" instructions for iOS Safari, and a hard guarantee that `/api/**` is never served from the service worker cache. See STATUS.md 2026-07-25. Native desktop and mobile apps remain explicitly out of scope / future work.
+- [x] Publish a real Privacy Policy and fix legal/terms gaps (w:5) - competitor research (Finza, Alpha ERP, AccountBase Partners, Accounting Seed, TallyPrime) found our signup form promised a Privacy Policy that didn't exist, an unfilled `[Your Jurisdiction]` placeholder in the Terms, no stated data-retention period, and no mention of Ghana DPC registration. All fixed in `docs/PRIVACY_POLICY.md`/`docs/TERMS_AND_CONDITIONS.md`, 2026-07-26. **Real-world follow-up still needed from the business (not code):** complete actual Ghana Data Protection Commission registration (currently stated as "in progress") and replace the placeholder legal entity name/contact email with real registered business details before production launch.
 
 ## Known Issues
 

@@ -20,7 +20,7 @@ function isIos(): boolean {
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "sla" | "tier">("terms");
+  const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "privacy" | "sla" | "tier">("terms");
   const { isInstallable, isInstalled, promptInstall } = useInstallPrompt();
 
   return (
@@ -355,6 +355,12 @@ export function LandingPage() {
               Terms & Conditions
             </button>
             <button
+              onClick={() => setActiveLegalTab("privacy")}
+              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "privacy" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
+            >
+              Privacy Policy
+            </button>
+            <button
               onClick={() => setActiveLegalTab("sla")}
               className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "sla" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
             >
@@ -373,6 +379,13 @@ export function LandingPage() {
               <div className="space-y-3">
                 <h4 className="font-bold text-white text-sm">AccountGo Master Terms of Service</h4>
                 <p>By registering a business tenant account on AccountGo ERP, you agree that your database schema will be isolated under PostgreSQL multi-tenant architecture. Account holders are responsible for maintaining owner mobile phone numbers for SMS shortage notifications.</p>
+              </div>
+            )}
+
+            {activeLegalTab === "privacy" && (
+              <div className="space-y-3">
+                <h4 className="font-bold text-white text-sm">Privacy Policy</h4>
+                <p>We collect only what's needed to run your workspace: administrator name, email, mobile number, and the business records you enter. We name every third-party subprocessor we use (email, SMS, bank feed, and FX-rate providers) and never sell your data. Registration with Ghana's Data Protection Commission under the Data Protection Act, 2012 (Act 843) is currently in progress.</p>
               </div>
             )}
 
