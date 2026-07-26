@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.svg', 'apple-touch-icon.png'],
       manifest: {
-        name: 'AccountGo | Multi-Tenant ERP & Accounting Platform',
-        short_name: 'AccountGo',
+        name: 'Ledgio Business Accounting Software | Multi-Tenant ERP & Accounting Platform',
+        short_name: 'Ledgio',
         description:
           'Multi-tenant accounting and ERP platform with double-entry bookkeeping, multi-warehouse inventory, invoicing, bank reconciliation, and instant SMS cash-shortage alerts.',
         theme_color: '#022c22',

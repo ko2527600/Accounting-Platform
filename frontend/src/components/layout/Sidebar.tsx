@@ -89,7 +89,7 @@ export function Sidebar() {
     <aside className="w-64 bg-white dark:bg-secondary-900 border-r border-secondary-200 dark:border-secondary-800 hidden md:flex flex-col transition-colors duration-200">
       <div className="h-16 flex items-center px-6 border-b border-secondary-200 dark:border-secondary-800">
         <h1 className="text-2xl font-bold bg-gradient-to-r from-primary-500 to-primary-700 bg-clip-text text-transparent">
-          AccountGo
+          Ledgio
         </h1>
       </div>
 

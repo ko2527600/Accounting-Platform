@@ -120,7 +120,7 @@ export function Register() {
     <div className="min-h-screen bg-secondary-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 dark:bg-secondary-950 transition-colors">
       <div className="sm:mx-auto sm:w-full sm:max-w-md mb-8 text-center">
         <h1 className="text-3xl font-extrabold text-primary-600 dark:text-primary-500 tracking-tight">
-          AccountGo
+          Ledgio
         </h1>
         <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-secondary-900 dark:text-secondary-50">
           Onboard Your Business Workspace
@@ -235,7 +235,7 @@ export function Register() {
                   </label>
                   <div className="flex items-center">
                     <span className="inline-flex h-10 items-center px-3 rounded-l-md border border-r-0 border-secondary-300 bg-secondary-50 text-secondary-500 sm:text-sm dark:bg-secondary-800 dark:border-secondary-700">
-                      accountgo.com/
+                      ledgiobusinessaccountingsoftware.com/
                     </span>
                     <Input
                       id="tenantSlug"

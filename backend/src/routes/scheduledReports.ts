@@ -132,7 +132,7 @@ router.post('/schedule/test-email', async (req: Request, res: Response): Promise
     // sending hardcoded figures in every test email.
     const reportData = await computeWeeklyReportData(tenantId);
 
-    const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName || 'AccountGo Workspace', reportData);
+    const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName || 'Ledgio Workspace', reportData);
 
     if (success) {
       res.status(200).json({ success: true, message: `Test executive email dispatched to ${email}.` });

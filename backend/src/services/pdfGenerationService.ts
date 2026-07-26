@@ -50,7 +50,7 @@ export function generateQuickStartGuidePdf(businessName: string, recipientName: 
       .fillColor('#ffffff')
       .font('Helvetica-Bold')
       .fontSize(22)
-      .text('AccountGo', 56, 50);
+      .text('Ledgio', 56, 50);
     doc
       .fillColor('#a7f3d0')
       .font('Helvetica')
@@ -136,7 +136,7 @@ export function generateQuickStartGuidePdf(businessName: string, recipientName: 
       .fillColor('#94a3b8')
       .font('Helvetica')
       .fontSize(8.5)
-      .text('Generated automatically by AccountGo ERP for your account activation.', { align: 'left' });
+      .text('Generated automatically by Ledgio ERP for your account activation.', { align: 'left' });
 
     doc.end();
   });

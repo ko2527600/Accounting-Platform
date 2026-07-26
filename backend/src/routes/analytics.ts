@@ -171,7 +171,7 @@ router.get('/export/csv', async (req: Request, res: Response): Promise<void> => 
     const { reportType } = req.query;
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename=AccountGo_${reportType || 'report'}_${Date.now()}.csv`);
+    res.setHeader('Content-Disposition', `attachment; filename=Ledgio_${reportType || 'report'}_${Date.now()}.csv`);
 
     if (reportType === 'stock-intelligence') {
       const csv = `SKU,Item Name,Category,Status,Total Stock\nMON-001,Samsung 24 Inch Monitor,Electronics,FAST_SELLING,45\nLAP-002,Dell XPS 15 Laptop,Electronics,SLOW_MOVING,12\nDESK-01,Ergonomic Office Chair,Furniture,FAST_SELLING,30`;

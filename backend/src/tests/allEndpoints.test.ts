@@ -2,7 +2,7 @@ import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
 
-describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
+describe('Ledgio System-Wide End-to-End API Integration Suite', () => {
   let adminToken: string;
   let tenantId: string;
   let warehouseAId: string;

@@ -74,7 +74,7 @@ export function Verification() {
           Verify Your Account
         </h2>
         <p className="text-sm text-secondary-500">
-          AccountGo requires Email and SMS verification for maximum enterprise security.
+          Ledgio requires Email and SMS verification for maximum enterprise security.
         </p>
       </div>
 

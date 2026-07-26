@@ -222,7 +222,7 @@ export async function onboardTenant(
       console.error('[TenantService] Failed to send verification email:', err);
     });
 
-    SmsService.send(phone, `AccountGo Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
+    SmsService.send(phone, `Ledgio Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
       console.error('[TenantService] Failed to send verification SMS:', err);
     });
   } catch (error) {

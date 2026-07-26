@@ -27,18 +27,18 @@ export class SmsService {
   }
 
   private static get senderId() {
-    return process.env.SMS_SENDER_ID || 'AccountGo';
+    return process.env.SMS_SENDER_ID || 'Ledgio';
   }
 
   /**
    * Sends an SMS via configured Bulk SMS Gateway (Arkesel / mNotify / Hubtel / Android Gateway).
-   * Supports Alphanumeric Sender ID ("AccountGo") so receivers see "AccountGo" instead of a phone number.
+   * Supports Alphanumeric Sender ID ("Ledgio") so receivers see "Ledgio" instead of a phone number.
    */
   public static async send(recipientPhone: string, message: string): Promise<boolean> {
-    const formattedMessage = message.startsWith('AccountGo') ? message : `AccountGo ERP: ${message}`;
+    const formattedMessage = message.startsWith('Ledgio') ? message : `Ledgio ERP: ${message}`;
     const cleanPhone = recipientPhone.replace(/[\s\-\(\)]/g, '');
 
-    // 1. Arkesel Bulk SMS Gateway (Supports Alphanumeric Sender ID "AccountGo")
+    // 1. Arkesel Bulk SMS Gateway (Supports Alphanumeric Sender ID "Ledgio")
     if (process.env.ARKESEL_API_KEY) {
       try {
         const response = await axios.post(
@@ -63,7 +63,7 @@ export class SmsService {
       }
     }
 
-    // 2. mNotify Bulk SMS Gateway (Supports Alphanumeric Sender ID "AccountGo")
+    // 2. mNotify Bulk SMS Gateway (Supports Alphanumeric Sender ID "Ledgio")
     if (process.env.MNOTIFY_API_KEY) {
       try {
         const response = await axios.post(
@@ -151,7 +151,7 @@ export class SmsService {
    * Helper to format and dispatch instant Cash Shortage alerts to business owners.
    */
   public static async sendShortageAlert(dto: ShortageAlertDTO): Promise<boolean> {
-    const message = `AccountGo Alert: ${dto.shopName} till closed by ${dto.staffName}. Shortage: ${dto.shortageAmount}. Please check the system.`;
+    const message = `Ledgio Alert: ${dto.shopName} till closed by ${dto.staffName}. Shortage: ${dto.shortageAmount}. Please check the system.`;
     return this.send(dto.recipientPhone, message);
   }
 }

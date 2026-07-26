@@ -64,7 +64,7 @@ export function AdminCoreEngine() {
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
   const [message, setMessage] = useState(
-    "AccountGo ERP will undergo a scheduled system upgrade on Sunday at 2:00 AM UTC. Expect approximately 15 minutes of downtime. Thank you for your patience!"
+    "Ledgio ERP will undergo a scheduled system upgrade on Sunday at 2:00 AM UTC. Expect approximately 15 minutes of downtime. Thank you for your patience!"
   );
   const [channel, setChannel] = useState<"EMAIL" | "SMS" | "BOTH">("BOTH");
   const [targetTier, setTargetTier] = useState<string>("ALL");
@@ -190,12 +190,12 @@ export function AdminCoreEngine() {
     if (type === "UPGRADE") {
       setSubject("🚀 System Upgrade Announcement v2.5");
       setMessage(
-        "We have deployed major performance upgrades to AccountGo ERP! Enhancements include faster POS cash till closeouts, real-time inventory re-allocation, and zero-latency SMS warnings."
+        "We have deployed major performance upgrades to Ledgio ERP! Enhancements include faster POS cash till closeouts, real-time inventory re-allocation, and zero-latency SMS warnings."
       );
     } else if (type === "MAINTENANCE") {
       setSubject("🛠 Scheduled Maintenance Warning");
       setMessage(
-        "AccountGo will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
+        "Ledgio will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
       );
     } else if (type === "NEWS") {
       setSubject("🎁 New Feature: Automated Weekly Email Reports");
@@ -246,7 +246,7 @@ export function AdminCoreEngine() {
                 <ShieldAlert className="h-5 w-5" />
               </div>
               <h1 className="text-lg font-extrabold tracking-tight">
-                AccountGo <span className="text-amber-400">Core Control Engine</span>
+                Ledgio <span className="text-amber-400">Core Control Engine</span>
               </h1>
             </div>
           </div>
@@ -281,7 +281,7 @@ export function AdminCoreEngine() {
                 <div className="inline-flex p-4 bg-amber-500/10 rounded-full border border-amber-500/20 text-amber-400 mb-3 mx-auto">
                   <Lock className="h-10 w-10" />
                 </div>
-                <CardTitle className="text-2xl font-bold">AccountGo Core Engine Gate</CardTitle>
+                <CardTitle className="text-2xl font-bold">Ledgio Core Engine Gate</CardTitle>
                 <CardDescription className="text-secondary-400 text-xs mt-1">
                   Enter your master passcode to access platform-wide system upgrade broadcasts, tenant schema inspectors, and engine health controls.
                 </CardDescription>

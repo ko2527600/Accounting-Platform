@@ -38,7 +38,7 @@ describe('Encrypted Admin Broadcast Engine Suite', () => {
       .send({
         passcode: validPasscode,
         subject: 'System Maintenance Notice v2.5',
-        message: 'AccountGo will undergo routine database maintenance on Sunday at 2:00 AM UTC.',
+        message: 'Ledgio will undergo routine database maintenance on Sunday at 2:00 AM UTC.',
         channel: 'BOTH',
       });
 

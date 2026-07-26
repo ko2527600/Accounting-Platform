@@ -113,7 +113,7 @@ export function AcceptInvitation() {
     <div className="min-h-screen bg-secondary-50 dark:bg-secondary-900 flex flex-col justify-center py-12 sm:px-6 lg:px-8 transition-colors duration-200">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h1 className="text-center text-3xl font-extrabold bg-gradient-to-r from-primary-500 to-primary-700 bg-clip-text text-transparent">
-          AccountGo
+          Ledgio
         </h1>
         <h2 className="mt-2 text-center text-xl font-bold tracking-tight text-secondary-900 dark:text-secondary-50">
           Join Workspace Team

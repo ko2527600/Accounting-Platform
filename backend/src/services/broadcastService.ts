@@ -67,11 +67,11 @@ export class BroadcastService {
       for (const user of chunk) {
         // Send Email
         if (dto.channel === 'EMAIL' || dto.channel === 'BOTH') {
-          const emailSubject = `📢 AccountGo Notice: ${dto.subject}`;
+          const emailSubject = `📢 Ledgio Notice: ${dto.subject}`;
           const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
               <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
-                AccountGo System Notice
+                Ledgio System Notice
               </h2>
               <p style="font-size: 14px; color: #334155; line-height: 1.6;">
                 Hello <strong>${user.name}</strong> (${user.tenant?.name || 'Business Owner'}),
@@ -83,7 +83,7 @@ export class BroadcastService {
                 </p>
               </div>
               <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-                This is an official administrative broadcast sent by <strong>AccountGo ERP System Administrators</strong>.
+                This is an official administrative broadcast sent by <strong>Ledgio ERP System Administrators</strong>.
               </p>
             </div>
           `;
@@ -96,7 +96,7 @@ export class BroadcastService {
         // Send SMS
         if (dto.channel === 'SMS' || dto.channel === 'BOTH') {
           const recipientPhone = user.phone || process.env.OWNER_PHONE_NUMBER || '+233200000000';
-          const smsText = `AccountGo Alert: ${dto.subject} - ${dto.message}`;
+          const smsText = `Ledgio Alert: ${dto.subject} - ${dto.message}`;
 
           const smsOk = await SmsService.send(recipientPhone, smsText);
           if (smsOk) smsSentCount++;

@@ -1,10 +1,10 @@
 # Privacy Policy: Multi-Tenant Accounting Platform
 
-> **Placeholder notice:** This document uses a placeholder legal entity name ("AccountGo") and placeholder contact email (`privacy@accountgo.com`). Before this policy is published in production, replace both with the real registered business name, registered address, and a real monitored contact email.
+> **Placeholder notice:** This document uses a placeholder legal entity name ("Ledgio") and placeholder contact email (`privacy@ledgiobusinessaccountingsoftware.com`). Before this policy is published in production, replace both with the real registered business name, registered address, and a real monitored contact email.
 
 ## 1. Who We Are
 
-AccountGo ("we," "us," "our") operates a web-based, multi-tenant accounting and business management platform (the "Service") for businesses ("you," "the Business," "the Tenant"). This Privacy Policy explains what personal and business data we collect, how we use it, and the rights you have over it. It should be read alongside our [Terms and Conditions](./TERMS_AND_CONDITIONS.md).
+Ledgio ("we," "us," "our") operates a web-based, multi-tenant accounting and business management platform (the "Service") for businesses ("you," "the Business," "the Tenant"). This Privacy Policy explains what personal and business data we collect, how we use it, and the rights you have over it. It should be read alongside our [Terms and Conditions](./TERMS_AND_CONDITIONS.md).
 
 ## 2. Data We Collect
 
@@ -60,7 +60,7 @@ Subject to applicable law, you may request access to, correction of, or deletion
 
 ## 9. Contact Us
 
-For any privacy-related questions or requests, contact: **privacy@accountgo.com** *(placeholder — replace with your real registered contact address before production launch)*.
+For any privacy-related questions or requests, contact: **privacy@ledgiobusinessaccountingsoftware.com** *(placeholder — replace with your real registered contact address before production launch)*.
 
 ## 10. Changes to This Policy
 
