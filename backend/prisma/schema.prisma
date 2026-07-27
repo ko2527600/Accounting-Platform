@@ -354,6 +354,7 @@ model Warehouse {
   toTransfers   StockTransfer[] @relation("ToWarehouse")
   tills         CashTill[]
   closeouts     DailyCloseoutReport[]
+  adjustments   StockAdjustment[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -373,6 +374,7 @@ model InventoryItem {
   createdAt     DateTime         @default(now()) @map("created_at")
 
   warehouseStocks WarehouseStock[]
+  adjustments     StockAdjustment[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -425,6 +427,28 @@ model StockTransferItem {
 
   @@index([tenantId])
   @@map("stock_transfer_items")
+}
+
+model StockAdjustment {
+  id             String        @id @default(uuid())
+  tenantId       String        @map("tenant_id")
+  warehouseId    String        @map("warehouse_id")
+  itemId         String        @map("item_id")
+  mode           String
+  previousQty    Int           @map("previous_qty")
+  newQty         Int           @map("new_qty")
+  delta          Int
+  reason         String
+  adjustedByName String?       @map("adjusted_by_name")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  warehouse      Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([itemId])
+  @@index([warehouseId])
+  @@map("stock_adjustments")
 }
 
 model CashTill {

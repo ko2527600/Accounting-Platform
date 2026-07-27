@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
+import Papa from "papaparse";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -6,7 +7,45 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
-import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle } from "lucide-react";
+import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download, SlidersHorizontal, History } from "lucide-react";
+
+interface StockAdjustment {
+  id: string;
+  mode: "add" | "remove" | "set";
+  previousQty: number;
+  newQty: number;
+  delta: number;
+  reason: string;
+  adjustedByName?: string;
+  createdAt: string;
+  item?: { name: string; unitOfMeasure: string };
+  warehouse?: { name: string };
+}
+
+interface BulkRow {
+  name: string;
+  sku: string;
+  category: string;
+  unitOfMeasure: string;
+  costPrice: string;
+  sellingPrice: string;
+  warehouseName: string;
+  initialQty: string;
+}
+
+const EMPTY_BULK_ROW: BulkRow = {
+  name: "",
+  sku: "",
+  category: "General",
+  unitOfMeasure: "pcs",
+  costPrice: "",
+  sellingPrice: "",
+  warehouseName: "",
+  initialQty: "",
+};
+
+const CSV_TEMPLATE_HEADERS = ["name", "sku", "category", "unitOfMeasure", "costPrice", "sellingPrice", "warehouseName", "initialQty"];
+const CSV_TEMPLATE_EXAMPLE_ROW = ["Samsung 24 Inch LED Monitor", "MON-001", "Electronics", "pcs", "150", "250", "Shop A (Downtown Branch)", "50"];
 
 interface WarehouseStock {
   id: string;
@@ -51,6 +90,28 @@ export function WarehouseManagement() {
   const [isWarehouseModalOpen, setIsWarehouseModalOpen] = useState(false);
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
+  const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  // Stock Adjustment Form State
+  const [adjustItemId, setAdjustItemId] = useState("");
+  const [adjustWarehouseId, setAdjustWarehouseId] = useState("");
+  const [adjustMode, setAdjustMode] = useState<"add" | "remove" | "set">("add");
+  const [adjustQty, setAdjustQty] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [isAdjusting, setIsAdjusting] = useState(false);
+
+  // Adjustment History State
+  const [adjustmentHistory, setAdjustmentHistory] = useState<StockAdjustment[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  // Bulk Add State
+  const [bulkTab, setBulkTab] = useState<"table" | "csv">("table");
+  const [bulkRows, setBulkRows] = useState<BulkRow[]>([{ ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }]);
+  const [bulkResult, setBulkResult] = useState<{ created: number; failed: { index: number; name?: string; error: string }[] } | null>(null);
+  const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
+  const csvFileInputRef = useRef<HTMLInputElement>(null);
 
   // Warehouse Form State
   const [whName, setWhName] = useState("");
@@ -184,6 +245,174 @@ export function WarehouseManagement() {
     setIsTransferModalOpen(true);
   };
 
+  const openAdjustModal = (itemId?: string, warehouseId?: string) => {
+    setAdjustItemId(itemId || "");
+    setAdjustWarehouseId(warehouseId || "");
+    setAdjustMode("add");
+    setAdjustQty("");
+    setAdjustReason("");
+    setIsAdjustModalOpen(true);
+  };
+
+  const handleAdjustSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustItemId || !adjustWarehouseId) {
+      alert("Select both a product and a warehouse.");
+      return;
+    }
+    if (!adjustReason.trim()) {
+      alert("A reason is required for every stock adjustment.");
+      return;
+    }
+    setIsAdjusting(true);
+    try {
+      const res = await api.post("/inventory/adjustments", {
+        warehouseId: adjustWarehouseId,
+        itemId: adjustItemId,
+        mode: adjustMode,
+        quantity: Number(adjustQty),
+        reason: adjustReason.trim(),
+      });
+
+      if (res.data.success) {
+        setIsAdjustModalOpen(false);
+        fetchData();
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to adjust stock.");
+    } finally {
+      setIsAdjusting(false);
+    }
+  };
+
+  const openHistoryModal = async () => {
+    setIsHistoryModalOpen(true);
+    setIsHistoryLoading(true);
+    try {
+      const res = await api.get("/inventory/adjustments", { params: { limit: 50 } });
+      if (res.data.success) setAdjustmentHistory(res.data.data.adjustments);
+    } catch (err) {
+      console.error("Failed to load adjustment history:", err);
+    } finally {
+      setIsHistoryLoading(false);
+    }
+  };
+
+  const openBulkModal = () => {
+    setBulkTab("table");
+    setBulkRows([{ ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }]);
+    setBulkResult(null);
+    setIsBulkModalOpen(true);
+  };
+
+  const updateBulkRow = (index: number, field: keyof BulkRow, value: string) => {
+    setBulkRows((rows) => rows.map((row, i) => (i === index ? { ...row, [field]: value } : row)));
+  };
+
+  const addBulkRow = () => setBulkRows((rows) => [...rows, { ...EMPTY_BULK_ROW }]);
+
+  const removeBulkRow = (index: number) => setBulkRows((rows) => rows.filter((_, i) => i !== index));
+
+  const downloadCsvTemplate = () => {
+    const csv = Papa.unparse([CSV_TEMPLATE_HEADERS, CSV_TEMPLATE_EXAMPLE_ROW]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "ledgio_inventory_import_template.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const parsedRows: BulkRow[] = results.data
+          .filter((row) => row.name && row.name.trim())
+          .map((row) => ({
+            name: row.name?.trim() || "",
+            sku: row.sku?.trim() || "",
+            category: row.category?.trim() || "General",
+            unitOfMeasure: row.unitOfMeasure?.trim() || "pcs",
+            costPrice: row.costPrice?.trim() || "",
+            sellingPrice: row.sellingPrice?.trim() || "",
+            warehouseName: row.warehouseName?.trim() || "",
+            initialQty: row.initialQty?.trim() || "",
+          }));
+
+        if (parsedRows.length === 0) {
+          alert("No valid rows found in that CSV. Make sure it has a header row and at least one product name.");
+          return;
+        }
+
+        setBulkRows(parsedRows);
+        setBulkResult(null);
+      },
+      error: (err) => {
+        alert(`Failed to parse CSV: ${err.message}`);
+      },
+    });
+
+    // Allow re-selecting the same file later (e.g. after fixing it) by clearing the input value.
+    if (csvFileInputRef.current) csvFileInputRef.current.value = "";
+  };
+
+  const resolveWarehouseIdByName = (name: string): string | undefined => {
+    if (!name.trim()) return undefined;
+    const match = warehouses.find((w) => w.name.trim().toLowerCase() === name.trim().toLowerCase());
+    return match?.id;
+  };
+
+  const handleBulkSubmit = async () => {
+    const rowsToSubmit = bulkRows.filter((row) => row.name.trim());
+    if (rowsToSubmit.length === 0) {
+      alert("Add at least one product with a name before submitting.");
+      return;
+    }
+
+    setIsBulkSubmitting(true);
+    setBulkResult(null);
+    try {
+      const payload = {
+        items: rowsToSubmit.map((row) => ({
+          name: row.name.trim(),
+          sku: row.sku.trim() || undefined,
+          category: row.category.trim() || "General",
+          unitOfMeasure: row.unitOfMeasure.trim() || "pcs",
+          costPrice: row.costPrice ? Number(row.costPrice) : undefined,
+          sellingPrice: row.sellingPrice ? Number(row.sellingPrice) : undefined,
+          initialWarehouseId: resolveWarehouseIdByName(row.warehouseName),
+          initialQty: row.initialQty ? Number(row.initialQty) : 0,
+        })),
+      };
+
+      const res = await api.post("/inventory/items/bulk", payload);
+      if (res.data.success || res.data.data) {
+        setBulkResult({ created: res.data.data.created.length, failed: res.data.data.failed });
+        if (res.data.data.failed.length === 0) {
+          fetchData();
+        } else {
+          // Keep only the failed rows in the editor so the user can fix and resubmit
+          // without having to retype everything that already succeeded.
+          const failedIndexes = new Set(res.data.data.failed.map((f: { index: number }) => f.index));
+          setBulkRows(rowsToSubmit.filter((_, i) => failedIndexes.has(i)));
+          fetchData();
+        }
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Bulk import failed.");
+    } finally {
+      setIsBulkSubmitting(false);
+    }
+  };
+
   const calculateTotalStock = (item: InventoryItem) => {
     return item.warehouseStocks?.reduce((sum, s) => sum + s.quantityOnHand, 0) || 0;
   };
@@ -214,6 +443,14 @@ export function WarehouseManagement() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => openAdjustModal()} className="flex items-center">
+            <SlidersHorizontal className="mr-2 h-4 w-4 text-primary-600" />
+            Restock / Adjust Stock
+          </Button>
+          <Button variant="outline" onClick={openHistoryModal} className="flex items-center">
+            <History className="mr-2 h-4 w-4 text-primary-600" />
+            Adjustment History
+          </Button>
           <Button variant="outline" onClick={() => setIsTransferModalOpen(true)} className="flex items-center">
             <ArrowRightLeft className="mr-2 h-4 w-4 text-primary-600" />
             Request Stock Transfer
@@ -225,6 +462,10 @@ export function WarehouseManagement() {
           <Button variant="primary" onClick={() => setIsItemModalOpen(true)} className="flex items-center">
             <Plus className="mr-2 h-4 w-4" />
             Add Product / Item
+          </Button>
+          <Button variant="primary" onClick={openBulkModal} className="flex items-center bg-blue-600 hover:bg-blue-700">
+            <Layers className="mr-2 h-4 w-4" />
+            Bulk Add Products
           </Button>
         </div>
       </div>
@@ -394,6 +635,14 @@ export function WarehouseManagement() {
                                     Transfer
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={() => openAdjustModal(it.id, wh.id)}
+                                  title={`Restock or correct ${it.name} at ${wh.name}`}
+                                  className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-xs"
+                                >
+                                  Adjust
+                                </button>
                               </div>
                             );
                           })}
@@ -492,6 +741,250 @@ export function WarehouseManagement() {
             <Button type="submit" variant="primary" disabled={isSubmitting}>Save Product</Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Bulk Add Products Modal */}
+      <Modal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} title="Bulk Add Products">
+        <div className="space-y-4">
+          <div className="flex space-x-4 border-b border-secondary-200 dark:border-secondary-800">
+            <button
+              type="button"
+              onClick={() => setBulkTab("table")}
+              className={`pb-2 text-sm font-semibold transition-colors border-b-2 ${bulkTab === "table" ? "border-primary-500 text-primary-600 dark:text-primary-400" : "border-transparent text-secondary-500 hover:text-secondary-800 dark:hover:text-secondary-200"}`}
+            >
+              Quick-Add Table
+            </button>
+            <button
+              type="button"
+              onClick={() => setBulkTab("csv")}
+              className={`pb-2 text-sm font-semibold transition-colors border-b-2 ${bulkTab === "csv" ? "border-primary-500 text-primary-600 dark:text-primary-400" : "border-transparent text-secondary-500 hover:text-secondary-800 dark:hover:text-secondary-200"}`}
+            >
+              Import CSV
+            </button>
+          </div>
+
+          {bulkTab === "csv" && (
+            <div className="p-4 bg-secondary-50 dark:bg-secondary-900 rounded-lg border border-secondary-200 dark:border-secondary-800 space-y-3">
+              <p className="text-xs text-secondary-500">
+                Upload a CSV with columns: <code className="font-mono">{CSV_TEMPLATE_HEADERS.join(", ")}</code>.
+                The <code className="font-mono">warehouseName</code> must exactly match an existing shop/warehouse name (leave blank to create the product without initial stock).
+                Excel files: use "Save As" &gt; CSV before uploading.
+              </p>
+              <div className="flex items-center gap-3">
+                <input
+                  ref={csvFileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleCsvFileChange}
+                  className="text-xs text-secondary-600 dark:text-secondary-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                />
+                <Button type="button" variant="outline" onClick={downloadCsvTemplate} className="flex items-center text-xs">
+                  <Download className="mr-1.5 h-3.5 w-3.5" />
+                  Download Template
+                </Button>
+              </div>
+            </div>
+          )}
+
+          <div className="max-h-[40vh] overflow-y-auto border border-secondary-200 dark:border-secondary-800 rounded-lg">
+            <table className="w-full text-xs">
+              <thead className="bg-secondary-50 dark:bg-secondary-900 sticky top-0">
+                <tr>
+                  <th className="text-left p-2 font-medium">Name</th>
+                  <th className="text-left p-2 font-medium">SKU</th>
+                  <th className="text-left p-2 font-medium">Category</th>
+                  <th className="text-left p-2 font-medium">Unit</th>
+                  <th className="text-left p-2 font-medium">Cost</th>
+                  <th className="text-left p-2 font-medium">Sell</th>
+                  <th className="text-left p-2 font-medium">Warehouse</th>
+                  <th className="text-left p-2 font-medium">Qty</th>
+                  <th className="p-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {bulkRows.map((row, i) => (
+                  <tr key={i} className="border-t border-secondary-100 dark:border-secondary-800">
+                    <td className="p-1"><Input className="h-8 text-xs" placeholder="Product name" value={row.name} onChange={(e) => updateBulkRow(i, "name", e.target.value)} /></td>
+                    <td className="p-1"><Input className="h-8 text-xs w-24" placeholder="auto" value={row.sku} onChange={(e) => updateBulkRow(i, "sku", e.target.value)} /></td>
+                    <td className="p-1"><Input className="h-8 text-xs w-24" value={row.category} onChange={(e) => updateBulkRow(i, "category", e.target.value)} /></td>
+                    <td className="p-1"><Input className="h-8 text-xs w-16" value={row.unitOfMeasure} onChange={(e) => updateBulkRow(i, "unitOfMeasure", e.target.value)} /></td>
+                    <td className="p-1"><Input type="number" className="h-8 text-xs w-20" value={row.costPrice} onChange={(e) => updateBulkRow(i, "costPrice", e.target.value)} /></td>
+                    <td className="p-1"><Input type="number" className="h-8 text-xs w-20" value={row.sellingPrice} onChange={(e) => updateBulkRow(i, "sellingPrice", e.target.value)} /></td>
+                    <td className="p-1">
+                      <select
+                        className="h-8 text-xs w-32 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                        value={row.warehouseName}
+                        onChange={(e) => updateBulkRow(i, "warehouseName", e.target.value)}
+                      >
+                        <option value="">-- none --</option>
+                        {warehouses.map((w) => (
+                          <option key={w.id} value={w.name}>{w.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-1"><Input type="number" className="h-8 text-xs w-16" value={row.initialQty} onChange={(e) => updateBulkRow(i, "initialQty", e.target.value)} /></td>
+                    <td className="p-1">
+                      <button type="button" onClick={() => removeBulkRow(i)} className="text-secondary-400 hover:text-red-500 p-1" title="Remove row">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          <Button type="button" variant="outline" onClick={addBulkRow} className="text-xs flex items-center">
+            <Plus className="mr-1.5 h-3.5 w-3.5" />
+            Add Row
+          </Button>
+
+          {bulkResult && (
+            <div className={`p-3 rounded-lg text-xs ${bulkResult.failed.length === 0 ? "bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800" : "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-800"}`}>
+              <div className="font-semibold">
+                {bulkResult.created} product{bulkResult.created === 1 ? "" : "s"} created successfully.
+                {bulkResult.failed.length > 0 && ` ${bulkResult.failed.length} failed - fix the row(s) below and submit again.`}
+              </div>
+              {bulkResult.failed.length > 0 && (
+                <ul className="mt-1.5 space-y-0.5 list-disc list-inside">
+                  {bulkResult.failed.map((f, i) => (
+                    <li key={i}>{f.name || `Row ${f.index + 1}`}: {f.error}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setIsBulkModalOpen(false)}>Close</Button>
+            <Button type="button" variant="primary" onClick={handleBulkSubmit} disabled={isBulkSubmitting}>
+              {isBulkSubmitting ? "Creating..." : `Create ${bulkRows.filter(r => r.name.trim()).length || ""} Product${bulkRows.filter(r => r.name.trim()).length === 1 ? "" : "s"}`}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Restock / Adjust Stock Modal */}
+      <Modal isOpen={isAdjustModalOpen} onClose={() => setIsAdjustModalOpen(false)} title="Restock or Correct Stock">
+        <form onSubmit={handleAdjustSubmit} className="space-y-4">
+          <p className="text-xs text-secondary-500">
+            Use <strong>Add</strong> when new stock arrives (e.g. a supplier delivery). Use <strong>Remove</strong> or <strong>Set Exact Count</strong> to fix a mistaken entry or reconcile against a physical count. Every adjustment is recorded with your name and the reason you give.
+          </p>
+          <div>
+            <label className="block text-sm font-medium mb-1">Product</label>
+            <select
+              required
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+              value={adjustItemId}
+              onChange={(e) => setAdjustItemId(e.target.value)}
+            >
+              <option value="">-- Select Product --</option>
+              {items.map((it) => (
+                <option key={it.id} value={it.id}>{it.name} ({it.sku})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Warehouse / Shop</label>
+            <select
+              required
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+              value={adjustWarehouseId}
+              onChange={(e) => setAdjustWarehouseId(e.target.value)}
+            >
+              <option value="">-- Select Warehouse --</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+          {adjustItemId && adjustWarehouseId && (
+            <p className="text-xs text-secondary-500">
+              Currently on hand: <strong>
+                {items.find(it => it.id === adjustItemId)?.warehouseStocks?.find(s => s.warehouseId === adjustWarehouseId)?.quantityOnHand || 0}
+              </strong>
+            </p>
+          )}
+          <div>
+            <label className="block text-sm font-medium mb-1">Action</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["add", "remove", "set"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setAdjustMode(m)}
+                  className={`py-2 px-2 rounded-md text-xs font-semibold border transition-colors ${
+                    adjustMode === m
+                      ? "bg-primary-600 text-white border-primary-600"
+                      : "bg-white dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300 border-secondary-300 dark:border-secondary-700"
+                  }`}
+                >
+                  {m === "add" ? "Add Stock" : m === "remove" ? "Remove Stock" : "Set Exact Count"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              {adjustMode === "set" ? "New Total Quantity" : "Quantity"}
+            </label>
+            <Input type="number" required min={adjustMode === "set" ? 0 : 1} value={adjustQty} onChange={(e) => setAdjustQty(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Reason (required)</label>
+            <Input required placeholder="e.g. Received delivery from supplier / Correcting mistaken entry / Physical stock count" value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} />
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setIsAdjustModalOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isAdjusting}>
+              {isAdjusting ? "Saving..." : "Save Adjustment"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Adjustment History Modal */}
+      <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Stock Adjustment History">
+        <div className="max-h-[60vh] overflow-y-auto">
+          {isHistoryLoading ? (
+            <div className="py-8 text-center text-secondary-500 text-sm">Loading history...</div>
+          ) : adjustmentHistory.length === 0 ? (
+            <div className="py-8 text-center text-secondary-500 text-sm">No stock adjustments recorded yet.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-secondary-50 dark:bg-secondary-900 sticky top-0">
+                <tr>
+                  <th className="text-left p-2 font-medium">When</th>
+                  <th className="text-left p-2 font-medium">Product</th>
+                  <th className="text-left p-2 font-medium">Warehouse</th>
+                  <th className="text-left p-2 font-medium">Change</th>
+                  <th className="text-left p-2 font-medium">Reason</th>
+                  <th className="text-left p-2 font-medium">By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adjustmentHistory.map((adj) => (
+                  <tr key={adj.id} className="border-t border-secondary-100 dark:border-secondary-800">
+                    <td className="p-2 whitespace-nowrap text-secondary-500">{new Date(adj.createdAt).toLocaleString()}</td>
+                    <td className="p-2 font-medium">{adj.item?.name}</td>
+                    <td className="p-2">{adj.warehouse?.name}</td>
+                    <td className="p-2">
+                      <span className={`font-bold ${adj.delta > 0 ? "text-emerald-600" : adj.delta < 0 ? "text-red-600" : "text-secondary-500"}`}>
+                        {adj.delta > 0 ? "+" : ""}{adj.delta}
+                      </span>
+                      <span className="text-secondary-400"> ({adj.previousQty} → {adj.newQty})</span>
+                    </td>
+                    <td className="p-2 text-secondary-600 dark:text-secondary-300">{adj.reason}</td>
+                    <td className="p-2 text-secondary-500">{adj.adjustedByName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="flex justify-end pt-4 border-t border-secondary-200 dark:border-secondary-800 mt-4">
+          <Button variant="outline" onClick={() => setIsHistoryModalOpen(false)}>Close</Button>
+        </div>
       </Modal>
 
       {/* Stock Transfer Modal */}

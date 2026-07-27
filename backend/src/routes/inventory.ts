@@ -153,6 +153,111 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
 });
 
 /**
+ * POST /api/v1/inventory/items/bulk
+ * Creates many inventory items in one request (quick-add table or CSV import
+ * on the frontend both funnel through this single endpoint). Each row is
+ * attempted independently rather than as one all-or-nothing transaction, so
+ * a single bad row (e.g. a duplicate SKU) doesn't discard every other
+ * correctly-typed row in the batch - the response reports which rows
+ * succeeded and which failed (with why) so the caller can fix and retry
+ * only the failed ones.
+ */
+router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { items } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ success: false, error: 'Provide a non-empty array of items to create.' });
+      return;
+    }
+    if (items.length > 500) {
+      res.status(400).json({ success: false, error: 'A maximum of 500 items can be created per bulk request.' });
+      return;
+    }
+
+    const created: any[] = [];
+    const failed: { index: number; name?: string; error: string }[] = [];
+
+    await withCurrentTenantDb(prisma, async (client) => {
+      const warehouseValidityCache = new Map<string, boolean>();
+      const usedSkusThisBatch = new Set<string>();
+
+      for (let i = 0; i < items.length; i++) {
+        const row = items[i] || {};
+        let itemSku = '';
+        try {
+          const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = row;
+
+          if (!name || !String(name).trim()) throw new Error('Item name is required.');
+          if (costPrice === undefined || costPrice === null || costPrice === '') throw new Error('Cost price is required.');
+          if (sellingPrice === undefined || sellingPrice === null || sellingPrice === '') throw new Error('Selling price is required.');
+
+          itemSku = sku ? String(sku).trim().toUpperCase() : '';
+          if (!itemSku) {
+            do {
+              itemSku = `SKU-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            } while (usedSkusThisBatch.has(itemSku));
+          }
+          if (usedSkusThisBatch.has(itemSku)) {
+            throw new Error(`Duplicate SKU "${itemSku}" within this batch.`);
+          }
+
+          if (initialWarehouseId && !warehouseValidityCache.has(initialWarehouseId)) {
+            const wh = await (client as any).warehouse.findFirst({ where: { id: initialWarehouseId, tenantId } });
+            warehouseValidityCache.set(initialWarehouseId, !!wh);
+          }
+          if (initialWarehouseId && !warehouseValidityCache.get(initialWarehouseId)) {
+            throw new Error('Initial warehouse not found.');
+          }
+
+          const newItem = await (client as any).inventoryItem.create({
+            data: {
+              tenantId,
+              sku: itemSku,
+              name: String(name).trim(),
+              category,
+              unitOfMeasure,
+              costPrice: Number(costPrice),
+              sellingPrice: Number(sellingPrice),
+            },
+          });
+
+          usedSkusThisBatch.add(itemSku);
+
+          if (initialWarehouseId && Number(initialQty) > 0) {
+            await (client as any).warehouseStock.create({
+              data: {
+                tenantId,
+                warehouseId: initialWarehouseId,
+                itemId: newItem.id,
+                quantityOnHand: Number(initialQty),
+              },
+            });
+          }
+
+          created.push(newItem);
+        } catch (rowError: any) {
+          const message = rowError.code === 'P2002'
+            ? `SKU "${itemSku}" already exists for this business.`
+            : (rowError.message || 'Failed to create this item.');
+          failed.push({ index: i, name: row?.name, error: message });
+        }
+      }
+    });
+
+    res.status(created.length > 0 ? 201 : 400).json({
+      success: created.length > 0,
+      message: `${created.length} item(s) created${failed.length > 0 ? `, ${failed.length} failed` : ''}.`,
+      data: { created, failed },
+    });
+  } catch (error: any) {
+    console.error('[Inventory] Error bulk-creating items:', error);
+    res.status(500).json({ success: false, error: 'Failed to bulk-create inventory items.' });
+  }
+});
+
+/**
  * POST /api/v1/inventory/transfers
  * Transfers stock items between two warehouses / godowns.
  */
@@ -245,6 +350,158 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
       return;
     }
     res.status(500).json({ success: false, error: error.message || 'Failed to execute stock transfer.' });
+  }
+});
+
+const ADJUSTMENT_MODES = new Set(['add', 'remove', 'set']);
+
+/**
+ * POST /api/v1/inventory/adjustments
+ * Manually corrects an item's quantity in a warehouse - covers both
+ * restocking an existing item (mode='add', e.g. a new supplier delivery)
+ * and fixing a mistaken over/under-entry (mode='remove' to subtract units,
+ * or mode='set' to declare the true, physically-counted quantity outright).
+ * A reason is required and every adjustment is permanently recorded in
+ * StockAdjustment for audit purposes - this is the same underlying action
+ * as a stock transfer's audit trail, just for a single-warehouse correction
+ * rather than a movement between two warehouses.
+ */
+router.post('/adjustments', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { warehouseId, itemId, mode, quantity, reason } = req.body;
+
+    if (!warehouseId || !itemId) {
+      res.status(400).json({ success: false, error: 'Warehouse ID and item ID are required.' });
+      return;
+    }
+    if (!ADJUSTMENT_MODES.has(mode)) {
+      res.status(400).json({ success: false, error: "Mode must be one of 'add', 'remove', or 'set'." });
+      return;
+    }
+    const qty = Number(quantity);
+    if (!Number.isInteger(qty) || qty < 0 || (mode !== 'set' && qty === 0)) {
+      res.status(400).json({ success: false, error: 'Quantity must be a whole number (greater than zero for add/remove).' });
+      return;
+    }
+    if (!reason || !String(reason).trim()) {
+      res.status(400).json({ success: false, error: 'A reason is required for every stock adjustment.' });
+      return;
+    }
+
+    const adjustedByName = req.user?.name || req.user?.email || 'Unknown';
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const [warehouse, item] = await Promise.all([
+        (client as any).warehouse.findFirst({ where: { id: warehouseId, tenantId } }),
+        (client as any).inventoryItem.findFirst({ where: { id: itemId, tenantId } }),
+      ]);
+      if (!warehouse || !item) {
+        throw new Error('Warehouse or item not found.');
+      }
+
+      const existingStock = await (client as any).warehouseStock.findUnique({
+        where: { warehouseId_itemId: { warehouseId, itemId } },
+      });
+      const previousQty = existingStock?.quantityOnHand || 0;
+
+      let newQty: number;
+      if (mode === 'add') {
+        newQty = previousQty + qty;
+        await (client as any).warehouseStock.upsert({
+          where: { warehouseId_itemId: { warehouseId, itemId } },
+          update: { quantityOnHand: { increment: qty } },
+          create: { tenantId, warehouseId, itemId, quantityOnHand: qty },
+        });
+      } else if (mode === 'remove') {
+        if (previousQty < qty) {
+          throw new Error(`Cannot remove ${qty} units - only ${previousQty} currently on hand.`);
+        }
+        newQty = previousQty - qty;
+        const deduction = await (client as any).warehouseStock.updateMany({
+          where: { warehouseId, itemId, quantityOnHand: { gte: qty } },
+          data: { quantityOnHand: { decrement: qty } },
+        });
+        if (deduction.count === 0) {
+          throw new Error('Stock changed concurrently - please retry.');
+        }
+      } else {
+        // 'set': an authoritative correction to the true, physically-counted
+        // quantity - intentionally overwrites whatever was there rather than
+        // being guarded against concurrent changes, since a manual recount
+        // is meant to be the new source of truth.
+        newQty = qty;
+        await (client as any).warehouseStock.upsert({
+          where: { warehouseId_itemId: { warehouseId, itemId } },
+          update: { quantityOnHand: newQty },
+          create: { tenantId, warehouseId, itemId, quantityOnHand: newQty },
+        });
+      }
+
+      const adjustment = await (client as any).stockAdjustment.create({
+        data: {
+          tenantId,
+          warehouseId,
+          itemId,
+          mode,
+          previousQty,
+          newQty,
+          delta: newQty - previousQty,
+          reason: String(reason).trim(),
+          adjustedByName,
+        },
+      });
+
+      return { adjustment, warehouse, item, newQty };
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Stock adjusted: ${result.item.name} in ${result.warehouse.name} is now ${result.newQty} ${result.item.unitOfMeasure}.`,
+      data: { adjustment: result.adjustment },
+    });
+  } catch (error: any) {
+    console.error('[Inventory] Error adjusting stock:', error);
+    if (error.message === 'Warehouse or item not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(400).json({ success: false, error: error.message || 'Failed to adjust stock.' });
+  }
+});
+
+/**
+ * GET /api/v1/inventory/adjustments
+ * Lists stock adjustment history (most recent first), optionally filtered
+ * to a single item and/or warehouse, so a business can see exactly who
+ * corrected what, when, and why.
+ */
+router.get('/adjustments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { itemId, warehouseId, page = '1', limit = '20' } = req.query;
+
+    const where: any = { tenantId };
+    if (itemId) where.itemId = itemId;
+    if (warehouseId) where.warehouseId = warehouseId;
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+
+    const adjustments = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).stockAdjustment.findMany({
+        where,
+        include: { item: true, warehouse: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+      });
+    });
+
+    res.status(200).json({ success: true, data: { adjustments, page: pageNum, limit: limitNum } });
+  } catch (error: any) {
+    console.error('[Inventory] Error fetching stock adjustments:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve stock adjustment history.' });
   }
 });
 

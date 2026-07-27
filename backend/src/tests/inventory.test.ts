@@ -115,4 +115,159 @@ describe('Inventory API - concurrent stock transfer safety', () => {
     expect(stockA.quantityOnHand).toBe(2);
     expect(stockA.quantityOnHand).toBeGreaterThanOrEqual(0);
   });
+
+  describe('POST /inventory/items/bulk', () => {
+    it('creates every valid row and seeds initial stock where a warehouse was given', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/items/bulk')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({
+          items: [
+            { name: 'Bulk Item A', costPrice: 1, sellingPrice: 2, initialWarehouseId: warehouseAId, initialQty: 5 },
+            { name: 'Bulk Item B', costPrice: 3, sellingPrice: 6 },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.created).toHaveLength(2);
+      expect(res.body.data.failed).toHaveLength(0);
+
+      const warehouses = await request(app)
+        .get('/api/v1/inventory/warehouses')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const warehouseA = warehouses.body.data.warehouses.find((w: any) => w.id === warehouseAId);
+      const bulkItemAId = res.body.data.created.find((it: any) => it.name === 'Bulk Item A').id;
+      const seededStock = warehouseA.stocks.find((s: any) => s.itemId === bulkItemAId);
+      expect(seededStock.quantityOnHand).toBe(5);
+    });
+
+    it('reports a per-row failure (duplicate SKU) without discarding the other valid rows', async () => {
+      const dupSku = `DUP-${Date.now()}`;
+
+      // Seed one item with this SKU first via the single-item endpoint.
+      await request(app)
+        .post('/api/v1/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ name: 'Pre-existing Item', sku: dupSku, costPrice: 1, sellingPrice: 2 });
+
+      const res = await request(app)
+        .post('/api/v1/inventory/items/bulk')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({
+          items: [
+            { name: 'Good Row', costPrice: 1, sellingPrice: 2 },
+            { name: 'Bad Row', sku: dupSku, costPrice: 1, sellingPrice: 2 },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.created).toHaveLength(1);
+      expect(res.body.data.created[0].name).toBe('Good Row');
+      expect(res.body.data.failed).toHaveLength(1);
+      expect(res.body.data.failed[0].name).toBe('Bad Row');
+      expect(res.body.data.failed[0].error).toContain('already exists');
+    });
+
+    it('rejects an empty items array', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/items/bulk')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ items: [] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+  });
+
+  describe('POST /inventory/adjustments - restock and mistake correction', () => {
+    let adjustItemId: string;
+
+    beforeAll(async () => {
+      const item = await request(app)
+        .post('/api/v1/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ name: 'Adjustable Widget', costPrice: 1, sellingPrice: 2, initialWarehouseId: warehouseBId, initialQty: 20 });
+      adjustItemId = item.body.data.item.id;
+    });
+
+    it("mode='add' restocks an existing item and records the adjustment", async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'add', quantity: 30, reason: 'Received delivery from supplier' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.adjustment.previousQty).toBe(20);
+      expect(res.body.data.adjustment.newQty).toBe(50);
+      expect(res.body.data.adjustment.delta).toBe(30);
+    });
+
+    it("mode='set' corrects a mistaken over-entry to the true physical count", async () => {
+      // Simulates the exact scenario a real user flagged: someone accidentally typed
+      // a much larger quantity than intended and needs to correct it to the real count.
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'set', quantity: 12, reason: 'Physical count found 12, not 50 - fixing mistaken entry' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.adjustment.previousQty).toBe(50);
+      expect(res.body.data.adjustment.newQty).toBe(12);
+      expect(res.body.data.adjustment.delta).toBe(-38);
+
+      const items = await request(app)
+        .get('/api/v1/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const refetched = items.body.data.items.find((it: any) => it.id === adjustItemId);
+      const stock = refetched.warehouseStocks.find((s: any) => s.warehouseId === warehouseBId);
+      expect(stock.quantityOnHand).toBe(12);
+    });
+
+    it("mode='remove' rejects removing more than is currently on hand", async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'remove', quantity: 999, reason: 'Testing over-removal guard' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain('only 12 currently on hand');
+    });
+
+    it('requires a non-empty reason for every adjustment', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'add', quantity: 5, reason: '   ' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('reason is required');
+    });
+
+    it('GET /inventory/adjustments returns the recorded history filtered by item', async () => {
+      const res = await request(app)
+        .get('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .query({ itemId: adjustItemId });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.adjustments.length).toBeGreaterThanOrEqual(2);
+      // Most recent first
+      expect(res.body.data.adjustments[0].mode).toBe('set');
+      expect(res.body.data.adjustments[0].item.name).toBe('Adjustable Widget');
+    });
+  });
 });

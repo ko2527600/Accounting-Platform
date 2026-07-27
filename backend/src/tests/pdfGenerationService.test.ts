@@ -31,6 +31,17 @@ describe('generateQuickStartGuidePdf', () => {
     expect(text).toContain('Getting Started');
     expect(text).toContain('Chart of Accounts');
     expect(text).toContain('Bank reconciliation');
+
+    // Covers every module actually shipped as of 2026-07-26 (Tax Rates, Fiscal
+    // Periods/Budgets, Recurring Transactions, Approval Workflows, Multi-Currency),
+    // not just the original day-1 feature set - a real user flagged these as
+    // missing from an earlier version of this guide.
+    expect(text).toContain('Tax rates');
+    expect(text).toContain('Fiscal periods');
+    expect(text).toContain('Recurring transactions');
+    expect(text).toContain('Approval workflows');
+    expect(text).toContain('Multi-currency support');
+    expect(text).toContain('Custom fields');
   });
 
   it('generates distinct content per tenant rather than a fixed static payload', async () => {

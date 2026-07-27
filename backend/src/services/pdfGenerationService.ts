@@ -6,10 +6,16 @@ const INK = '#0f172a';
 const MUTED = '#475569';
 
 function addSectionHeading(doc: PDFKit.PDFDocument, text: string): void {
+  // Always anchor to the page's left margin rather than the carried-over `doc.x`
+  // cursor - addBullet() below moves `doc.x` around while drawing wrapped text,
+  // and reading a drifted `doc.x` here previously caused the underline (and every
+  // bullet drawn after it) to creep progressively further right down the page.
+  const leftX = doc.page.margins.left;
+  doc.x = leftX;
   doc.moveDown(1);
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(15).text(text);
+  doc.fillColor(INK).font('Helvetica-Bold').fontSize(15).text(text, leftX);
   doc
-    .moveTo(doc.x, doc.y + 4)
+    .moveTo(leftX, doc.y + 4)
     .lineTo(doc.page.width - doc.page.margins.right, doc.y + 4)
     .strokeColor(BRAND_GREEN)
     .lineWidth(1.5)
@@ -18,14 +24,26 @@ function addSectionHeading(doc: PDFKit.PDFDocument, text: string): void {
 }
 
 function addBullet(doc: PDFKit.PDFDocument, title: string, body: string): void {
-  const startX = doc.x;
-  doc.fillColor(INK).font('Helvetica-Bold').fontSize(11).text(`•  ${title}`, startX);
+  // Same fix as addSectionHeading: use the page's fixed left margin instead of
+  // `doc.x`, which drifts after each wrapped-text call and previously caused
+  // both a "staircase" indentation bug and text being clipped past the right
+  // page edge (the wrap width was computed from the true margin while the text
+  // was actually being drawn starting from the drifted, further-right x).
+  const leftX = doc.page.margins.left;
+  const rightMargin = doc.page.margins.right;
+  doc.x = leftX;
+  doc
+    .fillColor(INK)
+    .font('Helvetica-Bold')
+    .fontSize(11)
+    .text(`•  ${title}`, leftX, doc.y, { width: doc.page.width - leftX - rightMargin });
   doc
     .fillColor(MUTED)
     .font('Helvetica')
     .fontSize(10.5)
-    .text(body, startX + 16, doc.y, { width: doc.page.width - doc.page.margins.left - doc.page.margins.right - 16 });
+    .text(body, leftX + 16, doc.y, { width: doc.page.width - leftX - rightMargin - 16 });
   doc.moveDown(0.6);
+  doc.x = leftX;
 }
 
 /**
@@ -89,8 +107,8 @@ export function generateQuickStartGuidePdf(businessName: string, recipientName: 
       'Add teammates under Settings > Team with role-based permissions (Admin, Accountant, Cashier, Viewer) so staff only see what their role requires.'
     );
 
-    // --- Feature Overview ---
-    addSectionHeading(doc, 'What You Can Do Today');
+    // --- Core Day-to-Day Features ---
+    addSectionHeading(doc, 'Core Day-to-Day Features');
     addBullet(
       doc,
       'Double-entry bookkeeping',
@@ -111,6 +129,34 @@ export function generateQuickStartGuidePdf(businessName: string, recipientName: 
       'Cash till & point of sale',
       'Daily closeouts compare expected vs. counted cash and send an instant SMS alert to your registered phone the moment a till comes up short.'
     );
+
+    // --- Automation & Compliance Features ---
+    addSectionHeading(doc, 'Automation & Compliance Features');
+    addBullet(
+      doc,
+      'Tax rates',
+      'Configure your own tax rates under Settings > Tax Rates; invoices automatically apply the correct active rate for the sale date.'
+    );
+    addBullet(
+      doc,
+      'Fiscal periods & budgets',
+      'Open, close, and lock accounting periods under Settings > Fiscal Periods, and track budget vs. actual spend per account under Reports > Budgets.'
+    );
+    addBullet(
+      doc,
+      'Recurring transactions',
+      'Set up recurring journal entries for rent, subscriptions, or payroll accruals under Settings > Recurring Transactions and they post automatically on schedule.'
+    );
+    addBullet(
+      doc,
+      'Approval workflows',
+      'Require sign-off before a journal entry, invoice, or bill posts by requesting an approval under Approvals in the sidebar.'
+    );
+    addBullet(
+      doc,
+      'Multi-currency support',
+      'Set your business\'s base currency at signup; transactions entered in other currencies convert automatically once live exchange rates are configured.'
+    );
     addBullet(
       doc,
       'Bank reconciliation',
@@ -121,6 +167,16 @@ export function generateQuickStartGuidePdf(businessName: string, recipientName: 
       'Automated executive reports',
       'Enable a schedule under Settings > Reports to receive weekly Profit & Loss summaries by email automatically.'
     );
+    addBullet(
+      doc,
+      'AI-assisted categorization',
+      'Get smart category suggestions while building journal entries to speed up everyday bookkeeping.'
+    );
+    addBullet(
+      doc,
+      'Custom fields',
+      'Extend Ledgers, Invoices, and other records with your own custom fields under Settings (availability depends on your subscription tier).'
+    );
 
     // --- Next steps / links ---
     addSectionHeading(doc, 'Need Help?');
@@ -130,6 +186,12 @@ export function generateQuickStartGuidePdf(businessName: string, recipientName: 
       .fontSize(10.5)
       .text('Sign in any time to continue setup:');
     doc.fillColor(BRAND_BLUE).font('Helvetica-Bold').text(`${appUrl}/login`, { link: `${appUrl}/login`, underline: true });
+    doc.moveDown(0.6);
+    doc
+      .fillColor(MUTED)
+      .font('Helvetica')
+      .fontSize(10.5)
+      .text('Tip: install Ledgio to your phone or desktop home screen for one-tap access — look for the Install App section on our homepage.');
 
     doc.moveDown(2);
     doc
