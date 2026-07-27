@@ -33,10 +33,10 @@ router.post('/onboard', async (req: Request, res: Response) => {
       });
     }
 
-    console.error('[TenantOnboarding] Unexpected error:', error);
+    console.error('[TenantOnboarding] Unexpected error:', error?.stack || error);
     return res.status(500).json({
       success: false,
-      error: 'Internal server error during tenant onboarding',
+      error: error?.message || 'Internal server error during tenant onboarding',
     });
   }
 });
