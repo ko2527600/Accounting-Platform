@@ -115,4 +115,73 @@ describe('Inventory API - concurrent stock transfer safety', () => {
     expect(stockA.quantityOnHand).toBe(2);
     expect(stockA.quantityOnHand).toBeGreaterThanOrEqual(0);
   });
+
+  describe('POST /inventory/items/bulk', () => {
+    it('creates every valid row and seeds initial stock where a warehouse was given', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/items/bulk')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({
+          items: [
+            { name: 'Bulk Item A', costPrice: 1, sellingPrice: 2, initialWarehouseId: warehouseAId, initialQty: 5 },
+            { name: 'Bulk Item B', costPrice: 3, sellingPrice: 6 },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.created).toHaveLength(2);
+      expect(res.body.data.failed).toHaveLength(0);
+
+      const warehouses = await request(app)
+        .get('/api/v1/inventory/warehouses')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const warehouseA = warehouses.body.data.warehouses.find((w: any) => w.id === warehouseAId);
+      const bulkItemAId = res.body.data.created.find((it: any) => it.name === 'Bulk Item A').id;
+      const seededStock = warehouseA.stocks.find((s: any) => s.itemId === bulkItemAId);
+      expect(seededStock.quantityOnHand).toBe(5);
+    });
+
+    it('reports a per-row failure (duplicate SKU) without discarding the other valid rows', async () => {
+      const dupSku = `DUP-${Date.now()}`;
+
+      // Seed one item with this SKU first via the single-item endpoint.
+      await request(app)
+        .post('/api/v1/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ name: 'Pre-existing Item', sku: dupSku, costPrice: 1, sellingPrice: 2 });
+
+      const res = await request(app)
+        .post('/api/v1/inventory/items/bulk')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({
+          items: [
+            { name: 'Good Row', costPrice: 1, sellingPrice: 2 },
+            { name: 'Bad Row', sku: dupSku, costPrice: 1, sellingPrice: 2 },
+          ],
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.created).toHaveLength(1);
+      expect(res.body.data.created[0].name).toBe('Good Row');
+      expect(res.body.data.failed).toHaveLength(1);
+      expect(res.body.data.failed[0].name).toBe('Bad Row');
+      expect(res.body.data.failed[0].error).toContain('already exists');
+    });
+
+    it('rejects an empty items array', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/items/bulk')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ items: [] });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+  });
 });

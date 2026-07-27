@@ -28,7 +28,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Build Public Platform Landing Page (/) with Onboarding Requirements, Terms & Conditions, and SLA 99.9% Uptime Guarantee (w:12)
 - [x] Create Password-Encrypted Secret Footer Link & Admin System-Wide Upgrade Broadcast Console (w:15)
 
-- [x] Implement Inventory Management module (w:15)
+- [x] Implement Inventory Management module (w:15) - added bulk product import (quick-add table + CSV upload, `POST /inventory/items/bulk`) 2026-07-27 so businesses don't have to add products one at a time. See STATUS.md. **Known gap still open**: there is still no "restock an existing item" action - stock can only be seeded once at item creation or moved between warehouses via transfer, not added to an item that's already been created.
 - [x] Develop Invoicing & Billing module (w:12)
 - [x] Integrate Bank Reconciliation functionality (w:10) - real Mono Connect integration added 2026-07-25 (tenant isolation was already fixed earlier). Inert until real `MONO_SECRET_KEY`/`MONO_WEBHOOK_SECRET`/`VITE_MONO_PUBLIC_KEY` credentials are supplied - see Known Issues.
 - [x] Enhance Taxation & Compliance features (e.g., advanced GST/VAT) (w:15) - Phase 1 of the new-modules plan: real per-tenant `TaxRate` CRUD (`/api/v1/tax-rates`) now drives invoice tax calculation, replacing the hardcoded flat 10% in `invoices.ts`. See STATUS.md 2026-07-25.

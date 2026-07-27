@@ -153,6 +153,111 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
 });
 
 /**
+ * POST /api/v1/inventory/items/bulk
+ * Creates many inventory items in one request (quick-add table or CSV import
+ * on the frontend both funnel through this single endpoint). Each row is
+ * attempted independently rather than as one all-or-nothing transaction, so
+ * a single bad row (e.g. a duplicate SKU) doesn't discard every other
+ * correctly-typed row in the batch - the response reports which rows
+ * succeeded and which failed (with why) so the caller can fix and retry
+ * only the failed ones.
+ */
+router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { items } = req.body;
+
+    if (!Array.isArray(items) || items.length === 0) {
+      res.status(400).json({ success: false, error: 'Provide a non-empty array of items to create.' });
+      return;
+    }
+    if (items.length > 500) {
+      res.status(400).json({ success: false, error: 'A maximum of 500 items can be created per bulk request.' });
+      return;
+    }
+
+    const created: any[] = [];
+    const failed: { index: number; name?: string; error: string }[] = [];
+
+    await withCurrentTenantDb(prisma, async (client) => {
+      const warehouseValidityCache = new Map<string, boolean>();
+      const usedSkusThisBatch = new Set<string>();
+
+      for (let i = 0; i < items.length; i++) {
+        const row = items[i] || {};
+        let itemSku = '';
+        try {
+          const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = row;
+
+          if (!name || !String(name).trim()) throw new Error('Item name is required.');
+          if (costPrice === undefined || costPrice === null || costPrice === '') throw new Error('Cost price is required.');
+          if (sellingPrice === undefined || sellingPrice === null || sellingPrice === '') throw new Error('Selling price is required.');
+
+          itemSku = sku ? String(sku).trim().toUpperCase() : '';
+          if (!itemSku) {
+            do {
+              itemSku = `SKU-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+            } while (usedSkusThisBatch.has(itemSku));
+          }
+          if (usedSkusThisBatch.has(itemSku)) {
+            throw new Error(`Duplicate SKU "${itemSku}" within this batch.`);
+          }
+
+          if (initialWarehouseId && !warehouseValidityCache.has(initialWarehouseId)) {
+            const wh = await (client as any).warehouse.findFirst({ where: { id: initialWarehouseId, tenantId } });
+            warehouseValidityCache.set(initialWarehouseId, !!wh);
+          }
+          if (initialWarehouseId && !warehouseValidityCache.get(initialWarehouseId)) {
+            throw new Error('Initial warehouse not found.');
+          }
+
+          const newItem = await (client as any).inventoryItem.create({
+            data: {
+              tenantId,
+              sku: itemSku,
+              name: String(name).trim(),
+              category,
+              unitOfMeasure,
+              costPrice: Number(costPrice),
+              sellingPrice: Number(sellingPrice),
+            },
+          });
+
+          usedSkusThisBatch.add(itemSku);
+
+          if (initialWarehouseId && Number(initialQty) > 0) {
+            await (client as any).warehouseStock.create({
+              data: {
+                tenantId,
+                warehouseId: initialWarehouseId,
+                itemId: newItem.id,
+                quantityOnHand: Number(initialQty),
+              },
+            });
+          }
+
+          created.push(newItem);
+        } catch (rowError: any) {
+          const message = rowError.code === 'P2002'
+            ? `SKU "${itemSku}" already exists for this business.`
+            : (rowError.message || 'Failed to create this item.');
+          failed.push({ index: i, name: row?.name, error: message });
+        }
+      }
+    });
+
+    res.status(created.length > 0 ? 201 : 400).json({
+      success: created.length > 0,
+      message: `${created.length} item(s) created${failed.length > 0 ? `, ${failed.length} failed` : ''}.`,
+      data: { created, failed },
+    });
+  } catch (error: any) {
+    console.error('[Inventory] Error bulk-creating items:', error);
+    res.status(500).json({ success: false, error: 'Failed to bulk-create inventory items.' });
+  }
+});
+
+/**
  * POST /api/v1/inventory/transfers
  * Transfers stock items between two warehouses / godowns.
  */
