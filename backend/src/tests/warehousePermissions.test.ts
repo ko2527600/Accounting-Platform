@@ -94,6 +94,22 @@ describe('Location-scoped permissions (Shop Manager / Cashier)', () => {
     await prisma.$disconnect();
   });
 
+  it('rejects accept-invitation with a weak password', async () => {
+    const weakInvite = await request(app)
+      .post('/api/v1/tenants/invite')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ email: `weakpw_${runId}@corp.com`, role: 'Shop Manager', warehouseIds: [warehouseAId] });
+    expect(weakInvite.status).toBe(201);
+
+    const res = await request(app)
+      .post('/api/v1/auth/accept-invitation')
+      .send({ token: weakInvite.body.data.invitation.token, name: 'Weak Password User', password: 'onlyletters' });
+
+    expect(res.status).toBe(400);
+    await deleteUserByEmail(prisma, `weakpw_${runId}@corp.com`).catch(() => {});
+  });
+
   it('grants WarehouseAccess for the invited shop on acceptance', async () => {
     const warehouses = await request(app)
       .get('/api/v1/inventory/warehouses')

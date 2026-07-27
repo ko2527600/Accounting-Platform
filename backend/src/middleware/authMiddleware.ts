@@ -10,7 +10,7 @@ export interface AuthMiddlewareOptions {
  * Token can be passed in `Authorization: Bearer <token>` header or `X-Auth-Token` header.
  */
 export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers.authorization || (req.headers['x-auth-token'] as string);
 
     if (!authHeader) {
@@ -30,7 +30,7 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
     }
 
     try {
-      const payload: JwtPayload = verifyJwtToken(token);
+      const payload: JwtPayload = await verifyJwtToken(token);
       req.user = payload;
       next();
     } catch (error: any) {

@@ -54,7 +54,7 @@ describe('Auth & RBAC Service Tests', () => {
   });
 
   describe('2. JWT Token Generation & Verification (HMAC-SHA256)', () => {
-    it('should generate and verify JWT token payload claims', () => {
+    it('should generate and verify JWT token payload claims', async () => {
       const payload = {
         id: 'user-uuid-123',
         email: 'jwt_test@example.com',
@@ -66,19 +66,19 @@ describe('Auth & RBAC Service Tests', () => {
       expect(typeof token).toBe('string');
       expect(token.split('.')).toHaveLength(3);
 
-      const decoded = verifyJwtToken(token);
+      const decoded = await verifyJwtToken(token);
       expect(decoded.id).toBe(payload.id);
       expect(decoded.email).toBe(payload.email);
       expect(decoded.role).toBe(payload.role);
       expect(decoded.tenantId).toBe(payload.tenantId);
     });
 
-    it('should fail verification for tampered token', () => {
+    it('should fail verification for tampered token', async () => {
       const token = generateJwtToken({ id: '1', email: 'a@b.com', role: 'Viewer' });
       const parts = token.split('.');
       const tamperedToken = `${parts[0]}.${parts[1]}.invalidSignatureHere`;
 
-      expect(() => verifyJwtToken(tamperedToken)).toThrow('Invalid JWT signature');
+      await expect(verifyJwtToken(tamperedToken)).rejects.toThrow('Invalid JWT signature');
     });
   });
 
@@ -136,6 +136,14 @@ describe('Auth & RBAC Service Tests', () => {
 
       expect(response.status).toBe(409);
       expect(response.body.error).toBe('Conflict Error');
+    });
+
+    it('should reject registration with a weak password (letters only, no digit)', async () => {
+      const res = await request(app)
+        .post('/api/v1/auth/register')
+        .send({ email: `weak_pw_${Date.now()}@example.com`, password: 'onlyletters', name: 'Weak Pw' });
+      expect(res.status).toBe(400);
+      expect(res.body.message).toContain('at least one number');
     });
 
     it('should validate invalid input formats', async () => {

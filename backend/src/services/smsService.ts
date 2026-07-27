@@ -13,16 +13,12 @@ export class SmsService {
     return process.env.SMS_GATEWAY_URL || 'https://api.sms-gate.app/3rdparty/v1/message';
   }
 
-  private static get username() {
-    return process.env.SMS_GATEWAY_USER || 'U8LXKB';
+  private static get username(): string | undefined {
+    return process.env.SMS_GATEWAY_USER;
   }
 
-  private static get password() {
-    return process.env.SMS_GATEWAY_PASS || 'db8lp7qnvc3qkv';
-  }
-
-  private static get deviceId() {
-    return process.env.SMS_GATEWAY_DEVICE_ID || 'ke6CPUcczoxCIGS7fA6la';
+  private static get password(): string | undefined {
+    return process.env.SMS_GATEWAY_PASS;
   }
 
   private static get senderId() {
@@ -90,7 +86,20 @@ export class SmsService {
       }
     }
 
-    // 3. Android SMS Gateway (Default)
+    // 3. Android SMS Gateway (Default) - requires real gateway credentials, no
+    // shared fallback account. Neither Arkesel nor mNotify were configured
+    // above, so if this isn't configured either, fail cleanly rather than
+    // silently succeeding against a shared demo account.
+    if (!(process.env.NODE_ENV === 'test' && !process.env.SMS_GATEWAY_TEST_LIVE) && (!this.username || !this.password)) {
+      console.error('[SmsService] Android Gateway is not configured (SMS_GATEWAY_USER/SMS_GATEWAY_PASS unset) and no other gateway is configured.');
+      await recordAuditLog({
+        action: 'GATEWAY_NOT_CONFIGURED',
+        entity: 'SMS_GATEWAY',
+        details: `SMS to ${recipientPhone} not sent: no SMS gateway is configured (ARKESEL_API_KEY, MNOTIFY_API_KEY, and SMS_GATEWAY_USER/PASS all unset).`,
+      });
+      return false;
+    }
+
     const payload = {
       phoneNumbers: [cleanPhone],
       message: formattedMessage,
@@ -112,8 +121,8 @@ export class SmsService {
         const response = await axios.post(endpoint, payload, {
           timeout: 10000,
           auth: {
-            username: this.username,
-            password: this.password,
+            username: this.username!,
+            password: this.password!,
           },
           headers: {
             'Content-Type': 'application/json',

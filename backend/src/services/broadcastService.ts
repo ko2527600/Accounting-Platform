@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import { prisma } from '../config/db';
 import { EmailService } from './EmailService';
 import { SmsService } from './smsService';
 import { recordAuditLog } from './auditLogService';
+import { escapeHtml } from '../utils/htmlEscape';
 
 export interface BroadcastRequestDTO {
   subject: string;
@@ -31,7 +33,12 @@ export class BroadcastService {
   }
 
   public static verifyPasscode(passcode: string): boolean {
-    return passcode === this.masterPasscode;
+    const provided = Buffer.from(passcode || '', 'utf8');
+    const expected = Buffer.from(this.masterPasscode, 'utf8');
+    if (provided.length !== expected.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(provided, expected);
   }
 
   public static async executeBroadcast(dto: BroadcastRequestDTO): Promise<BroadcastResult> {
@@ -74,12 +81,12 @@ export class BroadcastService {
                 Ledgio System Notice
               </h2>
               <p style="font-size: 14px; color: #334155; line-height: 1.6;">
-                Hello <strong>${user.name}</strong> (${user.tenant?.name || 'Business Owner'}),
+                Hello <strong>${escapeHtml(user.name)}</strong> (${escapeHtml(user.tenant?.name || 'Business Owner')}),
               </p>
               <div style="background-color: #f1f5f9; padding: 15px; border-left: 4px solid #2563eb; border-radius: 4px; margin: 20px 0;">
-                <h3 style="margin-top: 0; color: #1e293b; font-size: 15px;">${dto.subject}</h3>
+                <h3 style="margin-top: 0; color: #1e293b; font-size: 15px;">${escapeHtml(dto.subject)}</h3>
                 <p style="font-size: 13px; color: #475569; white-space: pre-line; margin-bottom: 0;">
-                  ${dto.message}
+                  ${escapeHtml(dto.message)}
                 </p>
               </div>
               <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">

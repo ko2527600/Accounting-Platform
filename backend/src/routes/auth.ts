@@ -1,16 +1,31 @@
 import { Router, Request, Response } from 'express';
+import crypto from 'node:crypto';
 import { prisma } from '../config/db';
 import { hashPassword, verifyPassword } from '../utils/password';
-import { generateJwtToken } from '../utils/jwt';
+import { validatePasswordStrength } from '../utils/passwordPolicy';
+import { generateJwtToken, computeTokenHash, evictFromJwtCache } from '../utils/jwt';
 import { createUser, findUserByEmail, findUserById } from '../repository/userRepository';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { recordAuditLog } from '../services/auditLogService';
+import { revokeToken } from '../services/tokenRevocationService';
 
 const router = Router();
 
 const VALID_ROLES = ['Admin', 'Accountant', 'Auditor', 'Viewer'];
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * Constant-time comparison for secret-like values (verification codes/tokens).
+ * Returns false (not a throw) whenever either side is missing/mismatched length.
+ */
+function timingSafeStringEqual(a: string | null | undefined, b: string | null | undefined): boolean {
+  if (!a || !b) return false;
+  const bufA = Buffer.from(a, 'utf8');
+  const bufB = Buffer.from(b, 'utf8');
+  if (bufA.length !== bufB.length) return false;
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 /**
  * POST /api/v1/auth/register
@@ -28,10 +43,11 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    if (!password || typeof password !== 'string' || password.length < 6) {
+    const passwordError = validatePasswordStrength(password);
+    if (passwordError) {
       res.status(400).json({
         error: 'Validation Error',
-        message: 'Password is required and must be at least 6 characters long.',
+        message: passwordError,
       });
       return;
     }
@@ -151,12 +167,12 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
     let isPhoneVerified = user.isPhoneVerified;
 
     // Check email token if provided
-    if (emailVerificationToken && user.emailVerificationToken === emailVerificationToken) {
+    if (emailVerificationToken && timingSafeStringEqual(user.emailVerificationToken, emailVerificationToken)) {
       isEmailVerified = true;
     }
 
     // Check SMS code if provided
-    if (smsCode && (user.smsVerificationCode === smsCode || smsCode === '1234')) {
+    if (smsCode && timingSafeStringEqual(user.smsVerificationCode, smsCode)) {
       isPhoneVerified = true;
     }
 
@@ -305,6 +321,37 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
+ * POST /api/v1/auth/logout
+ * Revokes the presented token so it's rejected by authenticateJwt for the
+ * remainder of its natural lifetime, even though JWTs are otherwise stateless.
+ */
+router.post('/logout', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const authHeader = req.headers.authorization || (req.headers['x-auth-token'] as string) || '';
+    const token = authHeader.startsWith('Bearer ') ? authHeader.substring(7).trim() : authHeader;
+
+    const expiresAt = req.user?.exp ?? Math.floor(Date.now() / 1000) + 86400;
+    const ttlSeconds = expiresAt - Math.floor(Date.now() / 1000);
+
+    await revokeToken(computeTokenHash(token), ttlSeconds);
+    evictFromJwtCache(token);
+
+    await recordAuditLog({
+      action: 'AUTH.LOGOUT',
+      entity: 'User',
+      entityId: req.user?.id,
+      tenantId: req.user?.tenantId || null,
+      actor: { userId: req.user?.id, userEmail: req.user?.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+    });
+
+    res.status(200).json({ success: true, message: 'Logged out successfully.' });
+  } catch (error: any) {
+    console.error('[Auth Service] Logout error:', error);
+    res.status(500).json({ success: false, error: 'Failed to log out.' });
+  }
+});
+
+/**
  * GET /api/v1/auth/me
  * Retrieves current authenticated user profile.
  */
@@ -393,7 +440,7 @@ router.put('/profile', authenticateJwt, async (req: Request, res: Response): Pro
  * which would otherwise shadow this handler since Express dispatches to the first
  * matching route registration.
  */
-router.post('/verify-token', (req: Request, res: Response): void => {
+router.post('/verify-token', async (req: Request, res: Response): Promise<void> => {
   const authHeader = req.headers.authorization || (req.headers['x-auth-token'] as string) || req.body.token;
 
   if (!authHeader) {
@@ -412,7 +459,7 @@ router.post('/verify-token', (req: Request, res: Response): void => {
 
   try {
     const { verifyJwtToken } = require('../utils/jwt');
-    const payload = verifyJwtToken(token);
+    const payload = await verifyJwtToken(token);
     res.status(200).json({
       success: true,
       valid: true,
@@ -501,10 +548,11 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
       return;
     }
 
-    if (password.length < 6) {
+    const passwordError = validatePasswordStrength(password);
+    if (passwordError) {
       res.status(400).json({
         success: false,
-        error: 'Password must be at least 6 characters long.',
+        error: passwordError,
       });
       return;
     }

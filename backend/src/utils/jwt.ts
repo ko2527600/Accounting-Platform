@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isTokenRevoked } from '../services/tokenRevocationService';
 
 export interface JwtPayload {
   id: string;
@@ -40,10 +41,10 @@ class LRUCache<K, V> {
   set(key: K, value: V): void {
     // Delete if exists (to move to end)
     this.cache.delete(key);
-    
+
     // Add to end
     this.cache.set(key, value);
-    
+
     // Evict oldest if over capacity
     if (this.cache.size > this.maxSize) {
       const firstKey = this.cache.keys().next().value;
@@ -51,6 +52,10 @@ class LRUCache<K, V> {
         this.cache.delete(firstKey);
       }
     }
+  }
+
+  delete(key: K): void {
+    this.cache.delete(key);
   }
 
   clear(): void {
@@ -157,23 +162,46 @@ export function generateJwtToken(payload: JwtPayload, expiresInSeconds = 86400):
 }
 
 /**
- * Verifies and decodes a signed JWT token with LRU caching.
- * Throws an Error if token structure, signature, or expiration is invalid.
+ * Computes the same short SHA-256-derived hash used as the cache key and as
+ * the revocation-list key, so callers (e.g. the logout route) can revoke a
+ * token without duplicating the hashing logic.
  */
-export function verifyJwtToken(token: string): JwtPayload {
+export function computeTokenHash(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex').substring(0, 16);
+}
+
+/**
+ * Evicts a single token from the in-memory verified-token cache. Used on
+ * logout/revocation so a just-revoked token can't keep being served from
+ * cache for the remainder of its cache entry's life.
+ */
+export function evictFromJwtCache(token: string): void {
+  tokenCache.delete(computeTokenHash(token));
+}
+
+/**
+ * Verifies and decodes a signed JWT token with LRU caching.
+ * Throws an Error if token structure, signature, expiration, or revocation
+ * status is invalid.
+ */
+export async function verifyJwtToken(token: string): Promise<JwtPayload> {
   if (!token || typeof token !== 'string') {
     throw new Error('Token must be a non-empty string');
   }
 
   // Generate cache key from token hash
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex').substring(0, 16);
-  
+  const tokenHash = computeTokenHash(token);
+
   // Check cache first
   const now = Math.floor(Date.now() / 1000);
   const cached = tokenCache.get(tokenHash);
-  
+
   if (cached && cached.expiresAt > now) {
-    // Cache hit - return without verification
+    // Cache hit - still must check revocation, since a logout could have
+    // happened after this token was cached but before it naturally expired.
+    if (await isTokenRevoked(tokenHash)) {
+      throw new Error('Token has been revoked');
+    }
     return cached.payload;
   }
 
@@ -216,6 +244,10 @@ export function verifyJwtToken(token: string): JwtPayload {
   // Verify expiration
   if (payload.exp && payload.exp < now) {
     throw new Error('JWT token has expired');
+  }
+
+  if (await isTokenRevoked(tokenHash)) {
+    throw new Error('Token has been revoked');
   }
 
   // Store in cache (TTL = until token expiry)
