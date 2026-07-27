@@ -184,4 +184,90 @@ describe('Inventory API - concurrent stock transfer safety', () => {
       expect(res.body.success).toBe(false);
     });
   });
+
+  describe('POST /inventory/adjustments - restock and mistake correction', () => {
+    let adjustItemId: string;
+
+    beforeAll(async () => {
+      const item = await request(app)
+        .post('/api/v1/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ name: 'Adjustable Widget', costPrice: 1, sellingPrice: 2, initialWarehouseId: warehouseBId, initialQty: 20 });
+      adjustItemId = item.body.data.item.id;
+    });
+
+    it("mode='add' restocks an existing item and records the adjustment", async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'add', quantity: 30, reason: 'Received delivery from supplier' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.adjustment.previousQty).toBe(20);
+      expect(res.body.data.adjustment.newQty).toBe(50);
+      expect(res.body.data.adjustment.delta).toBe(30);
+    });
+
+    it("mode='set' corrects a mistaken over-entry to the true physical count", async () => {
+      // Simulates the exact scenario a real user flagged: someone accidentally typed
+      // a much larger quantity than intended and needs to correct it to the real count.
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'set', quantity: 12, reason: 'Physical count found 12, not 50 - fixing mistaken entry' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.data.adjustment.previousQty).toBe(50);
+      expect(res.body.data.adjustment.newQty).toBe(12);
+      expect(res.body.data.adjustment.delta).toBe(-38);
+
+      const items = await request(app)
+        .get('/api/v1/inventory/items')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const refetched = items.body.data.items.find((it: any) => it.id === adjustItemId);
+      const stock = refetched.warehouseStocks.find((s: any) => s.warehouseId === warehouseBId);
+      expect(stock.quantityOnHand).toBe(12);
+    });
+
+    it("mode='remove' rejects removing more than is currently on hand", async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'remove', quantity: 999, reason: 'Testing over-removal guard' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain('only 12 currently on hand');
+    });
+
+    it('requires a non-empty reason for every adjustment', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseBId, itemId: adjustItemId, mode: 'add', quantity: 5, reason: '   ' });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('reason is required');
+    });
+
+    it('GET /inventory/adjustments returns the recorded history filtered by item', async () => {
+      const res = await request(app)
+        .get('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .query({ itemId: adjustItemId });
+
+      expect(res.status).toBe(200);
+      expect(res.body.data.adjustments.length).toBeGreaterThanOrEqual(2);
+      // Most recent first
+      expect(res.body.data.adjustments[0].mode).toBe('set');
+      expect(res.body.data.adjustments[0].item.name).toBe('Adjustable Widget');
+    });
+  });
 });

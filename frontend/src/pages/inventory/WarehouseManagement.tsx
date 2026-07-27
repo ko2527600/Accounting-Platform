@@ -7,7 +7,20 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
-import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download } from "lucide-react";
+import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download, SlidersHorizontal, History } from "lucide-react";
+
+interface StockAdjustment {
+  id: string;
+  mode: "add" | "remove" | "set";
+  previousQty: number;
+  newQty: number;
+  delta: number;
+  reason: string;
+  adjustedByName?: string;
+  createdAt: string;
+  item?: { name: string; unitOfMeasure: string };
+  warehouse?: { name: string };
+}
 
 interface BulkRow {
   name: string;
@@ -78,6 +91,20 @@ export function WarehouseManagement() {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+  const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+
+  // Stock Adjustment Form State
+  const [adjustItemId, setAdjustItemId] = useState("");
+  const [adjustWarehouseId, setAdjustWarehouseId] = useState("");
+  const [adjustMode, setAdjustMode] = useState<"add" | "remove" | "set">("add");
+  const [adjustQty, setAdjustQty] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [isAdjusting, setIsAdjusting] = useState(false);
+
+  // Adjustment History State
+  const [adjustmentHistory, setAdjustmentHistory] = useState<StockAdjustment[]>([]);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false);
 
   // Bulk Add State
   const [bulkTab, setBulkTab] = useState<"table" | "csv">("table");
@@ -216,6 +243,59 @@ export function WarehouseManagement() {
     const dest = warehouses.find(w => w.id !== originWarehouseId);
     if (dest) setToWarehouseId(dest.id);
     setIsTransferModalOpen(true);
+  };
+
+  const openAdjustModal = (itemId?: string, warehouseId?: string) => {
+    setAdjustItemId(itemId || "");
+    setAdjustWarehouseId(warehouseId || "");
+    setAdjustMode("add");
+    setAdjustQty("");
+    setAdjustReason("");
+    setIsAdjustModalOpen(true);
+  };
+
+  const handleAdjustSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adjustItemId || !adjustWarehouseId) {
+      alert("Select both a product and a warehouse.");
+      return;
+    }
+    if (!adjustReason.trim()) {
+      alert("A reason is required for every stock adjustment.");
+      return;
+    }
+    setIsAdjusting(true);
+    try {
+      const res = await api.post("/inventory/adjustments", {
+        warehouseId: adjustWarehouseId,
+        itemId: adjustItemId,
+        mode: adjustMode,
+        quantity: Number(adjustQty),
+        reason: adjustReason.trim(),
+      });
+
+      if (res.data.success) {
+        setIsAdjustModalOpen(false);
+        fetchData();
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to adjust stock.");
+    } finally {
+      setIsAdjusting(false);
+    }
+  };
+
+  const openHistoryModal = async () => {
+    setIsHistoryModalOpen(true);
+    setIsHistoryLoading(true);
+    try {
+      const res = await api.get("/inventory/adjustments", { params: { limit: 50 } });
+      if (res.data.success) setAdjustmentHistory(res.data.data.adjustments);
+    } catch (err) {
+      console.error("Failed to load adjustment history:", err);
+    } finally {
+      setIsHistoryLoading(false);
+    }
   };
 
   const openBulkModal = () => {
@@ -363,6 +443,14 @@ export function WarehouseManagement() {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => openAdjustModal()} className="flex items-center">
+            <SlidersHorizontal className="mr-2 h-4 w-4 text-primary-600" />
+            Restock / Adjust Stock
+          </Button>
+          <Button variant="outline" onClick={openHistoryModal} className="flex items-center">
+            <History className="mr-2 h-4 w-4 text-primary-600" />
+            Adjustment History
+          </Button>
           <Button variant="outline" onClick={() => setIsTransferModalOpen(true)} className="flex items-center">
             <ArrowRightLeft className="mr-2 h-4 w-4 text-primary-600" />
             Request Stock Transfer
@@ -547,6 +635,14 @@ export function WarehouseManagement() {
                                     Transfer
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  onClick={() => openAdjustModal(it.id, wh.id)}
+                                  title={`Restock or correct ${it.name} at ${wh.name}`}
+                                  className="ml-2 px-1.5 py-0.5 text-[10px] font-bold rounded bg-blue-600 text-white hover:bg-blue-700 transition-colors shadow-xs"
+                                >
+                                  Adjust
+                                </button>
                               </div>
                             );
                           })}
@@ -765,6 +861,129 @@ export function WarehouseManagement() {
               {isBulkSubmitting ? "Creating..." : `Create ${bulkRows.filter(r => r.name.trim()).length || ""} Product${bulkRows.filter(r => r.name.trim()).length === 1 ? "" : "s"}`}
             </Button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Restock / Adjust Stock Modal */}
+      <Modal isOpen={isAdjustModalOpen} onClose={() => setIsAdjustModalOpen(false)} title="Restock or Correct Stock">
+        <form onSubmit={handleAdjustSubmit} className="space-y-4">
+          <p className="text-xs text-secondary-500">
+            Use <strong>Add</strong> when new stock arrives (e.g. a supplier delivery). Use <strong>Remove</strong> or <strong>Set Exact Count</strong> to fix a mistaken entry or reconcile against a physical count. Every adjustment is recorded with your name and the reason you give.
+          </p>
+          <div>
+            <label className="block text-sm font-medium mb-1">Product</label>
+            <select
+              required
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+              value={adjustItemId}
+              onChange={(e) => setAdjustItemId(e.target.value)}
+            >
+              <option value="">-- Select Product --</option>
+              {items.map((it) => (
+                <option key={it.id} value={it.id}>{it.name} ({it.sku})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Warehouse / Shop</label>
+            <select
+              required
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+              value={adjustWarehouseId}
+              onChange={(e) => setAdjustWarehouseId(e.target.value)}
+            >
+              <option value="">-- Select Warehouse --</option>
+              {warehouses.map((w) => (
+                <option key={w.id} value={w.id}>{w.name}</option>
+              ))}
+            </select>
+          </div>
+          {adjustItemId && adjustWarehouseId && (
+            <p className="text-xs text-secondary-500">
+              Currently on hand: <strong>
+                {items.find(it => it.id === adjustItemId)?.warehouseStocks?.find(s => s.warehouseId === adjustWarehouseId)?.quantityOnHand || 0}
+              </strong>
+            </p>
+          )}
+          <div>
+            <label className="block text-sm font-medium mb-1">Action</label>
+            <div className="grid grid-cols-3 gap-2">
+              {(["add", "remove", "set"] as const).map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  onClick={() => setAdjustMode(m)}
+                  className={`py-2 px-2 rounded-md text-xs font-semibold border transition-colors ${
+                    adjustMode === m
+                      ? "bg-primary-600 text-white border-primary-600"
+                      : "bg-white dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300 border-secondary-300 dark:border-secondary-700"
+                  }`}
+                >
+                  {m === "add" ? "Add Stock" : m === "remove" ? "Remove Stock" : "Set Exact Count"}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              {adjustMode === "set" ? "New Total Quantity" : "Quantity"}
+            </label>
+            <Input type="number" required min={adjustMode === "set" ? 0 : 1} value={adjustQty} onChange={(e) => setAdjustQty(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Reason (required)</label>
+            <Input required placeholder="e.g. Received delivery from supplier / Correcting mistaken entry / Physical stock count" value={adjustReason} onChange={(e) => setAdjustReason(e.target.value)} />
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setIsAdjustModalOpen(false)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isAdjusting}>
+              {isAdjusting ? "Saving..." : "Save Adjustment"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Adjustment History Modal */}
+      <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Stock Adjustment History">
+        <div className="max-h-[60vh] overflow-y-auto">
+          {isHistoryLoading ? (
+            <div className="py-8 text-center text-secondary-500 text-sm">Loading history...</div>
+          ) : adjustmentHistory.length === 0 ? (
+            <div className="py-8 text-center text-secondary-500 text-sm">No stock adjustments recorded yet.</div>
+          ) : (
+            <table className="w-full text-xs">
+              <thead className="bg-secondary-50 dark:bg-secondary-900 sticky top-0">
+                <tr>
+                  <th className="text-left p-2 font-medium">When</th>
+                  <th className="text-left p-2 font-medium">Product</th>
+                  <th className="text-left p-2 font-medium">Warehouse</th>
+                  <th className="text-left p-2 font-medium">Change</th>
+                  <th className="text-left p-2 font-medium">Reason</th>
+                  <th className="text-left p-2 font-medium">By</th>
+                </tr>
+              </thead>
+              <tbody>
+                {adjustmentHistory.map((adj) => (
+                  <tr key={adj.id} className="border-t border-secondary-100 dark:border-secondary-800">
+                    <td className="p-2 whitespace-nowrap text-secondary-500">{new Date(adj.createdAt).toLocaleString()}</td>
+                    <td className="p-2 font-medium">{adj.item?.name}</td>
+                    <td className="p-2">{adj.warehouse?.name}</td>
+                    <td className="p-2">
+                      <span className={`font-bold ${adj.delta > 0 ? "text-emerald-600" : adj.delta < 0 ? "text-red-600" : "text-secondary-500"}`}>
+                        {adj.delta > 0 ? "+" : ""}{adj.delta}
+                      </span>
+                      <span className="text-secondary-400"> ({adj.previousQty} → {adj.newQty})</span>
+                    </td>
+                    <td className="p-2 text-secondary-600 dark:text-secondary-300">{adj.reason}</td>
+                    <td className="p-2 text-secondary-500">{adj.adjustedByName}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+        <div className="flex justify-end pt-4 border-t border-secondary-200 dark:border-secondary-800 mt-4">
+          <Button variant="outline" onClick={() => setIsHistoryModalOpen(false)}>Close</Button>
         </div>
       </Modal>
 

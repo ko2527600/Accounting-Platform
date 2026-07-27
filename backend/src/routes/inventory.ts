@@ -353,4 +353,156 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
   }
 });
 
+const ADJUSTMENT_MODES = new Set(['add', 'remove', 'set']);
+
+/**
+ * POST /api/v1/inventory/adjustments
+ * Manually corrects an item's quantity in a warehouse - covers both
+ * restocking an existing item (mode='add', e.g. a new supplier delivery)
+ * and fixing a mistaken over/under-entry (mode='remove' to subtract units,
+ * or mode='set' to declare the true, physically-counted quantity outright).
+ * A reason is required and every adjustment is permanently recorded in
+ * StockAdjustment for audit purposes - this is the same underlying action
+ * as a stock transfer's audit trail, just for a single-warehouse correction
+ * rather than a movement between two warehouses.
+ */
+router.post('/adjustments', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { warehouseId, itemId, mode, quantity, reason } = req.body;
+
+    if (!warehouseId || !itemId) {
+      res.status(400).json({ success: false, error: 'Warehouse ID and item ID are required.' });
+      return;
+    }
+    if (!ADJUSTMENT_MODES.has(mode)) {
+      res.status(400).json({ success: false, error: "Mode must be one of 'add', 'remove', or 'set'." });
+      return;
+    }
+    const qty = Number(quantity);
+    if (!Number.isInteger(qty) || qty < 0 || (mode !== 'set' && qty === 0)) {
+      res.status(400).json({ success: false, error: 'Quantity must be a whole number (greater than zero for add/remove).' });
+      return;
+    }
+    if (!reason || !String(reason).trim()) {
+      res.status(400).json({ success: false, error: 'A reason is required for every stock adjustment.' });
+      return;
+    }
+
+    const adjustedByName = req.user?.name || req.user?.email || 'Unknown';
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const [warehouse, item] = await Promise.all([
+        (client as any).warehouse.findFirst({ where: { id: warehouseId, tenantId } }),
+        (client as any).inventoryItem.findFirst({ where: { id: itemId, tenantId } }),
+      ]);
+      if (!warehouse || !item) {
+        throw new Error('Warehouse or item not found.');
+      }
+
+      const existingStock = await (client as any).warehouseStock.findUnique({
+        where: { warehouseId_itemId: { warehouseId, itemId } },
+      });
+      const previousQty = existingStock?.quantityOnHand || 0;
+
+      let newQty: number;
+      if (mode === 'add') {
+        newQty = previousQty + qty;
+        await (client as any).warehouseStock.upsert({
+          where: { warehouseId_itemId: { warehouseId, itemId } },
+          update: { quantityOnHand: { increment: qty } },
+          create: { tenantId, warehouseId, itemId, quantityOnHand: qty },
+        });
+      } else if (mode === 'remove') {
+        if (previousQty < qty) {
+          throw new Error(`Cannot remove ${qty} units - only ${previousQty} currently on hand.`);
+        }
+        newQty = previousQty - qty;
+        const deduction = await (client as any).warehouseStock.updateMany({
+          where: { warehouseId, itemId, quantityOnHand: { gte: qty } },
+          data: { quantityOnHand: { decrement: qty } },
+        });
+        if (deduction.count === 0) {
+          throw new Error('Stock changed concurrently - please retry.');
+        }
+      } else {
+        // 'set': an authoritative correction to the true, physically-counted
+        // quantity - intentionally overwrites whatever was there rather than
+        // being guarded against concurrent changes, since a manual recount
+        // is meant to be the new source of truth.
+        newQty = qty;
+        await (client as any).warehouseStock.upsert({
+          where: { warehouseId_itemId: { warehouseId, itemId } },
+          update: { quantityOnHand: newQty },
+          create: { tenantId, warehouseId, itemId, quantityOnHand: newQty },
+        });
+      }
+
+      const adjustment = await (client as any).stockAdjustment.create({
+        data: {
+          tenantId,
+          warehouseId,
+          itemId,
+          mode,
+          previousQty,
+          newQty,
+          delta: newQty - previousQty,
+          reason: String(reason).trim(),
+          adjustedByName,
+        },
+      });
+
+      return { adjustment, warehouse, item, newQty };
+    });
+
+    res.status(201).json({
+      success: true,
+      message: `Stock adjusted: ${result.item.name} in ${result.warehouse.name} is now ${result.newQty} ${result.item.unitOfMeasure}.`,
+      data: { adjustment: result.adjustment },
+    });
+  } catch (error: any) {
+    console.error('[Inventory] Error adjusting stock:', error);
+    if (error.message === 'Warehouse or item not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(400).json({ success: false, error: error.message || 'Failed to adjust stock.' });
+  }
+});
+
+/**
+ * GET /api/v1/inventory/adjustments
+ * Lists stock adjustment history (most recent first), optionally filtered
+ * to a single item and/or warehouse, so a business can see exactly who
+ * corrected what, when, and why.
+ */
+router.get('/adjustments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { itemId, warehouseId, page = '1', limit = '20' } = req.query;
+
+    const where: any = { tenantId };
+    if (itemId) where.itemId = itemId;
+    if (warehouseId) where.warehouseId = warehouseId;
+
+    const pageNum = Math.max(1, Number(page) || 1);
+    const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
+
+    const adjustments = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).stockAdjustment.findMany({
+        where,
+        include: { item: true, warehouse: true },
+        orderBy: { createdAt: 'desc' },
+        skip: (pageNum - 1) * limitNum,
+        take: limitNum,
+      });
+    });
+
+    res.status(200).json({ success: true, data: { adjustments, page: pageNum, limit: limitNum } });
+  } catch (error: any) {
+    console.error('[Inventory] Error fetching stock adjustments:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve stock adjustment history.' });
+  }
+});
+
 export default router;
