@@ -36,7 +36,14 @@ export class SmsService {
    */
   public static async send(recipientPhone: string, message: string): Promise<boolean> {
     const formattedMessage = message.startsWith('Ledgio') ? message : `Ledgio ERP: ${message}`;
-    const cleanPhone = recipientPhone.replace(/[\s\-\(\)]/g, '');
+    let cleanPhone = recipientPhone.replace(/[\s\-\(\)]/g, '');
+    if (cleanPhone.startsWith('0') && cleanPhone.length === 10) {
+      cleanPhone = `+233${cleanPhone.substring(1)}`;
+    } else if (!cleanPhone.startsWith('+') && cleanPhone.length === 9) {
+      cleanPhone = `+233${cleanPhone}`;
+    } else if (!cleanPhone.startsWith('+') && cleanPhone.length > 9) {
+      cleanPhone = `+${cleanPhone}`;
+    }
 
     // 1. Arkesel Bulk SMS Gateway (Supports Alphanumeric Sender ID "Ledgio")
     if (process.env.ARKESEL_API_KEY) {

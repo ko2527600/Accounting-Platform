@@ -92,6 +92,9 @@ setInterval(() => {
 function getJwtSecret(): string {
   const secret = process.env.JWT_SECRET;
   if (!secret) {
+    if (process.env.NODE_ENV === 'test') {
+      return 'test-super-secret-jwt-key-2026-accountgo';
+    }
     throw new Error(
       'JWT_SECRET environment variable is not set. Refusing to sign or verify tokens with a default secret.'
     );
