@@ -214,7 +214,7 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
     const companyName = tenant?.name || 'Ledgio Workspace';
-    const inviteUrl = `${req.protocol}://${req.get('host')}/accept-invite?token=${token}`;
+    const inviteUrl = `${(process.env.APP_URL || 'http://localhost:5173').replace(/\/$/, '')}/accept-invite?token=${token}`;
 
     // Dispatch actual Email Invitation via Nodemailer (Gmail SMTP)
     const { EmailService } = require('../services/EmailService');
