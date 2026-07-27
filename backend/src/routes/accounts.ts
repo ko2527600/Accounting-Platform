@@ -4,6 +4,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import * as accountService from '../services/accountService';
 import { AccountServiceError } from '../services/accountService';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -84,7 +85,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const account = await accountService.createAccount(req.body);
+    const account = await accountService.createAccount(req.body, actorFromRequest(req));
     res.status(201).json({
       success: true,
       message: 'Account created successfully',
@@ -114,7 +115,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
  */
 router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const account = await accountService.updateAccount(req.params.id, req.body);
+    const account = await accountService.updateAccount(req.params.id, req.body, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Account updated successfully',
@@ -144,7 +145,7 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
  */
 router.delete('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    await accountService.deleteAccount(req.params.id);
+    await accountService.deleteAccount(req.params.id, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Account deleted successfully',

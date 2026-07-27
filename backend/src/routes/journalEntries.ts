@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import * as journalEntryService from '../services/journalEntryService';
 import { JournalEntryServiceError } from '../services/journalEntryService';
 import { JournalEntryStatus } from '../repository/journalEntryRepository';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -93,7 +94,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.createJournalEntry(req.body);
+    const journalEntry = await journalEntryService.createJournalEntry(req.body, actorFromRequest(req));
     res.status(201).json({
       success: true,
       message: 'Journal entry created successfully',
@@ -124,7 +125,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
  */
 router.post('/:id/post', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.postJournalEntry(req.params.id);
+    const journalEntry = await journalEntryService.postJournalEntry(req.params.id, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Journal entry posted successfully',
@@ -154,7 +155,7 @@ router.post('/:id/post', requireRole('Accountant'), async (req: Request, res: Re
  */
 router.post('/:id/void', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.voidJournalEntry(req.params.id);
+    const journalEntry = await journalEntryService.voidJournalEntry(req.params.id, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Journal entry voided successfully',

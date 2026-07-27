@@ -5,6 +5,7 @@ import { generateJwtToken } from '../utils/jwt';
 import { createUser, findUserByEmail, findUserById } from '../repository/userRepository';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { recordAuditLog } from '../services/auditLogService';
 
 const router = Router();
 
@@ -214,6 +215,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const user = await findUserByEmail(prisma, email);
     if (!user || !user.password) {
+      await recordAuditLog({
+        action: 'AUTH.LOGIN_FAILED',
+        entity: 'User',
+        actor: { userEmail: email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: `Login failed for "${email}": no matching account.`,
+      });
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Invalid email or password.',
@@ -222,6 +229,14 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
     }
 
     if (!user.isActive) {
+      await recordAuditLog({
+        action: 'AUTH.LOGIN_FAILED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: `Login failed for "${email}": account deactivated.`,
+      });
       res.status(401).json({
         error: 'Unauthorized',
         message: 'User account has been deactivated.',
@@ -231,6 +246,14 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
 
     const isPasswordValid = verifyPassword(password, user.password);
     if (!isPasswordValid) {
+      await recordAuditLog({
+        action: 'AUTH.LOGIN_FAILED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: `Login failed for "${email}": invalid password.`,
+      });
       res.status(401).json({
         error: 'Unauthorized',
         message: 'Invalid email or password.',
@@ -247,6 +270,14 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       tenantId: user.tenantId || undefined,
     };
     const token = generateJwtToken(tokenPayload);
+
+    await recordAuditLog({
+      action: 'AUTH.LOGIN_SUCCESS',
+      entity: 'User',
+      entityId: user.id,
+      tenantId: user.tenantId || null,
+      actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+    });
 
     res.status(200).json({
       success: true,
@@ -536,6 +567,15 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
     await prisma.invitation.update({
       where: { id: invitation.id },
       data: { status: 'ACCEPTED' },
+    });
+
+    await recordAuditLog({
+      action: 'AUTH.INVITATION_ACCEPTED',
+      entity: 'User',
+      entityId: user.id,
+      tenantId: invitation.tenantId,
+      actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+      details: `${user.email} accepted invitation with role ${invitation.role}.`,
     });
 
     // Generate JWT token

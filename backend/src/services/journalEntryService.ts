@@ -12,6 +12,7 @@ import * as ledgerRepository from '../repository/ledgerRepository';
 import { requireTenantContext } from '../context/tenantContext';
 import * as fiscalPeriodService from './fiscalPeriodService';
 import * as approvalWorkflowService from './approvalWorkflowService';
+import { recordAuditLog, AuditActor } from './auditLogService';
 
 export class JournalEntryServiceError extends Error {
   statusCode: number;
@@ -42,7 +43,7 @@ export interface CreateJournalEntryInput {
   lines: CreateJournalEntryLineData[];
 }
 
-export async function createJournalEntry(data: CreateJournalEntryInput): Promise<JournalEntryRecord> {
+export async function createJournalEntry(data: CreateJournalEntryInput, actor?: AuditActor): Promise<JournalEntryRecord> {
   // 1. Validate lines presence & minimum count
   if (!data || !data.lines || !Array.isArray(data.lines) || data.lines.length < 2) {
     throw new JournalEntryServiceError(
@@ -115,7 +116,7 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
     entryNumber = `JE-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  const entry = await withCurrentTenantDb(prisma, async (client) => {
     // Check entryNumber uniqueness
     const existingEntry = await journalEntryRepository.getJournalEntryByEntryNumber(client, entryNumber!);
     if (existingEntry) {
@@ -172,6 +173,16 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
 
     return entry;
   });
+
+  await recordAuditLog({
+    action: 'JOURNAL_ENTRY.CREATED',
+    entity: 'JournalEntry',
+    entityId: entry.id,
+    actor,
+    details: `Journal entry ${entry.entryNumber} created with status ${entry.status}.`,
+  });
+
+  return entry;
 }
 
 export async function listJournalEntries(
@@ -192,12 +203,14 @@ export async function getJournalEntryById(id: string): Promise<JournalEntryRecor
   });
 }
 
-export async function postJournalEntry(id: string): Promise<JournalEntryRecord> {
+export async function postJournalEntry(id: string, actor?: AuditActor): Promise<JournalEntryRecord> {
   if (!id || typeof id !== 'string') {
     throw new JournalEntryServiceError('Journal Entry ID is required.', 400);
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  let previousStatus: JournalEntryStatus = 'DRAFT';
+
+  const updatedEntry = await withCurrentTenantDb(prisma, async (client) => {
     const entry = await journalEntryRepository.getJournalEntryById(client, id);
     if (!entry) {
       throw new JournalEntryServiceError(`Journal entry with ID "${id}" not found.`, 404);
@@ -210,6 +223,8 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
     if (entry.status === 'VOID') {
       throw new JournalEntryServiceError(`Cannot post a voided journal entry.`, 400);
     }
+
+    previousStatus = entry.status;
 
     // Re-verify double-entry balance
     let totalDebit = 0;
@@ -256,14 +271,26 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
 
     return updatedEntry;
   });
+
+  await recordAuditLog({
+    action: 'JOURNAL_ENTRY.POSTED',
+    entity: 'JournalEntry',
+    entityId: updatedEntry.id,
+    actor,
+    changes: { status: { from: previousStatus, to: 'POSTED' } },
+  });
+
+  return updatedEntry;
 }
 
-export async function voidJournalEntry(id: string): Promise<JournalEntryRecord> {
+export async function voidJournalEntry(id: string, actor?: AuditActor): Promise<JournalEntryRecord> {
   if (!id || typeof id !== 'string') {
     throw new JournalEntryServiceError('Journal Entry ID is required.', 400);
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  let previousStatus: JournalEntryStatus = 'DRAFT';
+
+  const updatedEntry = await withCurrentTenantDb(prisma, async (client) => {
     const entry = await journalEntryRepository.getJournalEntryById(client, id);
     if (!entry) {
       throw new JournalEntryServiceError(`Journal entry with ID "${id}" not found.`, 404);
@@ -273,6 +300,8 @@ export async function voidJournalEntry(id: string): Promise<JournalEntryRecord> 
       throw new JournalEntryServiceError(`Journal entry "${entry.entryNumber}" is already voided.`, 400);
     }
 
+    previousStatus = entry.status;
+
     const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'VOID');
     if (!updatedEntry) {
       throw new JournalEntryServiceError(`Failed to void journal entry "${id}".`, 500);
@@ -280,4 +309,14 @@ export async function voidJournalEntry(id: string): Promise<JournalEntryRecord> 
 
     return updatedEntry;
   });
+
+  await recordAuditLog({
+    action: 'JOURNAL_ENTRY.VOIDED',
+    entity: 'JournalEntry',
+    entityId: updatedEntry.id,
+    actor,
+    changes: { status: { from: previousStatus, to: 'VOID' } },
+  });
+
+  return updatedEntry;
 }

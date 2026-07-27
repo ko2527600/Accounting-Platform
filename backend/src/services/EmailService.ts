@@ -1,7 +1,6 @@
 import nodemailer from 'nodemailer';
-import { prisma } from '../config/db';
-import { getTenantContext } from '../context/tenantContext';
 import { generateQuickStartGuidePdf } from './pdfGenerationService';
+import { recordAuditLog } from './auditLogService';
 
 export interface EmailAttachment {
   filename: string;
@@ -11,8 +10,11 @@ export interface EmailAttachment {
 
 export class EmailService {
   private static getTransporter() {
-    const user = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
-    const pass = (process.env.EMAIL_PASS || 'hvrbjnbhpmdibowm').replace(/["'\s]/g, '');
+    const user = process.env.EMAIL_USER?.trim();
+    const pass = process.env.EMAIL_PASS?.replace(/["'\s]/g, '');
+    if (!user || !pass) {
+      throw new Error('Email sending is not configured: EMAIL_USER and EMAIL_PASS environment variables are required.');
+    }
 
     return nodemailer.createTransport({
       service: 'gmail',
@@ -34,7 +36,7 @@ export class EmailService {
     html: string,
     attachments: EmailAttachment[] = []
   ): Promise<boolean> {
-    const from = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
+    const from = (process.env.EMAIL_USER || '').trim();
 
     const mailOptions = {
       from: `"Ledgio ERP" <${from}>`,
@@ -55,7 +57,7 @@ export class EmailService {
       console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
 
       // Log successful email dispatch in AuditLog
-      await this.logAudit('EMAIL_SENT', `Email sent to ${to} (${subject}).`);
+      await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Email sent to ${to} (${subject}).` });
       return true;
     } catch (firstErr: any) {
       console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr);
@@ -64,13 +66,14 @@ export class EmailService {
       setTimeout(async () => {
         try {
           await this.getTransporter().sendMail(mailOptions);
-          await this.logAudit('EMAIL_SENT', `Retry succeeded: Email sent to ${to}.`);
+          await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Retry succeeded: Email sent to ${to}.` });
         } catch (retryErr: any) {
           console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, retryErr.message);
-          await this.logAudit(
-            'CRITICAL_FAILURE',
-            `Critical Failure: Automated email report to ${to} failed twice. Error: ${retryErr.message}`
-          );
+          await recordAuditLog({
+            action: 'CRITICAL_FAILURE',
+            entity: 'EMAIL_SERVICE',
+            details: `Critical Failure: Automated email report to ${to} failed twice. Error: ${retryErr.message}`,
+          });
         }
       }, 300000);
 
@@ -181,21 +184,5 @@ export class EmailService {
     ];
 
     return this.sendMail(to, subject, html, attachments);
-  }
-
-  private static async logAudit(action: string, details: string): Promise<void> {
-    try {
-      const tenantId = getTenantContext()?.tenantId ?? null;
-      await prisma.auditLog.create({
-        data: {
-          tenantId,
-          action,
-          entity: 'EMAIL_SERVICE',
-          details,
-        },
-      });
-    } catch (_err) {
-      // Audit log optional if outside tenant context
-    }
   }
 }

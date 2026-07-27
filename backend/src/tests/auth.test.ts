@@ -26,6 +26,7 @@ describe('Auth & RBAC Service Tests', () => {
 
   afterAll(async () => {
     // Cleanup after test run
+    await prisma.auditLog.deleteMany({ where: { userEmail: testAdminEmail } }).catch(() => {});
     await deleteUserByEmail(prisma, testAdminEmail);
     await deleteUserByEmail(prisma, testAccountantEmail);
     await deleteUserByEmail(prisma, testAuditorEmail);
@@ -163,6 +164,13 @@ describe('Auth & RBAC Service Tests', () => {
       expect(response.body.success).toBe(true);
       expect(response.body.data.user.email).toBe(testAdminEmail);
       expect(response.body.data.token).toBeDefined();
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { entity: 'User', entityId: response.body.data.user.id, action: 'AUTH.LOGIN_SUCCESS' },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].userEmail).toBe(testAdminEmail);
+      expect(auditRows[0].ipAddress).toBeTruthy();
     });
 
     it('should reject authentication with wrong password', async () => {
@@ -175,6 +183,12 @@ describe('Auth & RBAC Service Tests', () => {
 
       expect(response.status).toBe(401);
       expect(response.body.error).toBe('Unauthorized');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { entity: 'User', userEmail: testAdminEmail, action: 'AUTH.LOGIN_FAILED' },
+      });
+      expect(auditRows.length).toBeGreaterThanOrEqual(1);
+      expect(auditRows[auditRows.length - 1].details).toContain('invalid password');
     });
   });
 

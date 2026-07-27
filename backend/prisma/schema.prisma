@@ -193,6 +193,9 @@ model AuditLog {
   entity    String
   entityId  String?  @map("entity_id")
   details   String?
+  // Structured before/after diff for update-style events (e.g. journal entry
+  // status DRAFT -> POSTED). Complements `details`, the human-readable summary.
+  changes   Json?
   userId    String?  @map("user_id")
   userEmail String?  @map("user_email")
   ipAddress String?  @map("ip_address")

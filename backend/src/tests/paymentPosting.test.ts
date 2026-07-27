@@ -24,6 +24,7 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
   const adminEmail = `admin_paypost_${runId}@corp.com`;
 
   let adminToken: string;
+  let tenantId: string;
   let cashAccountId: string;
   let revenueAccountId: string;
   let expenseAccountId: string;
@@ -31,6 +32,9 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
   let vendorId: string;
 
   async function cleanupTestData() {
+    if (tenantId) {
+      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+    }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
     await dropTenantSchema(prisma, tenantSchema).catch(() => {});
@@ -50,6 +54,7 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
       adminName: 'Payment Posting Corp Admin',
     });
     adminToken = onboard.token;
+    tenantId = onboard.tenant.id;
 
     const cashAcc = await request(app)
       .post('/api/v1/accounts')
@@ -126,6 +131,12 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
     const revenueLine = journalEntry.lines.find((l: any) => l.accountId === revenueAccountId);
     expect(cashLine.debit).toBe(expectedTotal);
     expect(revenueLine.credit).toBe(expectedTotal);
+
+    const auditRows = await prisma.auditLog.findMany({
+      where: { tenantId, entity: 'Invoice', entityId: invoiceId, action: 'INVOICE.PAID' },
+    });
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0].changes).toMatchObject({ status: { from: 'SENT', to: 'PAID' } });
   });
 
   it('posts a real journal entry (Expense debit / Cash credit) when a vendor bill is paid', async () => {
@@ -161,6 +172,12 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
     const cashLine = journalEntry.lines.find((l: any) => l.accountId === cashAccountId);
     expect(expenseLine.debit).toBe(75);
     expect(cashLine.credit).toBe(75);
+
+    const auditRows = await prisma.auditLog.findMany({
+      where: { tenantId, entity: 'VendorBill', entityId: billId, action: 'VENDOR_BILL.PAID' },
+    });
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0].changes).toMatchObject({ status: { from: 'UNPAID', to: 'PAID' } });
   });
 
   it('suggests a real account for AI categorization based on the tenant\'s own Chart of Accounts', async () => {

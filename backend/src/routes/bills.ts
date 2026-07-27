@@ -11,6 +11,7 @@ import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
 import * as fxRateService from '../services/fxRateService';
 import { FxRateServiceError } from '../services/fxRateService';
+import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
 
 const router = Router();
 
@@ -185,6 +186,8 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     // equivalent, not the raw native-currency amount.
     const postingAmount = bill.baseCurrencyAmount != null ? Number(bill.baseCurrencyAmount) : Number(bill.amount);
 
+    const actor = actorFromRequest(req);
+
     let journalId = null;
     if (expenseAcc && cashAcc) {
       const journal = await journalService.createJournalEntry({
@@ -195,7 +198,7 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
           { accountId: expenseAcc.id, debit: postingAmount, credit: 0, description: `Expense - ${bill.billNumber}` },
           { accountId: cashAcc.id, debit: 0, credit: postingAmount, description: `Cash Payment - ${bill.billNumber}` },
         ],
-      });
+      }, actor);
       journalId = journal.id;
     }
 
@@ -204,6 +207,15 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
         where: { id },
         data: { status: 'PAID', journalId },
       });
+    });
+
+    await recordAuditLog({
+      action: 'VENDOR_BILL.PAID',
+      entity: 'VendorBill',
+      entityId: id,
+      actor,
+      changes: diffFields(bill, updated, ['status', 'journalId']),
+      details: `Vendor bill ${bill.billNumber} marked PAID (${postingAmount}).`,
     });
 
     res.status(200).json({
