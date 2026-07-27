@@ -2,6 +2,13 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-27] - Fixed Stale Shop List in Team Management's Invite/Manage-Access Modals
+
+**What:** A user reported that after creating a shop ("Shop A") under Inventory, the "Invite Staff Member" modal on `/team` still showed "No shops/warehouses exist yet - create one under Inventory first," blocking assignment of Shop Manager/Cashier roles. Root cause: `TeamManagement.tsx`'s `fetchTeamData()` (which loads the `warehouses` list used by both the invite form and the "Manage Access" modal) only runs once, in a `useEffect` on initial mount. If a shop is created after that page has already loaded (the common flow: land on Team Management, notice no shops, go create one under Inventory, come back to the same still-mounted tab), the `warehouses` state stays stale at its original empty snapshot with no way to refresh short of a full page reload.
+**Fix:** Both the "Invite Staff Member" button and the "Manage Access" button now re-fetch `GET /inventory/warehouses` and refresh the `warehouses` state at the moment their modal opens, so the shop list is always current without requiring a page reload.
+**Verification:** `tsc -b` clean.
+**Files Affected:** `frontend/src/pages/team/TeamManagement.tsx`.
+
 ## [Date: 2026-07-27] - Fixed Broken Staff Invitation Link ("Cannot GET /accept-invite")
 
 **What:** A user reported that a worker's invitation email link produced "Cannot GET /accept-invite" — the literal default 404 message Express returns for an unrecognized route. Root cause: `POST /tenants/invite` (`backend/src/routes/tenants.ts:217`) built the invite link from the *backend API's own request host* (`` `${req.protocol}://${req.get('host')}/accept-invite?token=...` ``) instead of the frontend's URL. `/accept-invite` only exists as a React Router route in the frontend SPA (`frontend/src/App.tsx:133`), not as a backend Express route, so any link built from the backend's own host always 404s in the backend, regardless of environment.
