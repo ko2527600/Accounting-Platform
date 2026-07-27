@@ -7,7 +7,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
-import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download, SlidersHorizontal, History } from "lucide-react";
+import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download, SlidersHorizontal, History, Printer, ClipboardCheck } from "lucide-react";
 
 interface StockAdjustment {
   id: string;
@@ -20,6 +20,15 @@ interface StockAdjustment {
   createdAt: string;
   item?: { name: string; unitOfMeasure: string };
   warehouse?: { name: string };
+}
+
+interface StockTakeRow {
+  itemId: string;
+  sku: string;
+  name: string;
+  unitOfMeasure: string;
+  systemQty: number;
+  countedQty: string;
 }
 
 interface BulkRow {
@@ -93,6 +102,8 @@ export function WarehouseManagement() {
   const [isBulkModalOpen, setIsBulkModalOpen] = useState(false);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
   const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+  const [isStockTakeModalOpen, setIsStockTakeModalOpen] = useState(false);
+  const [printingStockSheetId, setPrintingStockSheetId] = useState<string | null>(null);
 
   // Stock Adjustment Form State
   const [adjustItemId, setAdjustItemId] = useState("");
@@ -105,6 +116,16 @@ export function WarehouseManagement() {
   // Adjustment History State
   const [adjustmentHistory, setAdjustmentHistory] = useState<StockAdjustment[]>([]);
   const [isHistoryLoading, setIsHistoryLoading] = useState(false);
+
+  // Stock Take State
+  const [stockTakeWarehouseId, setStockTakeWarehouseId] = useState("");
+  const [stockTakeWarehouseName, setStockTakeWarehouseName] = useState("");
+  const [stockTakeStep, setStockTakeStep] = useState<"entry" | "preview">("entry");
+  const [stockTakeTab, setStockTakeTab] = useState<"table" | "csv">("table");
+  const [stockTakeRows, setStockTakeRows] = useState<StockTakeRow[]>([]);
+  const [isStockTakeSubmitting, setIsStockTakeSubmitting] = useState(false);
+  const [stockTakeResult, setStockTakeResult] = useState<{ applied: number; unchanged: number; notFound: number } | null>(null);
+  const stockTakeCsvFileInputRef = useRef<HTMLInputElement>(null);
 
   // Bulk Add State
   const [bulkTab, setBulkTab] = useState<"table" | "csv">("table");
@@ -295,6 +316,137 @@ export function WarehouseManagement() {
       console.error("Failed to load adjustment history:", err);
     } finally {
       setIsHistoryLoading(false);
+    }
+  };
+
+  const handlePrintStockSheet = async (warehouseId: string, warehouseName: string) => {
+    setPrintingStockSheetId(warehouseId);
+    try {
+      const res = await api.get(`/inventory/warehouses/${warehouseId}/stock-sheet.pdf`, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `Stock-Sheet-${warehouseName.replace(/[^a-zA-Z0-9-]+/g, "-")}.pdf`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to generate stock sheet PDF:", err);
+      alert("Failed to generate stock sheet PDF.");
+    } finally {
+      setPrintingStockSheetId(null);
+    }
+  };
+
+  const openStockTakeModal = (warehouseId: string, warehouseName: string) => {
+    const rows: StockTakeRow[] = items
+      .filter((it) => it.warehouseStocks?.some((s) => s.warehouseId === warehouseId))
+      .map((it) => {
+        const stock = it.warehouseStocks.find((s) => s.warehouseId === warehouseId);
+        return {
+          itemId: it.id,
+          sku: it.sku,
+          name: it.name,
+          unitOfMeasure: it.unitOfMeasure,
+          systemQty: stock?.quantityOnHand || 0,
+          countedQty: "",
+        };
+      })
+      .sort((a, b) => a.sku.localeCompare(b.sku));
+
+    setStockTakeWarehouseId(warehouseId);
+    setStockTakeWarehouseName(warehouseName);
+    setStockTakeStep("entry");
+    setStockTakeTab("table");
+    setStockTakeRows(rows);
+    setStockTakeResult(null);
+    setIsStockTakeModalOpen(true);
+  };
+
+  const updateStockTakeCount = (itemId: string, value: string) => {
+    setStockTakeRows((rows) => rows.map((r) => (r.itemId === itemId ? { ...r, countedQty: value } : r)));
+  };
+
+  const downloadStockTakeCsvTemplate = () => {
+    const csv = Papa.unparse([
+      ["sku", "name", "unitOfMeasure", "countedQty"],
+      ...stockTakeRows.map((r) => [r.sku, r.name, r.unitOfMeasure, ""]),
+    ]);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `stock_take_count_sheet_${stockTakeWarehouseName.replace(/[^a-zA-Z0-9-]+/g, "-")}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleStockTakeCsvFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse<Record<string, string>>(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        const countsBySku = new Map<string, string>();
+        results.data.forEach((row) => {
+          if (row.sku && row.sku.trim()) countsBySku.set(row.sku.trim(), (row.countedQty ?? "").trim());
+        });
+
+        if (countsBySku.size === 0) {
+          alert("No valid rows found in that CSV. Make sure it has a header row with sku and countedQty columns.");
+          return;
+        }
+
+        setStockTakeRows((rows) => rows.map((r) => (countsBySku.has(r.sku) ? { ...r, countedQty: countsBySku.get(r.sku)! } : r)));
+      },
+      error: (err) => {
+        alert(`Failed to parse CSV: ${err.message}`);
+      },
+    });
+
+    if (stockTakeCsvFileInputRef.current) stockTakeCsvFileInputRef.current.value = "";
+  };
+
+  const proceedToStockTakePreview = () => {
+    const missing = stockTakeRows.filter((r) => r.countedQty.trim() === "");
+    if (missing.length > 0) {
+      alert(`Enter a counted quantity for every item before continuing (${missing.length} missing).`);
+      return;
+    }
+    const invalid = stockTakeRows.filter((r) => !Number.isInteger(Number(r.countedQty)) || Number(r.countedQty) < 0);
+    if (invalid.length > 0) {
+      alert("Counted quantities must be whole numbers, zero or greater.");
+      return;
+    }
+    setStockTakeStep("preview");
+  };
+
+  const handleStockTakeSubmit = async () => {
+    setIsStockTakeSubmitting(true);
+    try {
+      const res = await api.post("/inventory/stock-take", {
+        warehouseId: stockTakeWarehouseId,
+        counts: stockTakeRows.map((r) => ({ itemId: r.itemId, countedQty: Number(r.countedQty) })),
+      });
+
+      if (res.data.success) {
+        setStockTakeResult({
+          applied: res.data.data.applied.length,
+          unchanged: res.data.data.unchanged.length,
+          notFound: res.data.data.notFound.length,
+        });
+        fetchData();
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to reconcile stock take.");
+    } finally {
+      setIsStockTakeSubmitting(false);
     }
   };
 
@@ -512,6 +664,25 @@ export function WarehouseManagement() {
                     Manager in charge: <strong className="ml-1 text-secondary-700 dark:text-secondary-300">{wh.managerName}</strong>
                   </div>
                 )}
+                <div className="mt-3 pt-3 border-t border-secondary-100 dark:border-secondary-800 flex gap-2">
+                  <Button
+                    variant="outline"
+                    className="flex-1 text-xs h-8"
+                    disabled={printingStockSheetId === wh.id}
+                    onClick={() => handlePrintStockSheet(wh.id, wh.name)}
+                  >
+                    <Printer className="mr-1.5 h-3.5 w-3.5" />
+                    {printingStockSheetId === wh.id ? "Preparing..." : "Print Stock Sheet"}
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="flex-1 text-xs h-8"
+                    onClick={() => openStockTakeModal(wh.id, wh.name)}
+                  >
+                    <ClipboardCheck className="mr-1.5 h-3.5 w-3.5" />
+                    Stock Take
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           );
@@ -984,6 +1155,167 @@ export function WarehouseManagement() {
         </div>
         <div className="flex justify-end pt-4 border-t border-secondary-200 dark:border-secondary-800 mt-4">
           <Button variant="outline" onClick={() => setIsHistoryModalOpen(false)}>Close</Button>
+        </div>
+      </Modal>
+
+      {/* Stock Take Modal */}
+      <Modal isOpen={isStockTakeModalOpen} onClose={() => setIsStockTakeModalOpen(false)} title={`Stock Take: ${stockTakeWarehouseName}`}>
+        <div className="space-y-4">
+          {stockTakeResult ? (
+            <div className="space-y-4">
+              <div className="p-4 rounded-lg bg-emerald-50 dark:bg-emerald-950/30 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-sm">
+                <div className="font-semibold">Stock take reconciled.</div>
+                <div className="mt-1 text-xs">
+                  {stockTakeResult.applied} item{stockTakeResult.applied === 1 ? "" : "s"} adjusted, {stockTakeResult.unchanged} unchanged
+                  {stockTakeResult.notFound > 0 ? `, ${stockTakeResult.notFound} not found` : ""}.
+                </div>
+              </div>
+              <div className="flex justify-end">
+                <Button variant="outline" onClick={() => setIsStockTakeModalOpen(false)}>Close</Button>
+              </div>
+            </div>
+          ) : stockTakeStep === "entry" ? (
+            <>
+              <p className="text-xs text-secondary-500">
+                Print a blind count sheet first, count physically, then enter the counted quantities below - either directly in the table or by uploading a filled-in CSV. System quantities stay hidden until the review step, to keep the count honest.
+              </p>
+
+              <div className="flex space-x-4 border-b border-secondary-200 dark:border-secondary-800">
+                <button
+                  type="button"
+                  onClick={() => setStockTakeTab("table")}
+                  className={`pb-2 text-sm font-semibold transition-colors border-b-2 ${stockTakeTab === "table" ? "border-primary-500 text-primary-600 dark:text-primary-400" : "border-transparent text-secondary-500 hover:text-secondary-800 dark:hover:text-secondary-200"}`}
+                >
+                  On-Screen Table
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setStockTakeTab("csv")}
+                  className={`pb-2 text-sm font-semibold transition-colors border-b-2 ${stockTakeTab === "csv" ? "border-primary-500 text-primary-600 dark:text-primary-400" : "border-transparent text-secondary-500 hover:text-secondary-800 dark:hover:text-secondary-200"}`}
+                >
+                  Upload CSV
+                </button>
+              </div>
+
+              {stockTakeTab === "csv" && (
+                <div className="p-4 bg-secondary-50 dark:bg-secondary-900 rounded-lg border border-secondary-200 dark:border-secondary-800 space-y-3">
+                  <p className="text-xs text-secondary-500">
+                    Download the counting template, fill in the <code className="font-mono">countedQty</code> column, then upload it here. Rows are matched back by <code className="font-mono">sku</code>.
+                  </p>
+                  <div className="flex items-center gap-3">
+                    <input
+                      ref={stockTakeCsvFileInputRef}
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={handleStockTakeCsvFileChange}
+                      className="text-xs text-secondary-600 dark:text-secondary-300 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-semibold file:bg-primary-50 file:text-primary-700 hover:file:bg-primary-100"
+                    />
+                    <Button type="button" variant="outline" onClick={downloadStockTakeCsvTemplate} className="flex items-center text-xs">
+                      <Download className="mr-1.5 h-3.5 w-3.5" />
+                      Download Counting Template
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              <div className="max-h-[45vh] overflow-y-auto border border-secondary-200 dark:border-secondary-800 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-secondary-50 dark:bg-secondary-900 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-medium">SKU</th>
+                      <th className="text-left p-2 font-medium">Item Name</th>
+                      <th className="text-left p-2 font-medium">Unit</th>
+                      <th className="text-left p-2 font-medium">Counted Qty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockTakeRows.map((r) => (
+                      <tr key={r.itemId} className="border-t border-secondary-100 dark:border-secondary-800">
+                        <td className="p-2 font-mono">{r.sku}</td>
+                        <td className="p-2">{r.name}</td>
+                        <td className="p-2">{r.unitOfMeasure}</td>
+                        <td className="p-1">
+                          <Input
+                            type="number"
+                            min={0}
+                            className="h-8 text-xs w-24"
+                            value={r.countedQty}
+                            onChange={(e) => updateStockTakeCount(r.itemId, e.target.value)}
+                            placeholder="—"
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                    {stockTakeRows.length === 0 && (
+                      <tr>
+                        <td colSpan={4} className="p-4 text-center text-secondary-500">
+                          No items stocked in this warehouse yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="flex justify-end space-x-3 pt-2">
+                <Button type="button" variant="outline" onClick={() => setIsStockTakeModalOpen(false)}>Cancel</Button>
+                <Button type="button" variant="primary" onClick={proceedToStockTakePreview} disabled={stockTakeRows.length === 0}>
+                  Review Variance
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-xs text-secondary-500">
+                Review the variance between counted and system quantities below before confirming. Confirming records a stock adjustment for every item that differs; matching items are left untouched.
+              </p>
+              <div className="max-h-[45vh] overflow-y-auto border border-secondary-200 dark:border-secondary-800 rounded-lg">
+                <table className="w-full text-xs">
+                  <thead className="bg-secondary-50 dark:bg-secondary-900 sticky top-0">
+                    <tr>
+                      <th className="text-left p-2 font-medium">Item</th>
+                      <th className="text-right p-2 font-medium">System Qty</th>
+                      <th className="text-right p-2 font-medium">Counted Qty</th>
+                      <th className="text-right p-2 font-medium">Variance</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {stockTakeRows.map((r) => {
+                      const counted = Number(r.countedQty);
+                      const variance = counted - r.systemQty;
+                      return (
+                        <tr
+                          key={r.itemId}
+                          className={`border-t border-secondary-100 dark:border-secondary-800 ${variance !== 0 ? "bg-amber-50/60 dark:bg-amber-950/20" : ""}`}
+                        >
+                          <td className="p-2">
+                            <div className="font-medium text-secondary-900 dark:text-secondary-100">{r.name}</div>
+                            <div className="font-mono text-secondary-400">{r.sku}</div>
+                          </td>
+                          <td className="p-2 text-right">{r.systemQty} {r.unitOfMeasure}</td>
+                          <td className="p-2 text-right font-semibold">{counted} {r.unitOfMeasure}</td>
+                          <td className="p-2 text-right">
+                            <span className={`font-bold ${variance > 0 ? "text-emerald-600" : variance < 0 ? "text-red-600" : "text-secondary-400"}`}>
+                              {variance > 0 ? "+" : ""}{variance}
+                            </span>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+              <div className="flex justify-between pt-2">
+                <Button type="button" variant="outline" onClick={() => setStockTakeStep("entry")}>Back to Edit</Button>
+                <div className="flex space-x-3">
+                  <Button type="button" variant="outline" onClick={() => setIsStockTakeModalOpen(false)}>Cancel</Button>
+                  <Button type="button" variant="primary" onClick={handleStockTakeSubmit} disabled={isStockTakeSubmitting}>
+                    {isStockTakeSubmitting ? "Applying..." : "Confirm & Apply"}
+                  </Button>
+                </div>
+              </div>
+            </>
+          )}
         </div>
       </Modal>
 

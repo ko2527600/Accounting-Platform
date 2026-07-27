@@ -7,6 +7,8 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
+import { applyStockAdjustment } from '../services/stockAdjustmentService';
+import { generateStockTakeSheetPdf } from '../services/pdfGenerationService';
 
 const router = Router();
 
@@ -79,6 +81,59 @@ router.post('/warehouses', requireRole('Accountant'), async (req: Request, res: 
   } catch (error: any) {
     console.error('[Inventory] Error creating warehouse:', error);
     res.status(500).json({ success: false, error: 'Failed to create warehouse.' });
+  }
+});
+
+/**
+ * GET /api/v1/inventory/warehouses/:id/stock-sheet.pdf
+ * Generates a blind physical stock-count sheet for a single warehouse - no
+ * system quantities shown, just a blank "Counted Qty" column to fill in by
+ * hand. Access is scoped exactly like POST /adjustments and /transfers.
+ */
+router.get('/warehouses/:id/stock-sheet.pdf', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId, tenantName } = requireTenantContext();
+    const warehouseId = req.params.id;
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const warehouse = await (client as any).warehouse.findFirst({ where: { id: warehouseId, tenantId } });
+      if (!warehouse) {
+        throw new Error('Warehouse not found.');
+      }
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId);
+
+      const stocks = await (client as any).warehouseStock.findMany({
+        where: { warehouseId },
+        include: { item: true },
+      });
+
+      return { warehouse, stocks };
+    });
+
+    const items = result.stocks
+      .map((s: any) => ({ sku: s.item.sku, name: s.item.name, unitOfMeasure: s.item.unitOfMeasure }))
+      .sort((a: any, b: any) => a.sku.localeCompare(b.sku));
+
+    const pdfBuffer = await generateStockTakeSheetPdf(tenantName || 'Your Business', result.warehouse.name, items);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader(
+      'Content-Disposition',
+      `attachment; filename="Stock-Sheet-${result.warehouse.name.replace(/[^a-zA-Z0-9-]+/g, '-')}.pdf"`
+    );
+    res.status(200).send(pdfBuffer);
+  } catch (error: any) {
+    console.error('[Inventory] Error generating stock sheet PDF:', error);
+    if (error.message === 'Warehouse not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(500).json({ success: false, error: 'Failed to generate stock sheet.' });
   }
 });
 
@@ -472,56 +527,14 @@ router.post('/adjustments', requireRole('Accountant'), async (req: Request, res:
 
       await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId);
 
-      const existingStock = await (client as any).warehouseStock.findUnique({
-        where: { warehouseId_itemId: { warehouseId, itemId } },
-      });
-      const previousQty = existingStock?.quantityOnHand || 0;
-
-      let newQty: number;
-      if (mode === 'add') {
-        newQty = previousQty + qty;
-        await (client as any).warehouseStock.upsert({
-          where: { warehouseId_itemId: { warehouseId, itemId } },
-          update: { quantityOnHand: { increment: qty } },
-          create: { tenantId, warehouseId, itemId, quantityOnHand: qty },
-        });
-      } else if (mode === 'remove') {
-        if (previousQty < qty) {
-          throw new Error(`Cannot remove ${qty} units - only ${previousQty} currently on hand.`);
-        }
-        newQty = previousQty - qty;
-        const deduction = await (client as any).warehouseStock.updateMany({
-          where: { warehouseId, itemId, quantityOnHand: { gte: qty } },
-          data: { quantityOnHand: { decrement: qty } },
-        });
-        if (deduction.count === 0) {
-          throw new Error('Stock changed concurrently - please retry.');
-        }
-      } else {
-        // 'set': an authoritative correction to the true, physically-counted
-        // quantity - intentionally overwrites whatever was there rather than
-        // being guarded against concurrent changes, since a manual recount
-        // is meant to be the new source of truth.
-        newQty = qty;
-        await (client as any).warehouseStock.upsert({
-          where: { warehouseId_itemId: { warehouseId, itemId } },
-          update: { quantityOnHand: newQty },
-          create: { tenantId, warehouseId, itemId, quantityOnHand: newQty },
-        });
-      }
-
-      const adjustment = await (client as any).stockAdjustment.create({
-        data: {
-          tenantId,
-          warehouseId,
-          itemId,
-          mode,
-          previousQty,
-          newQty,
-          delta: newQty - previousQty,
-          reason: String(reason).trim(),
-          adjustedByName,
-        },
+      const { adjustment, previousQty, newQty } = await applyStockAdjustment(client, {
+        tenantId,
+        warehouseId,
+        itemId,
+        mode,
+        quantity: qty,
+        reason,
+        adjustedByName,
       });
 
       return { adjustment, warehouse, item, newQty, previousQty };
@@ -598,6 +611,131 @@ router.get('/adjustments', async (req: Request, res: Response): Promise<void> =>
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to retrieve stock adjustment history.' });
+  }
+});
+
+/**
+ * POST /api/v1/inventory/stock-take
+ * Reconciles a batch of physically-counted quantities against the system's
+ * current stock for a single warehouse. Every item whose counted quantity
+ * differs from the system quantity gets a mode='set' StockAdjustment (the
+ * same authoritative-recount primitive POST /adjustments uses for a single
+ * item); items that match need no write. All adjustments in the batch share
+ * a generated reference embedded in their reason string for grouping, plus
+ * one summary AuditLog entry for the whole reconciliation.
+ */
+router.post('/stock-take', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { warehouseId, counts, reason } = req.body;
+
+    if (!warehouseId) {
+      res.status(400).json({ success: false, error: 'Warehouse ID is required.' });
+      return;
+    }
+    if (!Array.isArray(counts) || counts.length === 0) {
+      res.status(400).json({ success: false, error: 'At least one counted item is required.' });
+      return;
+    }
+    for (const row of counts) {
+      if (!row || typeof row.itemId !== 'string' || !row.itemId) {
+        res.status(400).json({ success: false, error: 'Every counted row must include an item ID.' });
+        return;
+      }
+      if (!Number.isInteger(row.countedQty) || row.countedQty < 0) {
+        res.status(400).json({
+          success: false,
+          error: `Invalid counted quantity for item ${row.itemId} - must be a non-negative whole number.`,
+        });
+        return;
+      }
+    }
+
+    const stockTakeRef = crypto.randomUUID();
+    const dateLabel = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'short', day: 'numeric' });
+    const adjustedByName = req.user?.name || req.user?.email || 'Unknown';
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const warehouse = await (client as any).warehouse.findFirst({ where: { id: warehouseId, tenantId } });
+      if (!warehouse) {
+        throw new Error('Warehouse not found.');
+      }
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId);
+
+      const itemIds = counts.map((c: any) => c.itemId);
+      const items = await (client as any).inventoryItem.findMany({ where: { id: { in: itemIds }, tenantId } });
+      const itemsById = new Map(items.map((i: any) => [i.id, i]));
+
+      const stocks = await (client as any).warehouseStock.findMany({
+        where: { warehouseId, itemId: { in: itemIds } },
+      });
+      const stockByItemId = new Map(stocks.map((s: any) => [s.itemId, s]));
+
+      const applied: any[] = [];
+      const unchanged: any[] = [];
+      const notFound: string[] = [];
+
+      for (const row of counts) {
+        const item = itemsById.get(row.itemId);
+        if (!item) {
+          notFound.push(row.itemId);
+          continue;
+        }
+        const currentQty = (stockByItemId.get(row.itemId) as any)?.quantityOnHand || 0;
+        if (row.countedQty === currentQty) {
+          unchanged.push({ itemId: row.itemId, sku: (item as any).sku, quantity: currentQty });
+          continue;
+        }
+
+        const { adjustment, previousQty, newQty } = await applyStockAdjustment(client, {
+          tenantId,
+          warehouseId,
+          itemId: row.itemId,
+          mode: 'set',
+          quantity: row.countedQty,
+          reason: reason
+            ? String(reason).trim()
+            : `Stock take (${warehouse.name}, ${dateLabel}) — ref:${stockTakeRef.slice(0, 8)}`,
+          adjustedByName,
+        });
+        applied.push({ itemId: row.itemId, sku: (item as any).sku, previousQty, newQty, adjustmentId: adjustment.id });
+      }
+
+      return { warehouse, applied, unchanged, notFound };
+    });
+
+    if (result.applied.length > 0) {
+      await recordAuditLog({
+        action: 'STOCK_TAKE.RECONCILED',
+        entity: 'StockTake',
+        entityId: stockTakeRef,
+        actor: actorFromRequest(req),
+        changes: { itemsAdjusted: { from: null, to: result.applied.map((a: any) => a.itemId) } },
+        details: `Stock take reconciled for ${result.warehouse.name}: ${result.applied.length} item(s) adjusted, ${result.unchanged.length} unchanged.`,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        stockTakeRef,
+        applied: result.applied,
+        unchanged: result.unchanged,
+        notFound: result.notFound,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Inventory] Error reconciling stock take:', error);
+    if (error.message === 'Warehouse not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(400).json({ success: false, error: error.message || 'Failed to reconcile stock take.' });
   }
 });
 
