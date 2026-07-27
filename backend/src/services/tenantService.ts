@@ -4,6 +4,7 @@ import * as userRepository from '../repository/userRepository';
 import { sanitizeSchemaName, dropTenantSchema } from '../database/tenantSchemaManager';
 import { runMigrationsForSchema } from '../database/tenantMigrationRunner';
 import { hashPassword } from '../utils/password';
+import { validatePasswordStrength } from '../utils/passwordPolicy';
 import { generateJwtToken } from '../utils/jwt';
 import { setTenantInCache, invalidateTenantCacheById } from '../cache/tenantCache';
 
@@ -116,8 +117,9 @@ export async function onboardTenant(
   }
 
   const adminPassword = (dto.adminPassword || dto.password || '').trim();
-  if (!adminPassword || adminPassword.length < 6) {
-    throw new TenantOnboardingError('Admin password must be at least 6 characters long', 400);
+  const adminPasswordError = validatePasswordStrength(adminPassword);
+  if (adminPasswordError) {
+    throw new TenantOnboardingError(adminPasswordError, 400);
   }
 
   let adminName = (dto.adminName || '').trim();

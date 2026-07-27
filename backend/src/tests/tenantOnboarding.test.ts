@@ -109,7 +109,7 @@ describe('Tenant Onboarding API & Service Integration Tests (BE-104)', () => {
       expect(tableNames).toContain('schema_migrations');
 
       // 5. Verify JWT Token claims
-      const claims = verifyJwtToken(data.token);
+      const claims = await verifyJwtToken(data.token);
       expect(claims.email).toBe(testAdminEmail1);
       expect(claims.role).toBe('Admin');
       expect(claims.tenantId).toBe(data.tenant.id);
@@ -163,7 +163,7 @@ describe('Tenant Onboarding API & Service Integration Tests (BE-104)', () => {
       expect(response.body.error).toContain('Invalid email format');
     });
 
-    it('should return 400 Bad Request when password is shorter than 6 characters', async () => {
+    it('should return 400 Bad Request when password is too weak', async () => {
       const response = await request(app)
         .post('/api/v1/tenants/onboard')
         .send({
@@ -174,7 +174,7 @@ describe('Tenant Onboarding API & Service Integration Tests (BE-104)', () => {
 
       expect(response.status).toBe(400);
       expect(response.body.success).toBe(false);
-      expect(response.body.error).toContain('at least 6 characters');
+      expect(response.body.error).toContain('at least 8 characters');
     });
   });
 

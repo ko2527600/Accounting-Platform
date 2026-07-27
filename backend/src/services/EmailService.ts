@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer';
 import { generateQuickStartGuidePdf } from './pdfGenerationService';
 import { recordAuditLog } from './auditLogService';
+import { escapeHtml } from '../utils/htmlEscape';
 
 export interface EmailAttachment {
   filename: string;
@@ -96,14 +97,14 @@ export class EmailService {
           Weekly Executive Performance Summary
         </h2>
         <p style="font-size: 14px; color: #475569;">
-          Here is your automated weekly business breakdown for <strong>${tenantName}</strong>.
+          Here is your automated weekly business breakdown for <strong>${escapeHtml(tenantName)}</strong>.
         </p>
 
         <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #1e293b; font-size: 16px;">Week at a Glance</h3>
           <ul style="font-size: 14px; color: #334155; line-height: 1.6;">
             <li><strong>Total Weekly Cash Sales:</strong> GH₵ ${reportData.weeklySales.toFixed(2)}</li>
-            <li><strong>Top Performing Branch:</strong> ${reportData.topShopName}</li>
+            <li><strong>Top Performing Branch:</strong> ${escapeHtml(reportData.topShopName)}</li>
             <li><strong>Total Items Sold:</strong> ${reportData.totalItemsSold} pcs</li>
           </ul>
         </div>
@@ -126,7 +127,7 @@ export class EmailService {
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">
-          Welcome to Ledgio, ${name}!
+          Welcome to Ledgio, ${escapeHtml(name)}!
         </h2>
         <p style="font-size: 14px; color: #475569;">
           Please verify your email address to activate your account.
@@ -157,7 +158,7 @@ export class EmailService {
           Your Account is Fully Verified & Active!
         </h2>
         <p style="font-size: 14px; color: #334155;">
-          Congratulations <strong>${name}</strong>! Both your email and mobile phone numbers have been successfully verified.
+          Congratulations <strong>${escapeHtml(name)}</strong>! Both your email and mobile phone numbers have been successfully verified.
         </p>
         <div style="background-color: #ecfdf5; padding: 15px; border-radius: 6px; border: 1px solid #a7f3d0; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #065f46; font-size: 15px;">Next Steps:</h3>

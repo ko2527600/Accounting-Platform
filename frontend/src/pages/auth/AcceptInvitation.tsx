@@ -58,8 +58,8 @@ export function AcceptInvitation() {
       return;
     }
 
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters long.");
+    if (password.length < 8 || !/[a-zA-Z]/.test(password) || !/[0-9]/.test(password)) {
+      setError("Password must be at least 8 characters long and contain at least one letter and one number.");
       return;
     }
 

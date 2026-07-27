@@ -36,6 +36,22 @@ describe('Verified Registration Flow Suite (Email & SMS)', () => {
     expect(dbUser?.smsVerificationCode).toBeDefined();
   });
 
+  it('1b. should NOT verify phone with the legacy hardcoded "1234" bypass code', async () => {
+    const res = await request(app)
+      .post('/api/v1/auth/verify')
+      .send({
+        email: testEmail,
+        smsCode: '1234',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.data.isPhoneVerified).toBe(false);
+
+    const dbUser = await prisma.user.findUnique({ where: { email: testEmail } });
+    expect(dbUser?.isPhoneVerified).toBe(false);
+    expect(dbUser?.isActive).toBe(false);
+  });
+
   it('2. POST /api/v1/auth/verify - should verify SMS code and activate user account', async () => {
     const dbUserBefore = await prisma.user.findUnique({ where: { email: testEmail } });
     expect(dbUserBefore).not.toBeNull();

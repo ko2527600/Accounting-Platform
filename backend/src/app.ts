@@ -40,6 +40,17 @@ dotenv.config();
 
 const app: Express = express();
 
+// Express does not trust X-Forwarded-For by default, so req.ip is the actual
+// socket peer today (correct as long as nothing sits in front of this app).
+// If this is ever deployed behind a reverse proxy/load balancer, req.ip would
+// otherwise resolve to the proxy's own address for all traffic, collapsing
+// every real user into one shared rate-limit bucket. Opt-in via TRUST_PROXY
+// (number of hops to trust) rather than guessing a value - whoever sets up
+// the deploy topology should set this explicitly.
+if (process.env.TRUST_PROXY) {
+  app.set('trust proxy', Number(process.env.TRUST_PROXY));
+}
+
 // CORS is restricted to an explicit allowlist (CORS_ALLOWED_ORIGINS, comma-separated)
 // rather than reflecting/allowing every origin - an open cors() lets any site make
 // credentialed cross-origin requests against tenant data. Falls back to APP_URL
@@ -62,7 +73,20 @@ app.use(
     credentials: true,
   })
 );
-app.use(helmet());
+// This app is a pure JSON API (the React SPA is a separate deployment, never
+// served from here), so there's no legitimate need for it to ever load
+// scripts/styles/frames - deny by default rather than trusting helmet's
+// general-purpose defaults, which are tuned for apps that also serve HTML.
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        frameAncestors: ["'none'"],
+      },
+    },
+  })
+);
 app.use(express.json());
 
 // ── Observability ──────────────────────────────────────────────────────────────
