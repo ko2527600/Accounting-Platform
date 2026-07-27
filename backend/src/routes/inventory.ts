@@ -5,6 +5,7 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
+import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 
 const router = Router();
 
@@ -19,8 +20,12 @@ router.get('/warehouses', async (req: Request, res: Response): Promise<void> => 
   try {
     const { tenantId } = requireTenantContext();
     const warehouses = await withCurrentTenantDb(prisma, async (client) => {
+      const accessibleIds = await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+      const where: any = { tenantId };
+      if (accessibleIds !== null) where.id = { in: accessibleIds };
+
       return (client as any).warehouse.findMany({
-        where: { tenantId },
+        where,
         include: { stocks: { include: { item: true } } },
         orderBy: { createdAt: 'desc' },
       });
@@ -76,11 +81,23 @@ router.get('/items', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const items = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).inventoryItem.findMany({
+      const accessibleIds = await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+
+      const allItems = await (client as any).inventoryItem.findMany({
         where: { tenantId },
         include: { warehouseStocks: { include: { warehouse: true } } },
         orderBy: { name: 'asc' },
       });
+
+      // A location-scoped user (Shop Manager/Cashier) sees the same product
+      // catalog as everyone else, but only the stock levels for warehouses
+      // they're assigned to - not every shop's stock.
+      if (accessibleIds === null) return allItems;
+      const accessibleSet = new Set(accessibleIds);
+      return allItems.map((item: any) => ({
+        ...item,
+        warehouseStocks: item.warehouseStocks.filter((s: any) => accessibleSet.has(s.warehouseId)),
+      }));
     });
 
     res.status(200).json({ success: true, data: { items } });
@@ -112,6 +129,7 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
         if (!warehouse) {
           throw new Error('Initial warehouse not found.');
         }
+        await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, initialWarehouseId);
       }
 
       const item = await (client as any).inventoryItem.create({
@@ -146,6 +164,10 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
     console.error('[Inventory] Error creating item:', error);
     if (error.message === 'Initial warehouse not found.') {
       res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to create inventory item.' });
@@ -209,6 +231,9 @@ router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: 
           }
           if (initialWarehouseId && !warehouseValidityCache.get(initialWarehouseId)) {
             throw new Error('Initial warehouse not found.');
+          }
+          if (initialWarehouseId) {
+            await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, initialWarehouseId);
           }
 
           const newItem = await (client as any).inventoryItem.create({
@@ -289,6 +314,11 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
         throw new Error('Warehouse or item not found.');
       }
 
+      // A location-scoped user may only move stock between warehouses they
+      // actually have access to on both ends of the transfer.
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, fromWarehouseId);
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, toWarehouseId);
+
       // Check source stock (existence / friendly error message only - the actual
       // deduction below is guarded atomically so concurrent transfers can't both
       // read the same stale quantity and both succeed, driving it negative).
@@ -349,6 +379,10 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
       res.status(404).json({ success: false, error: error.message });
       return;
     }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: error.message || 'Failed to execute stock transfer.' });
   }
 });
@@ -399,6 +433,8 @@ router.post('/adjustments', requireRole('Accountant'), async (req: Request, res:
       if (!warehouse || !item) {
         throw new Error('Warehouse or item not found.');
       }
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId);
 
       const existingStock = await (client as any).warehouseStock.findUnique({
         where: { warehouseId_itemId: { warehouseId, itemId } },
@@ -466,6 +502,10 @@ router.post('/adjustments', requireRole('Accountant'), async (req: Request, res:
       res.status(404).json({ success: false, error: error.message });
       return;
     }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(400).json({ success: false, error: error.message || 'Failed to adjust stock.' });
   }
 });
@@ -481,14 +521,21 @@ router.get('/adjustments', async (req: Request, res: Response): Promise<void> =>
     const { tenantId } = requireTenantContext();
     const { itemId, warehouseId, page = '1', limit = '20' } = req.query;
 
-    const where: any = { tenantId };
-    if (itemId) where.itemId = itemId;
-    if (warehouseId) where.warehouseId = warehouseId;
-
     const pageNum = Math.max(1, Number(page) || 1);
     const limitNum = Math.min(100, Math.max(1, Number(limit) || 20));
 
     const adjustments = await withCurrentTenantDb(prisma, async (client) => {
+      const where: any = { tenantId };
+      if (itemId) where.itemId = itemId;
+
+      if (warehouseId) {
+        await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId as string);
+        where.warehouseId = warehouseId;
+      } else {
+        const accessibleIds = await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+        if (accessibleIds !== null) where.warehouseId = { in: accessibleIds };
+      }
+
       return (client as any).stockAdjustment.findMany({
         where,
         include: { item: true, warehouse: true },
@@ -501,6 +548,10 @@ router.get('/adjustments', async (req: Request, res: Response): Promise<void> =>
     res.status(200).json({ success: true, data: { adjustments, page: pageNum, limit: limitNum } });
   } catch (error: any) {
     console.error('[Inventory] Error fetching stock adjustments:', error);
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to retrieve stock adjustment history.' });
   }
 });

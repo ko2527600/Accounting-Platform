@@ -25,6 +25,7 @@ import { BankReconciliation } from "./pages/banking/BankReconciliation";
 import { Invoices } from "./pages/invoices/Invoices";
 import { VendorBills } from "./pages/bills/VendorBills";
 import { WarehouseManagement } from "./pages/inventory/WarehouseManagement";
+import { PointOfSale } from "./pages/pos/PointOfSale";
 import { InventoryIntelligence } from "./pages/analytics/InventoryIntelligence";
 import { ExecutiveReports } from "./pages/reports/ExecutiveReports";
 import { JournalList } from "./pages/journals/JournalList";
@@ -149,6 +150,7 @@ function App() {
             <Route path="/invoices" element={<ProtectedRoute><MainLayout><Invoices /></MainLayout></ProtectedRoute>} />
             <Route path="/bills" element={<ProtectedRoute><MainLayout><VendorBills /></MainLayout></ProtectedRoute>} />
             <Route path="/inventory" element={<ProtectedRoute><MainLayout><WarehouseManagement /></MainLayout></ProtectedRoute>} />
+            <Route path="/pos" element={<ProtectedRoute><MainLayout><PointOfSale /></MainLayout></ProtectedRoute>} />
             <Route path="/analytics/inventory" element={<ProtectedRoute><MainLayout><InventoryIntelligence /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/executive" element={<ProtectedRoute><MainLayout><ExecutiveReports /></MainLayout></ProtectedRoute>} />
             <Route path="/journals" element={<ProtectedRoute><MainLayout><JournalList /></MainLayout></ProtectedRoute>} />
