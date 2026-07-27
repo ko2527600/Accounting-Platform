@@ -19,6 +19,7 @@ import {
   CalendarClock,
   Target,
   Repeat,
+  ShoppingCart,
 } from "lucide-react";
 
 interface NavGroup {
@@ -47,6 +48,7 @@ const navigationGroups: NavGroup[] = [
   {
     sectionTitle: "SALES & PURCHASES",
     items: [
+      { name: "Point of Sale", href: "/pos", icon: ShoppingCart },
       { name: "Invoices (AR)", href: "/invoices", icon: FileText },
       { name: "Vendor Bills (AP)", href: "/bills", icon: Receipt },
     ],

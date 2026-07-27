@@ -2,6 +2,20 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-27] - Real Point-of-Sale Screen (Closes the "No Frontend for Cash Till" Gap)
+
+**What:** Closes the gap found earlier the same day: the Cash Till backend (`/tills/open`, `/tills/sales`, `/tills/close`, `/tills/closeouts`) was fully built, tested, and now permission-scoped (Shop Manager/Cashier), but had no frontend at all - nobody could actually record a real sale. New `frontend/src/pages/pos/PointOfSale.tsx`, routed at `/pos` and linked from the Sidebar's "Sales & Purchases" section.
+1. **Shop selector** - auto-selects the user's only accessible warehouse; shows a dropdown if they have more than one (respects the location-scoping just shipped).
+2. **Open Till**: prompts for the opening cash float when no till is currently open for the selected shop.
+3. **Record a Sale**: product dropdown (only items with stock at this shop), quantity, cash given - computes total and change live, validates against available stock and insufficient cash before submitting, shows a receipt confirmation and a running list of the session's receipts after each sale.
+4. **Close Till**: shows opening cash + cash sales = expected drawer total, takes the actual counted cash, and displays the resulting Balanced/Over/Short reconciliation - reusing the exact backend endpoint and math that already existed.
+**A real bug found and fixed during verification, not just typechecked**: the closeout summary initially showed "Short by GH₵0.00" for an exactly-balanced till. Root cause: `DailyCloseoutReport.discrepancy` is a Prisma `Decimal` field, which serializes to JSON as a string (e.g. `"0.00"`); the component compared it with strict equality (`discrepancy === 0`), which is always false for a string. Fixed by coercing to `Number(...)` once before comparing. Caught by driving the full flow in a real browser against the real backend (Playwright), not by unit tests.
+**Verification:** Backend unchanged, so the full suite (260/260) was re-run once to confirm the baseline is unaffected by this frontend-only change; frontend `tsc -b` clean. End-to-end live verification: opened a real till, sold 3 units at GH₵5 with GH₵20 given (confirmed exact GH₵15.00 total / GH₵5.00 change), closed the till with the exact expected cash counted, and confirmed "Till Balanced" displays correctly after the fix.
+**Known limitation (schema, not this change)**: `CashSale` doesn't store which item/quantity was sold (only the receipt total) - the "Today's Receipts" list shows receipt number, timestamp, and amount, not a line-item description. Fixing that would require a schema change to `CashSale`, out of scope for wiring up the existing backend's frontend.
+**Files Affected:** `frontend/src/pages/pos/PointOfSale.tsx` (new), `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`, `STATUS.md`, `TASKS.md`.
+
+---
+
 ## [Date: 2026-07-27] - Real Location-Scoped Permissions (Shop Manager / Cashier)
 
 **What:** Closes the gap found while explaining how "assigning a shop manager" actually worked: `User.role` was a free-text string, and any custom title (including the platform's own suggested "Shop Manager") fell through `rbacMiddleware.ts`'s catch-all to full company-wide access - no way to restrict anyone to a single shop. Researched how comparable systems (Square, Lightspeed Retail, Shopify POS, QuickBooks Online, Zoho Books, Odoo, TallyPrime) solve this - the consistent pattern across all of them is two independent axes: a closed role vocabulary (*what* actions) plus a separate location assignment (*where* they apply), never conflated. Implemented that model, scoped specifically to Inventory/Warehouses/Cash-Till (the parts of this schema that are actually warehouse-attributable - general ledger accounts have no warehouse concept, so company-wide financial reports are explicitly out of scope for this phase, not silently left leaky).
