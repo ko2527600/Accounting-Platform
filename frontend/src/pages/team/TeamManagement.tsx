@@ -152,6 +152,11 @@ export function TeamManagement() {
   const openAccessModal = (member: Member) => {
     setAccessModalMember(member);
     setAccessWarehouseIds((member.warehouseAccess || []).map((a) => a.warehouseId));
+    api.get("/inventory/warehouses").then((res) => {
+      if (res.data?.success) {
+        setWarehouses(res.data.data.warehouses.map((w: any) => ({ id: w.id, name: w.name })));
+      }
+    }).catch(() => {});
   };
 
   const toggleAccessWarehouse = (warehouseId: string) => {
@@ -193,7 +198,18 @@ export function TeamManagement() {
         </div>
 
         {isAdmin && (
-          <Button variant="primary" onClick={() => setIsInviteOpen(true)} className="flex items-center">
+          <Button
+            variant="primary"
+            onClick={() => {
+              setIsInviteOpen(true);
+              api.get("/inventory/warehouses").then((res) => {
+                if (res.data?.success) {
+                  setWarehouses(res.data.data.warehouses.map((w: any) => ({ id: w.id, name: w.name })));
+                }
+              }).catch(() => {});
+            }}
+            className="flex items-center"
+          >
             <UserPlus className="mr-2 h-4 w-4" />
             Invite Staff Member
           </Button>
