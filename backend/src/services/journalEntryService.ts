@@ -9,6 +9,9 @@ import {
 } from '../repository/journalEntryRepository';
 import * as accountRepository from '../repository/accountRepository';
 import * as ledgerRepository from '../repository/ledgerRepository';
+import { requireTenantContext } from '../context/tenantContext';
+import * as fiscalPeriodService from './fiscalPeriodService';
+import * as approvalWorkflowService from './approvalWorkflowService';
 
 export class JournalEntryServiceError extends Error {
   statusCode: number;
@@ -17,6 +20,17 @@ export class JournalEntryServiceError extends Error {
     super(message);
     this.name = 'JournalEntryServiceError';
     this.statusCode = statusCode;
+  }
+}
+
+async function assertPeriodOpenOrThrowJournalError(tenantId: string, date: Date): Promise<void> {
+  try {
+    await fiscalPeriodService.assertPeriodOpenForDate(tenantId, date);
+  } catch (error: any) {
+    if (error instanceof fiscalPeriodService.FiscalPeriodServiceError) {
+      throw new JournalEntryServiceError(error.message, error.statusCode);
+    }
+    throw error;
   }
 }
 
@@ -129,6 +143,14 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
       }
     }
 
+    // Only entries that post immediately touch the ledger, so only those need
+    // the fiscal-period-open check here - a DRAFT can still be saved for a
+    // closed/locked period date since it has no ledger effect until posted.
+    if (status === 'POSTED') {
+      const { tenantId } = requireTenantContext();
+      await assertPeriodOpenOrThrowJournalError(tenantId, entryDate || new Date());
+    }
+
     // Create journal entry in DB
     const entry = await journalEntryRepository.createJournalEntry(client, {
       entryNumber: entryNumber!,
@@ -207,6 +229,20 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
         )}) must equal Total Credits (${roundedCredit.toFixed(2)}).`,
         400
       );
+    }
+
+    const { tenantId } = requireTenantContext();
+    await assertPeriodOpenOrThrowJournalError(tenantId, entry.entryDate);
+
+    // Opt-in approval gate: only blocks if someone actually requested
+    // approval for this journal entry - most entries have no workflow at all.
+    try {
+      await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'JournalEntry', id);
+    } catch (error: any) {
+      if (error instanceof approvalWorkflowService.ApprovalWorkflowServiceError) {
+        throw new JournalEntryServiceError(error.message, error.statusCode);
+      }
+      throw error;
     }
 
     // Update status to POSTED

@@ -37,7 +37,7 @@ export class EmailService {
     const from = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
 
     const mailOptions = {
-      from: `"AccountGo ERP" <${from}>`,
+      from: `"Ledgio ERP" <${from}>`,
       to,
       subject,
       html,
@@ -86,7 +86,7 @@ export class EmailService {
     tenantName: string,
     reportData: { weeklySales: number; topShopName: string; totalItemsSold: number }
   ): Promise<boolean> {
-    const subject = `📊 AccountGo Weekly Executive Performance - ${tenantName}`;
+    const subject = `📊 Ledgio Weekly Executive Performance - ${tenantName}`;
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded-lg: 8px;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">
@@ -106,7 +106,7 @@ export class EmailService {
         </div>
 
         <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-          Generated automatically by <strong>AccountGo Multi-Tenant ERP</strong>. All shop closeouts and ledger records are reconciled.
+          Generated automatically by <strong>Ledgio Multi-Tenant ERP</strong>. All shop closeouts and ledger records are reconciled.
         </p>
       </div>
     `;
@@ -119,11 +119,11 @@ export class EmailService {
    */
   public static async sendVerificationEmail(to: string, name: string, token: string): Promise<boolean> {
     const verifyUrl = `${process.env.APP_URL || 'http://localhost:5173'}/verify-account?token=${token}&email=${encodeURIComponent(to)}`;
-    const subject = '🔐 Verify Your Email Address - AccountGo ERP';
+    const subject = '🔐 Verify Your Email Address - Ledgio ERP';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">
-          Welcome to AccountGo, ${name}!
+          Welcome to Ledgio, ${name}!
         </h2>
         <p style="font-size: 14px; color: #475569;">
           Please verify your email address to activate your account.
@@ -144,10 +144,10 @@ export class EmailService {
   }
 
   /**
-   * Sends "Welcome to AccountGo" sequence with attached Quick Start Guide PDF payload.
+   * Sends "Welcome to Ledgio" sequence with attached Quick Start Guide PDF payload.
    */
   public static async sendWelcomePackage(to: string, name: string, businessName?: string): Promise<boolean> {
-    const subject = '🎉 Welcome to AccountGo - Quick Start Guide Included';
+    const subject = '🎉 Welcome to Ledgio - Quick Start Guide Included';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 10px;">
@@ -165,7 +165,7 @@ export class EmailService {
           </ul>
         </div>
         <p style="font-size: 13px; color: #475569;">
-          We have attached the official <strong>AccountGo Quick Start Guide PDF</strong> to this email to help you get up to speed.
+          We have attached the official <strong>Ledgio Quick Start Guide PDF</strong> to this email to help you get up to speed.
         </p>
       </div>
     `;
@@ -174,7 +174,7 @@ export class EmailService {
 
     const attachments: EmailAttachment[] = [
       {
-        filename: 'AccountGo_Quick_Start_Guide.pdf',
+        filename: 'Ledgio_Quick_Start_Guide.pdf',
         content: guidePdfBuffer,
         contentType: 'application/pdf',
       },

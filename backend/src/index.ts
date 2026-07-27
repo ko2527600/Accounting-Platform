@@ -21,6 +21,14 @@ const startServer = async () => {
     // Initialize Monday 8:00 AM Automated Email Reporting Cron Job
     const { ScheduledEmailCronService } = require('./services/scheduledEmailService');
     ScheduledEmailCronService.init();
+
+    // Initialize hourly Recurring Transactions generator
+    const { RecurringTransactionCronService } = require('./services/recurringTransactionService');
+    RecurringTransactionCronService.init();
+
+    // Initialize FX rate cache refresher (no-op if FX_RATE_API_KEY isn't configured)
+    const { FxRateCronService } = require('./services/fxRateCronService');
+    FxRateCronService.init();
   });
 
   const gracefulShutdown = async () => {

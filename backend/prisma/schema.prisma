@@ -17,6 +17,7 @@ model Tenant {
   acceptedTermsVersion String?   @map("accepted_terms_version")
   termsAcceptedAt      DateTime? @map("terms_accepted_at")
   tier                 Int       @default(1)
+  baseCurrency         String    @default("USD") @map("base_currency")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -266,18 +267,22 @@ model Invoice {
   exchangeRate  Decimal       @default(1.0000) @db.Decimal(10, 4) @map("exchange_rate")
   subtotal      Decimal       @db.Decimal(15, 2)
   tax           Decimal       @default(0.00) @db.Decimal(15, 2)
+  taxRateId     String?       @map("tax_rate_id")
   total         Decimal       @db.Decimal(15, 2)
+  baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
   status        String        @default("DRAFT")
   journalId     String?       @map("journal_id")
   createdAt     DateTime      @default(now()) @map("created_at")
 
   customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
   items         InvoiceItem[]
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
   @@index([customerId])
   @@index([status])
+  @@index([taxRateId])
   @@map("invoices")
 }
 
@@ -320,6 +325,7 @@ model VendorBill {
   dueDate    DateTime @map("due_date")
   amount     Decimal  @db.Decimal(15, 2)
   currency   String   @default("USD")
+  baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
   status     String   @default("UNPAID")
   journalId  String?  @map("journal_id")
   createdAt  DateTime @default(now()) @map("created_at")
@@ -589,8 +595,9 @@ model ReportDefinition {
 
 model TaxRate {
   id            String    @id @default(uuid())
+  tenantId      String    @map("tenant_id")
   name          String
-  code          String    @unique
+  code          String
   rate          Decimal   @db.Decimal(5, 4)
   description   String?
   accountId     String?   @map("account_id")
@@ -600,7 +607,10 @@ model TaxRate {
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  @@index([code])
+  invoices      Invoice[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
   @@index([isActive, effectiveFrom, effectiveTo])
   @@map("tax_rates")
 }
@@ -613,6 +623,7 @@ enum PeriodStatus {
 
 model FiscalPeriod {
   id           String       @id @default(uuid())
+  tenantId     String       @map("tenant_id")
   name         String
   fiscalYear   Int          @map("fiscal_year")
   periodNumber Int          @map("period_number")
@@ -626,7 +637,8 @@ model FiscalPeriod {
 
   budgets Budget[]
 
-  @@unique([fiscalYear, periodNumber])
+  @@unique([tenantId, fiscalYear, periodNumber])
+  @@index([tenantId])
   @@index([fiscalYear])
   @@index([status])
   @@index([startDate, endDate])
@@ -635,6 +647,7 @@ model FiscalPeriod {
 
 model Budget {
   id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
   accountId      String   @map("account_id")
   fiscalPeriodId String   @map("fiscal_period_id")
   budgetAmount   Decimal  @map("budget_amount") @db.Decimal(15, 2)
@@ -647,6 +660,7 @@ model Budget {
   fiscalPeriod FiscalPeriod @relation(fields: [fiscalPeriodId], references: [id], onDelete: Cascade)
 
   @@unique([accountId, fiscalPeriodId])
+  @@index([tenantId])
   @@index([accountId])
   @@index([fiscalPeriodId])
   @@map("budgets")
@@ -662,6 +676,7 @@ enum RecurrenceFrequency {
 
 model RecurringTransaction {
   id           String              @id @default(uuid())
+  tenantId     String              @map("tenant_id")
   name         String
   description  String?
   frequency    RecurrenceFrequency
@@ -674,6 +689,7 @@ model RecurringTransaction {
   createdAt    DateTime            @default(now()) @map("created_at")
   updatedAt    DateTime            @updatedAt @map("updated_at")
 
+  @@index([tenantId])
   @@index([isActive, nextRun])
   @@index([frequency])
   @@map("recurring_transactions")
@@ -715,6 +731,7 @@ enum ApprovalStatus {
 
 model ApprovalWorkflow {
   id            String         @id @default(uuid())
+  tenantId      String         @map("tenant_id")
   entityType    String         @map("entity_type")
   entityId      String         @map("entity_id")
   requiredLevel Int            @map("required_level")
@@ -728,6 +745,7 @@ model ApprovalWorkflow {
 
   approvals ApprovalStep[]
 
+  @@index([tenantId])
   @@index([entityType, entityId])
   @@index([status])
   @@index([requestedBy])
@@ -736,6 +754,7 @@ model ApprovalWorkflow {
 
 model ApprovalStep {
   id         String         @id @default(uuid())
+  tenantId   String         @map("tenant_id")
   workflowId String         @map("workflow_id")
   level      Int
   approverId String?        @map("approver_id")
@@ -746,6 +765,7 @@ model ApprovalStep {
 
   workflow ApprovalWorkflow @relation(fields: [workflowId], references: [id], onDelete: Cascade)
 
+  @@index([tenantId])
   @@index([workflowId])
   @@index([approverId])
   @@index([status])

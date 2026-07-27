@@ -7,13 +7,21 @@ import {
   Lock,
   ArrowRight,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  Download,
+  Share
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { useInstallPrompt } from "../../hooks/useInstallPrompt";
+
+function isIos(): boolean {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "sla" | "tier">("terms");
+  const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "privacy" | "sla" | "tier">("terms");
+  const { isInstallable, isInstalled, promptInstall } = useInstallPrompt();
 
   return (
     <div className="min-h-screen bg-secondary-950 text-secondary-100 font-sans selection:bg-emerald-500 selection:text-white">
@@ -25,7 +33,7 @@ export function LandingPage() {
               <Building2 className="h-6 w-6 text-white" />
             </div>
             <span className="text-2xl font-black tracking-tight text-white">
-              Account<span className="text-emerald-400">Go</span>
+              Ledg<span className="text-emerald-400">io</span>
             </span>
           </div>
 
@@ -119,7 +127,7 @@ export function LandingPage() {
       <section id="features" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Why Businesses Choose AccountGo</h2>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Why Businesses Choose Ledgio</h2>
             <p className="mt-4 text-secondary-400 text-base">
               Built specifically to give business owners absolute visibility, anti-fraud protection, and effortless compliance.
             </p>
@@ -132,7 +140,7 @@ export function LandingPage() {
               </div>
               <h3 className="text-xl font-bold text-white mb-3">Instant SMS Cash Shortage Warnings</h3>
               <p className="text-sm text-secondary-400 leading-relaxed">
-                Receive instant SMS shortage warnings directly on your mobile phone whenever a shop drawer closes short. Managed centrally by AccountGo and included in your subscription.
+                Receive instant SMS shortage warnings directly on your mobile phone whenever a shop drawer closes short. Managed centrally by Ledgio and included in your subscription.
               </p>
             </div>
 
@@ -223,6 +231,49 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* 4b. Get the App */}
+      {!isInstalled && (isInstallable || isIos()) && (
+        <section id="get-the-app" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400 w-fit mx-auto mb-6">
+              <Download className="h-7 w-7" />
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Get the App on Your Device</h2>
+            <p className="mt-4 text-secondary-400 text-base leading-relaxed">
+              Install Ledgio for quick access from your home screen or desktop, just like a native app -
+              no app store required. It's the same workspace you use in the browser, ready in one tap.
+            </p>
+
+            <div className="mt-8">
+              {isInstallable && (
+                <Button
+                  variant="primary"
+                  onClick={promptInstall}
+                  className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-lg rounded-xl shadow-xl shadow-emerald-950/50 inline-flex items-center justify-center"
+                >
+                  Install App
+                  <Download className="ml-2 h-5 w-5" />
+                </Button>
+              )}
+
+              {!isInstallable && isIos() && (
+                <div className="max-w-md mx-auto p-6 bg-secondary-900 border border-secondary-800 rounded-2xl text-left">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center">
+                    <Share className="h-4 w-4 text-emerald-400 mr-2" />
+                    Add to Home Screen (Safari on iOS)
+                  </h4>
+                  <ol className="space-y-2 text-xs text-secondary-300 list-decimal list-inside">
+                    <li>Tap the Share icon in Safari's toolbar.</li>
+                    <li>Scroll down and tap "Add to Home Screen".</li>
+                    <li>Tap "Add" to confirm - Ledgio will appear as an app icon.</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
+
       {/* 5. Pricing Section */}
       <section id="pricing" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -304,6 +355,12 @@ export function LandingPage() {
               Terms & Conditions
             </button>
             <button
+              onClick={() => setActiveLegalTab("privacy")}
+              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "privacy" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
+            >
+              Privacy Policy
+            </button>
+            <button
               onClick={() => setActiveLegalTab("sla")}
               className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "sla" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
             >
@@ -320,15 +377,22 @@ export function LandingPage() {
           <div className="p-6 bg-secondary-900 border border-secondary-800 rounded-xl text-xs text-secondary-300 leading-relaxed font-sans max-h-64 overflow-y-auto">
             {activeLegalTab === "terms" && (
               <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">AccountGo Master Terms of Service</h4>
-                <p>By registering a business tenant account on AccountGo ERP, you agree that your database schema will be isolated under PostgreSQL multi-tenant architecture. Account holders are responsible for maintaining owner mobile phone numbers for SMS shortage notifications.</p>
+                <h4 className="font-bold text-white text-sm">Ledgio Master Terms of Service</h4>
+                <p>By registering a business tenant account on Ledgio ERP, you agree that your database schema will be isolated under PostgreSQL multi-tenant architecture. Account holders are responsible for maintaining owner mobile phone numbers for SMS shortage notifications.</p>
+              </div>
+            )}
+
+            {activeLegalTab === "privacy" && (
+              <div className="space-y-3">
+                <h4 className="font-bold text-white text-sm">Privacy Policy</h4>
+                <p>We collect only what's needed to run your workspace: administrator name, email, mobile number, and the business records you enter. We name every third-party subprocessor we use (email, SMS, bank feed, and FX-rate providers) and never sell your data. Registration with Ghana's Data Protection Commission under the Data Protection Act, 2012 (Act 843) is currently in progress.</p>
               </div>
             )}
 
             {activeLegalTab === "sla" && (
               <div className="space-y-3">
                 <h4 className="font-bold text-white text-sm">Service Level Agreement (SLA 99.9% Uptime)</h4>
-                <p>AccountGo guarantees 99.9% monthly service uptime for core double-entry general ledgers, point-of-sale cash tills, and financial reporting services. System maintenance windows are communicated in advance via Email and SMS broadcasts.</p>
+                <p>Ledgio guarantees 99.9% monthly service uptime for core double-entry general ledgers, point-of-sale cash tills, and financial reporting services. System maintenance windows are communicated in advance via Email and SMS broadcasts.</p>
               </div>
             )}
 
@@ -347,14 +411,14 @@ export function LandingPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0">
           <div className="flex items-center space-x-2">
             <Building2 className="h-5 w-5 text-emerald-400" />
-            <span className="text-sm font-bold text-white">AccountGo Multi-Tenant ERP</span>
+            <span className="text-sm font-bold text-white">Ledgio Multi-Tenant ERP</span>
           </div>
 
           <div className="text-xs text-secondary-500">
-            © 2026 AccountGo. All rights reserved. Registered under strict tenant schema isolation.
+            © 2026 Ledgio. All rights reserved. Registered under strict tenant schema isolation.
           </div>
 
-          {/* SECRET ENCRYPTED FOOTER LINK (Mocking AccountGo Accounting Engine) */}
+          {/* SECRET ENCRYPTED FOOTER LINK (Mocking Ledgio Accounting Engine) */}
           <div>
             <button
               onClick={() => navigate("/admin/core-engine")}
@@ -362,7 +426,7 @@ export function LandingPage() {
               title="Click to open Encrypted Admin Core Engine Hub"
             >
               <Lock className="h-3 w-3 mr-1" />
-              <span>AccountGo Accounting Engine v2.4 (Encrypted)</span>
+              <span>Ledgio Accounting Engine v2.4 (Encrypted)</span>
             </button>
           </div>
         </div>

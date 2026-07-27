@@ -1,0 +1,152 @@
+import { prisma } from '../config/db';
+import * as taxRateRepository from '../repository/taxRateRepository';
+import { TaxRateRecord, CreateTaxRateData } from '../repository/taxRateRepository';
+
+export class TaxRateServiceError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number = 400) {
+    super(message);
+    this.name = 'TaxRateServiceError';
+    this.statusCode = statusCode;
+  }
+}
+
+function validateRate(rate: number): void {
+  if (typeof rate !== 'number' || Number.isNaN(rate) || rate <= 0 || rate > 1) {
+    throw new TaxRateServiceError('Tax rate must be a number greater than 0 and less than or equal to 1 (e.g. 0.15 for 15%).', 400);
+  }
+}
+
+function validateDateRange(effectiveFrom: Date, effectiveTo?: Date | null): void {
+  if (effectiveTo && effectiveTo <= effectiveFrom) {
+    throw new TaxRateServiceError('effectiveTo must be after effectiveFrom.', 400);
+  }
+}
+
+export async function listTaxRates(tenantId: string): Promise<TaxRateRecord[]> {
+  return taxRateRepository.listTaxRates(prisma, tenantId);
+}
+
+export async function getTaxRateById(tenantId: string, id: string): Promise<TaxRateRecord | null> {
+  return taxRateRepository.getTaxRateById(prisma, tenantId, id);
+}
+
+export async function createTaxRate(tenantId: string, input: any): Promise<TaxRateRecord> {
+  const { name, code, rate, description, accountId, isActive, effectiveFrom, effectiveTo } = input;
+
+  if (!name || typeof name !== 'string' || !name.trim()) {
+    throw new TaxRateServiceError('Tax rate name is required.', 400);
+  }
+  if (!code || typeof code !== 'string' || !code.trim()) {
+    throw new TaxRateServiceError('Tax rate code is required.', 400);
+  }
+  const numericRate = Number(rate);
+  validateRate(numericRate);
+  if (!effectiveFrom) {
+    throw new TaxRateServiceError('effectiveFrom date is required.', 400);
+  }
+  const from = new Date(effectiveFrom);
+  const to = effectiveTo ? new Date(effectiveTo) : null;
+  validateDateRange(from, to);
+
+  const existingCode = await taxRateRepository.getTaxRateByCode(prisma, tenantId, code.trim());
+  if (existingCode) {
+    throw new TaxRateServiceError(`Tax rate code "${code.trim()}" already exists.`, 409);
+  }
+
+  const data: CreateTaxRateData = {
+    name,
+    code,
+    rate: numericRate,
+    description,
+    accountId,
+    isActive,
+    effectiveFrom: from,
+    effectiveTo: to,
+  };
+
+  return taxRateRepository.createTaxRate(prisma, tenantId, data);
+}
+
+export async function updateTaxRate(tenantId: string, id: string, input: any): Promise<TaxRateRecord> {
+  const existing = await taxRateRepository.getTaxRateById(prisma, tenantId, id);
+  if (!existing) {
+    throw new TaxRateServiceError(`Tax rate with ID "${id}" not found.`, 404);
+  }
+
+  const data: Partial<CreateTaxRateData> = {};
+
+  if (input.name !== undefined) {
+    if (!input.name.trim()) throw new TaxRateServiceError('Tax rate name cannot be empty.', 400);
+    data.name = input.name;
+  }
+  if (input.code !== undefined) {
+    if (!input.code.trim()) throw new TaxRateServiceError('Tax rate code cannot be empty.', 400);
+    if (input.code.trim() !== existing.code) {
+      const existingCode = await taxRateRepository.getTaxRateByCode(prisma, tenantId, input.code.trim());
+      if (existingCode) {
+        throw new TaxRateServiceError(`Tax rate code "${input.code.trim()}" already exists.`, 409);
+      }
+    }
+    data.code = input.code;
+  }
+  if (input.rate !== undefined) {
+    const numericRate = Number(input.rate);
+    validateRate(numericRate);
+    data.rate = numericRate;
+  }
+  if (input.description !== undefined) data.description = input.description;
+  if (input.accountId !== undefined) data.accountId = input.accountId;
+  if (input.isActive !== undefined) data.isActive = Boolean(input.isActive);
+
+  const newFrom = input.effectiveFrom !== undefined ? new Date(input.effectiveFrom) : existing.effectiveFrom;
+  const newTo = input.effectiveTo !== undefined ? (input.effectiveTo ? new Date(input.effectiveTo) : null) : existing.effectiveTo;
+  if (input.effectiveFrom !== undefined || input.effectiveTo !== undefined) {
+    validateDateRange(newFrom, newTo);
+    data.effectiveFrom = newFrom;
+    data.effectiveTo = newTo;
+  }
+
+  const updated = await taxRateRepository.updateTaxRate(prisma, tenantId, id, data);
+  if (!updated) {
+    throw new TaxRateServiceError(`Failed to update tax rate with ID "${id}".`, 500);
+  }
+  return updated;
+}
+
+export async function deleteTaxRate(tenantId: string, id: string): Promise<void> {
+  const existing = await taxRateRepository.getTaxRateById(prisma, tenantId, id);
+  if (!existing) {
+    throw new TaxRateServiceError(`Tax rate with ID "${id}" not found.`, 404);
+  }
+
+  const usageCount = await taxRateRepository.countInvoicesUsingTaxRate(prisma, tenantId, id);
+  if (usageCount > 0) {
+    throw new TaxRateServiceError(
+      `Cannot delete tax rate "${existing.name}" (${existing.code}) because it is used by ${usageCount} invoice(s). Deactivate it instead.`,
+      400
+    );
+  }
+
+  await taxRateRepository.deleteTaxRate(prisma, tenantId, id);
+}
+
+/**
+ * Finds the tenant's tax rate to apply to an invoice dated `issueDate`, when
+ * the caller didn't pass an explicit taxRateId. Returns null if no active
+ * rate exists (caller falls back to zero tax rather than guessing).
+ * Throws if more than one active rate covers the date and the caller must
+ * pick explicitly - never silently applies the "wrong" one of several.
+ */
+export async function resolveDefaultTaxRate(tenantId: string, issueDate: Date): Promise<TaxRateRecord | null> {
+  const candidates = await taxRateRepository.findActiveTaxRateForDate(prisma, tenantId, issueDate);
+  if (candidates.length === 0) return null;
+  if (candidates.length > 1) {
+    throw new TaxRateServiceError(
+      'Multiple active tax rates apply to this date - please specify taxRateId explicitly.',
+      400
+    );
+  }
+  return candidates[0];
+}

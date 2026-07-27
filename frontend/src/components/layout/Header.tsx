@@ -231,7 +231,7 @@ export function Header() {
             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-secondary-900 rounded-lg shadow-lg border border-secondary-200 dark:border-secondary-800 z-50 overflow-hidden animate-in slide-in-from-top-2">
               <div className="px-4 py-3 border-b border-secondary-200 dark:border-secondary-800">
                 <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{user?.name || "Admin User"}</p>
-                <p className="text-xs text-secondary-500 truncate">{user?.email || "admin@accountgo.com"}</p>
+                <p className="text-xs text-secondary-500 truncate">{user?.email || "admin@ledgiobusinessaccountingsoftware.com"}</p>
               </div>
               <div className="py-1">
                 <button 

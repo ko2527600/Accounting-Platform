@@ -283,7 +283,7 @@ export function Settings() {
               Platform-Managed SMS Shortage Alert Service
             </CardTitle>
             <CardDescription>
-              Instant SMS shortage warnings are managed centrally by AccountGo and included in your subscription. You only need to maintain your alert phone number below.
+              Instant SMS shortage warnings are managed centrally by Ledgio and included in your subscription. You only need to maintain your alert phone number below.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -299,12 +299,12 @@ export function Settings() {
 
             <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-amber-200 dark:border-amber-900/50 space-y-2 text-xs">
               <div className="flex justify-between">
-                <span>AccountGo Gateway Service:</span>
+                <span>Ledgio Gateway Service:</span>
                 <strong className="text-emerald-600 font-bold">Active & Managed (Included in Subscription)</strong>
               </div>
               <div className="flex justify-between">
                 <span>Shortage Template:</span>
-                <em className="text-secondary-600">"AccountGo Alert: [Shop] till closed by [Staff]. Shortage: [Amount]. Please check."</em>
+                <em className="text-secondary-600">"Ledgio Alert: [Shop] till closed by [Staff]. Shortage: [Amount]. Please check."</em>
               </div>
             </div>
 
@@ -318,7 +318,7 @@ export function Settings() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setSmsMsg("Test shortage alert queued via AccountGo Gateway Service.")}
+              onClick={() => setSmsMsg("Test shortage alert queued via Ledgio Gateway Service.")}
             >
               Test Shortage Alert
             </Button>
@@ -375,7 +375,7 @@ export function Settings() {
 
             <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-blue-200 dark:border-blue-900/50 space-y-2 text-xs">
               <div className="flex justify-between">
-                <span>AccountGo Mail Infrastructure:</span>
+                <span>Ledgio Mail Infrastructure:</span>
                 <strong className="text-emerald-600">Active & Managed (Included in Subscription)</strong>
               </div>
             </div>

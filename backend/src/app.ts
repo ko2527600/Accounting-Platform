@@ -29,6 +29,12 @@ import cashTillRouter from './routes/cashTill';
 import analyticsRouter from './routes/analytics';
 import notificationsRouter from './routes/notifications';
 import adminBroadcastRouter from './routes/adminBroadcast';
+import taxRatesRouter from './routes/taxRates';
+import fiscalPeriodsRouter from './routes/fiscalPeriods';
+import budgetsRouter from './routes/budgets';
+import recurringTransactionsRouter from './routes/recurringTransactions';
+import approvalWorkflowsRouter from './routes/approvalWorkflows';
+import adminAuditLogsRouter from './routes/adminAuditLogs';
 
 dotenv.config();
 
@@ -141,6 +147,13 @@ app.use('/api/v1/legal', legalRouter);
 
 // Custom fields endpoints (Tier 2 Customization Enforcement Showcase)
 app.use('/api/v1/custom-fields', customFieldsRouter);
+
+app.use('/api/v1/tax-rates', taxRatesRouter);
+app.use('/api/v1/fiscal-periods', fiscalPeriodsRouter);
+app.use('/api/v1/budgets', budgetsRouter);
+app.use('/api/v1/recurring-transactions', recurringTransactionsRouter);
+app.use('/api/v1/approval-workflows', approvalWorkflowsRouter);
+app.use('/api/v1/admin/audit-logs', adminAuditLogsRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.

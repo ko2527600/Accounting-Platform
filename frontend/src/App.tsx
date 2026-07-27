@@ -13,6 +13,11 @@ import { LandingPage } from "./pages/landing/LandingPage";
 import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
 import { Settings } from "./pages/settings/Settings";
+import { TaxRates } from "./pages/settings/TaxRates";
+import { FiscalPeriods } from "./pages/settings/FiscalPeriods";
+import { RecurringTransactions } from "./pages/settings/RecurringTransactions";
+import { Approvals } from "./pages/approvals/Approvals";
+import { Budgets } from "./pages/reports/Budgets";
 import { TeamManagement } from "./pages/team/TeamManagement";
 import { AuditLogs } from "./pages/audit/AuditLogs";
 import { BulkImportWizard } from "./pages/import/BulkImportWizard";
@@ -132,6 +137,11 @@ function App() {
             <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/tax-rates" element={<ProtectedRoute><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/fiscal-periods" element={<ProtectedRoute><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/recurring-transactions" element={<ProtectedRoute><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
+            <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
             <Route path="/audit-logs" element={<ProtectedRoute><MainLayout><AuditLogs /></MainLayout></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><MainLayout><BulkImportWizard /></MainLayout></ProtectedRoute>} />

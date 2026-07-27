@@ -103,7 +103,7 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug } = req.body;
+    const { companyName, name, slug, baseCurrency } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
@@ -115,6 +115,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       data: {
         ...(newName && { name: newName }),
         ...(slug && { slug: slug.trim().toLowerCase() }),
+        ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
       },
     });
 
@@ -190,19 +191,19 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
     });
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
-    const companyName = tenant?.name || 'AccountGo Workspace';
+    const companyName = tenant?.name || 'Ledgio Workspace';
     const inviteUrl = `${req.protocol}://${req.get('host')}/accept-invite?token=${token}`;
 
     // Dispatch actual Email Invitation via Nodemailer (Gmail SMTP)
     const { EmailService } = require('../services/EmailService');
-    const emailSubject = `📩 You've been invited to join ${companyName} on AccountGo ERP`;
+    const emailSubject = `📩 You've been invited to join ${companyName} on Ledgio ERP`;
     const emailHtml = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 12px; background-color: #ffffff;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 10px; margin-top: 0;">
           Workspace Staff Invitation
         </h2>
         <p style="font-size: 14px; color: #334155; line-height: 1.6;">
-          Hello! You have been invited to join <strong>${companyName}</strong> on AccountGo ERP with the role of <strong>${invitation.role}</strong>.
+          Hello! You have been invited to join <strong>${companyName}</strong> on Ledgio ERP with the role of <strong>${invitation.role}</strong>.
         </p>
         <div style="text-align: center; margin: 30px 0;">
           <a href="${inviteUrl}" style="background-color: #10b981; color: #ffffff; padding: 12px 28px; font-[bold]; font-size: 14px; border-radius: 8px; text-decoration: none; display: inline-block;">

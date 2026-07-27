@@ -20,6 +20,7 @@ export interface OnboardTenantDTO {
   acceptedTermsVersion?: string;
   termsAccepted?: boolean;
   tier?: number;
+  baseCurrency?: string;
 }
 
 export interface OnboardTenantResult {
@@ -170,6 +171,7 @@ export async function onboardTenant(
       acceptedTermsVersion,
       termsAcceptedAt: new Date(),
       tier,
+      baseCurrency: dto.baseCurrency,
     });
   } catch (err: any) {
     if (err.message && err.message.includes('unique constraint')) {
@@ -220,7 +222,7 @@ export async function onboardTenant(
       console.error('[TenantService] Failed to send verification email:', err);
     });
 
-    SmsService.send(phone, `AccountGo Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
+    SmsService.send(phone, `Ledgio Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
       console.error('[TenantService] Failed to send verification SMS:', err);
     });
   } catch (error) {

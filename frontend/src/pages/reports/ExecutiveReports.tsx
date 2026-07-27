@@ -71,7 +71,7 @@ export function ExecutiveReports() {
       const url = window.URL.createObjectURL(new Blob([res.data]));
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", `AccountGo_${activeTab}_report_${Date.now()}.csv`);
+      link.setAttribute("download", `Ledgio_${activeTab}_report_${Date.now()}.csv`);
       document.body.appendChild(link);
       link.click();
     } catch (err) {

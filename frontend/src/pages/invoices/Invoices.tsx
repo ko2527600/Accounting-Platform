@@ -14,6 +14,13 @@ interface Customer {
   phone?: string;
 }
 
+interface TaxRate {
+  id: string;
+  name: string;
+  code: string;
+  rate: string;
+}
+
 interface InvoiceItem {
   description: string;
   quantity: number;
@@ -37,8 +44,9 @@ interface Invoice {
 export function Invoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
   // Modals
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
   const [isCustomerOpen, setIsCustomerOpen] = useState(false);
@@ -49,6 +57,7 @@ export function Invoices() {
 
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
+  const [selectedTaxRateId, setSelectedTaxRateId] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
@@ -58,13 +67,15 @@ export function Invoices() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [invRes, custRes] = await Promise.all([
+      const [invRes, custRes, taxRes] = await Promise.all([
         api.get("/invoices"),
         api.get("/invoices/customers"),
+        api.get("/tax-rates"),
       ]);
 
       if (invRes.data.success) setInvoices(invRes.data.data.invoices);
       if (custRes.data.success) setCustomers(custRes.data.data.customers);
+      if (taxRes.data.success) setTaxRates(taxRes.data.data.taxRates.filter((t: any) => t.isActive));
     } catch (err) {
       console.error("Failed to load invoice data:", err);
     } finally {
@@ -103,6 +114,7 @@ export function Invoices() {
         customerId: selectedCustomer,
         currency,
         items,
+        ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
       });
 
       if (res.data.success) {
@@ -307,6 +319,21 @@ export function Invoices() {
                 <option value="GBP">GBP (£)</option>
                 <option value="GHS">GHS (GH₵)</option>
                 <option value="JPY">JPY (¥)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Tax Rate</label>
+              <select
+                className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                value={selectedTaxRateId}
+                onChange={(e) => setSelectedTaxRateId(e.target.value)}
+              >
+                <option value="">Use default active rate</option>
+                {taxRates.map((tr) => (
+                  <option key={tr.id} value={tr.id}>
+                    {tr.name} ({(Number(tr.rate) * 100).toFixed(2)}%)
+                  </option>
+                ))}
               </select>
             </div>
           </div>

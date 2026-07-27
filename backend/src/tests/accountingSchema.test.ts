@@ -257,7 +257,7 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         },
       ]);
 
-      // Fetch last balance for acc-1000
+      // Batched fetch of latest balances for all accounts in the entry (acc-1000, acc-3000) - both new, no prior ledger rows
       mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
       // Insert ledger row for acc-1000
       mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([
@@ -274,8 +274,6 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         },
       ]);
 
-      // Fetch last balance for acc-3000
-      mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
       // Insert ledger row for acc-3000
       mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([
         {
