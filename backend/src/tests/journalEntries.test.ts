@@ -35,6 +35,9 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
   let voidedEntryId: string;
 
   async function cleanupTestData() {
+    if (tenant1Id) {
+      await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
+    }
     console.log("-> cleanup: deleteTenantBySlug 1");
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     console.log("-> cleanup: deleteTenantBySlug 2");
@@ -394,6 +397,13 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(res.body.success).toBe(true);
       expect(res.body.message).toContain('posted successfully');
       expect(res.body.data.journalEntry.status).toBe('POSTED');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'JournalEntry', entityId: draftEntryId, action: 'JOURNAL_ENTRY.POSTED' },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].userEmail).toBe(accountantEmail1);
+      expect(auditRows[0].changes).toEqual({ status: { from: 'DRAFT', to: 'POSTED' } });
     });
 
     it('should return 400 Bad Request when attempting to post an already posted entry', async () => {
@@ -434,6 +444,13 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(voidRes.body.success).toBe(true);
       expect(voidRes.body.message).toContain('voided successfully');
       expect(voidRes.body.data.journalEntry.status).toBe('VOID');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'JournalEntry', entityId: voidedEntryId, action: 'JOURNAL_ENTRY.VOIDED' },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].userEmail).toBe(accountantEmail1);
+      expect(auditRows[0].changes).toEqual({ status: { from: 'DRAFT', to: 'VOID' } });
     });
 
     it('should return 400 Bad Request when attempting to void an already voided entry', async () => {

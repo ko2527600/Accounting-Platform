@@ -1,6 +1,5 @@
 import axios from 'axios';
-import { prisma } from '../config/db';
-import { getTenantContext } from '../context/tenantContext';
+import { recordAuditLog } from './auditLogService';
 
 interface ShortageAlertDTO {
   shopName: string;
@@ -133,23 +132,13 @@ export class SmsService {
       }
     }
 
-    // 3 Retries Failed -> Log "Gateway Offline" in AuditLog (tenantId is
-    // best-effort - null when there's no active tenant context, e.g. a
-    // platform-level dispatch rather than a tenant-triggered alert)
+    // 3 Retries Failed -> Log "Gateway Offline" in AuditLog
     console.error(`[SmsService] Android Gateway Offline after ${maxRetries} failed attempts.`);
-    try {
-      const tenantId = getTenantContext()?.tenantId ?? null;
-      await prisma.auditLog.create({
-        data: {
-          tenantId,
-          action: 'GATEWAY_OFFLINE',
-          entity: 'SMS_GATEWAY',
-          details: `Failed to dispatch SMS to ${recipientPhone} via Android Gateway after ${maxRetries} retries. Message: "${message}"`,
-        },
-      });
-    } catch (_auditErr) {
-      // Ignore if audit log write fails
-    }
+    await recordAuditLog({
+      action: 'GATEWAY_OFFLINE',
+      entity: 'SMS_GATEWAY',
+      details: `Failed to dispatch SMS to ${recipientPhone} via Android Gateway after ${maxRetries} retries. Message: "${message}"`,
+    });
 
     return false;
   }

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { invalidateTenantCache } from '../cache/tenantCache';
 
 export interface TenantRecord {
   id: string;
@@ -87,6 +88,14 @@ export async function deleteTenantBySlug(prisma: PrismaClient, slug: string): Pr
     const result = await prisma.tenant.delete({
       where: { slug: slug.toLowerCase().trim() },
     });
+    // Deleting the DB row alone leaves a stale Redis entry (up to the 30-minute
+    // TTL) under the id/slug/schema keys, which would let a tenant re-onboarded
+    // with the same slug get silently resolved to the deleted tenant's old id.
+    await Promise.all([
+      invalidateTenantCache(result.id),
+      invalidateTenantCache(result.slug),
+      invalidateTenantCache(result.schema),
+    ]).catch(() => {});
     return !!result;
   } catch {
     return false;

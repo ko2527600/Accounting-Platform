@@ -13,12 +13,16 @@ describe('Inventory API - concurrent stock transfer safety', () => {
   const adminEmail = `admin_inv_${runId}@corp1.com`;
 
   let adminToken: string;
+  let tenantId: string;
   let warehouseAId: string;
   let warehouseBId: string;
   let warehouseCId: string;
   let itemId: string;
 
   async function cleanupTestData() {
+    if (tenantId) {
+      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+    }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
     await dropTenantSchema(prisma, tenantSchema).catch(() => {});
@@ -38,6 +42,7 @@ describe('Inventory API - concurrent stock transfer safety', () => {
       adminName: 'Inventory Corp 1 Admin',
     });
     adminToken = onboard.token;
+    tenantId = onboard.tenant.id;
 
     const whA = await request(app)
       .post('/api/v1/inventory/warehouses')
@@ -208,6 +213,12 @@ describe('Inventory API - concurrent stock transfer safety', () => {
       expect(res.body.data.adjustment.previousQty).toBe(20);
       expect(res.body.data.adjustment.newQty).toBe(50);
       expect(res.body.data.adjustment.delta).toBe(30);
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId, entity: 'StockAdjustment', entityId: res.body.data.adjustment.id, action: 'STOCK_ADJUSTMENT.RECORDED' },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].changes).toEqual({ quantityOnHand: { from: 20, to: 50 } });
     });
 
     it("mode='set' corrects a mistaken over-entry to the true physical count", async () => {

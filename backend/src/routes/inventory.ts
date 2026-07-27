@@ -6,6 +6,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
+import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -64,6 +65,14 @@ router.post('/warehouses', requireRole('Accountant'), async (req: Request, res: 
           isPrimary: Boolean(isPrimary),
         },
       });
+    });
+
+    await recordAuditLog({
+      action: 'WAREHOUSE.CREATED',
+      entity: 'Warehouse',
+      entityId: created.id,
+      actor: actorFromRequest(req),
+      details: `Warehouse/shop "${created.name}" created.`,
     });
 
     res.status(201).json({ success: true, message: 'Warehouse created successfully', data: { warehouse: created } });
@@ -157,6 +166,14 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
       }
 
       return item;
+    });
+
+    await recordAuditLog({
+      action: 'INVENTORY_ITEM.CREATED',
+      entity: 'InventoryItem',
+      entityId: createdItem.id,
+      actor: actorFromRequest(req),
+      details: `Item "${createdItem.name}" (${createdItem.sku}) created.`,
     });
 
     res.status(201).json({ success: true, message: 'Item created successfully', data: { item: createdItem } });
@@ -271,6 +288,17 @@ router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: 
       }
     });
 
+    if (created.length > 0) {
+      // One summary entry per batch, not one per row - avoids flooding the
+      // audit log with up to 500 entries for a single bulk-import action.
+      await recordAuditLog({
+        action: 'INVENTORY_ITEM.BULK_CREATED',
+        entity: 'InventoryItem',
+        actor: actorFromRequest(req),
+        details: `${created.length} item(s) created via bulk import${failed.length > 0 ? `, ${failed.length} row(s) failed` : ''}.`,
+      });
+    }
+
     res.status(created.length > 0 ? 201 : 400).json({
       success: created.length > 0,
       message: `${created.length} item(s) created${failed.length > 0 ? `, ${failed.length} failed` : ''}.`,
@@ -366,6 +394,14 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
         },
         include: { fromWarehouse: true, toWarehouse: true, items: true },
       });
+    });
+
+    await recordAuditLog({
+      action: 'STOCK_TRANSFER.RECORDED',
+      entity: 'StockTransfer',
+      entityId: transfer.id,
+      actor: actorFromRequest(req),
+      details: `${transfer.transferNumber}: ${quantity} unit(s) of item ${itemId} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}.`,
     });
 
     res.status(201).json({
@@ -488,7 +524,16 @@ router.post('/adjustments', requireRole('Accountant'), async (req: Request, res:
         },
       });
 
-      return { adjustment, warehouse, item, newQty };
+      return { adjustment, warehouse, item, newQty, previousQty };
+    });
+
+    await recordAuditLog({
+      action: 'STOCK_ADJUSTMENT.RECORDED',
+      entity: 'StockAdjustment',
+      entityId: result.adjustment.id,
+      actor: actorFromRequest(req),
+      changes: { quantityOnHand: { from: result.previousQty, to: result.newQty } },
+      details: `${result.item.name} in ${result.warehouse.name}: ${mode} ${qty} (${reason}).`,
     });
 
     res.status(201).json({

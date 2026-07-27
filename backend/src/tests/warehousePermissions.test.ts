@@ -14,12 +14,16 @@ describe('Location-scoped permissions (Shop Manager / Cashier)', () => {
   const managerEmail = `manager_whperm_${runId}@corp.com`;
 
   let adminToken: string;
+  let tenantId: string;
   let managerToken: string;
   let warehouseAId: string;
   let warehouseBId: string;
   let itemId: string;
 
   async function cleanupTestData() {
+    if (tenantId) {
+      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+    }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
     await deleteUserByEmail(prisma, managerEmail).catch(() => {});
@@ -40,6 +44,7 @@ describe('Location-scoped permissions (Shop Manager / Cashier)', () => {
       adminName: 'Permissions Admin',
     });
     adminToken = onboard.token;
+    tenantId = onboard.tenant.id;
 
     const whA = await request(app)
       .post('/api/v1/inventory/warehouses')
@@ -198,6 +203,12 @@ describe('Location-scoped permissions (Shop Manager / Cashier)', () => {
       .set('X-Tenant-ID', tenantSlug)
       .send({ warehouseIds: [warehouseBId] });
     expect(updateRes.status).toBe(200);
+
+    const auditRows = await prisma.auditLog.findMany({
+      where: { tenantId, entity: 'WarehouseAccess', entityId: managerMember.id, action: 'WAREHOUSE_ACCESS.UPDATED' },
+    });
+    expect(auditRows).toHaveLength(1);
+    expect(auditRows[0].changes).toEqual({ warehouseIds: { from: [warehouseAId], to: [warehouseBId] } });
 
     // The manager can now reach Shop B and no longer reaches Shop A.
     const afterUpdate = await request(app)

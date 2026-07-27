@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import * as accountRepository from '../repository/accountRepository';
 import { AccountRecord, AccountType, CreateAccountData } from '../repository/accountRepository';
+import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
 
 export class AccountServiceError extends Error {
   statusCode: number;
@@ -44,7 +45,7 @@ export function buildAccountTree(accounts: AccountRecord[]): AccountTreeNode[] {
   return tree;
 }
 
-export async function createAccount(data: CreateAccountData): Promise<AccountRecord> {
+export async function createAccount(data: CreateAccountData, actor?: AuditActor): Promise<AccountRecord> {
   if (!data.code || typeof data.code !== 'string' || !data.code.trim()) {
     throw new AccountServiceError('Account code is required and cannot be empty.', 400);
   }
@@ -62,7 +63,7 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRec
 
   const normalizedType = data.type.toUpperCase() as AccountType;
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  const created = await withCurrentTenantDb(prisma, async (client) => {
     // 1. Check duplicate code
     const existingCode = await accountRepository.getAccountByCode(client, data.code);
     if (existingCode) {
@@ -82,6 +83,16 @@ export async function createAccount(data: CreateAccountData): Promise<AccountRec
       type: normalizedType,
     });
   });
+
+  await recordAuditLog({
+    action: 'ACCOUNT.CREATED',
+    entity: 'Account',
+    entityId: created.id,
+    actor,
+    details: `Account ${created.code} - ${created.name} (${created.type}) created.`,
+  });
+
+  return created;
 }
 
 export async function getAccountById(id: string): Promise<AccountRecord | null> {
@@ -104,18 +115,22 @@ export async function listAccounts(): Promise<ListAccountsResult> {
 
 export async function updateAccount(
   id: string,
-  data: Partial<CreateAccountData>
+  data: Partial<CreateAccountData>,
+  actor?: AuditActor
 ): Promise<AccountRecord> {
   if (!id || typeof id !== 'string') {
     throw new AccountServiceError('Account ID is required.', 400);
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  let previous: AccountRecord | null = null;
+
+  const updated = await withCurrentTenantDb(prisma, async (client) => {
     // 1. Check existing account
     const existing = await accountRepository.getAccountById(client, id);
     if (!existing) {
       throw new AccountServiceError(`Account with ID "${id}" not found.`, 404);
     }
+    previous = existing;
 
     // 2. Validate code uniqueness if code is updated
     if (data.code !== undefined && data.code.trim() !== existing.code) {
@@ -181,19 +196,32 @@ export async function updateAccount(
 
     return updated;
   });
+
+  await recordAuditLog({
+    action: 'ACCOUNT.UPDATED',
+    entity: 'Account',
+    entityId: updated.id,
+    actor,
+    changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId']),
+  });
+
+  return updated;
 }
 
-export async function deleteAccount(id: string): Promise<boolean> {
+export async function deleteAccount(id: string, actor?: AuditActor): Promise<boolean> {
   if (!id || typeof id !== 'string') {
     throw new AccountServiceError('Account ID is required.', 400);
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  let deletedAccount: AccountRecord | null = null;
+
+  const deleted = await withCurrentTenantDb(prisma, async (client) => {
     // 1. Check existing account
     const existing = await accountRepository.getAccountById(client, id);
     if (!existing) {
       throw new AccountServiceError(`Account with ID "${id}" not found.`, 404);
     }
+    deletedAccount = existing;
 
     // 2. Check child accounts existence
     const childCount = await accountRepository.getChildAccountsCount(client, id);
@@ -205,8 +233,7 @@ export async function deleteAccount(id: string): Promise<boolean> {
     }
 
     try {
-      const deleted = await accountRepository.deleteAccount(client, id);
-      return deleted;
+      return await accountRepository.deleteAccount(client, id);
     } catch (error: any) {
       if (error.code === '23503' || (error.message && error.message.includes('foreign key constraint'))) {
         throw new AccountServiceError(
@@ -217,4 +244,16 @@ export async function deleteAccount(id: string): Promise<boolean> {
       throw error;
     }
   });
+
+  if (deleted) {
+    await recordAuditLog({
+      action: 'ACCOUNT.DELETED',
+      entity: 'Account',
+      entityId: id,
+      actor,
+      details: deletedAccount ? `Account ${(deletedAccount as AccountRecord).code} - ${(deletedAccount as AccountRecord).name} deleted.` : undefined,
+    });
+  }
+
+  return deleted;
 }

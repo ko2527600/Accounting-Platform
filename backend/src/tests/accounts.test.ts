@@ -32,6 +32,9 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
   let leafAccountId: string;
 
   async function cleanupTestData() {
+    if (tenant1Id) {
+      await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
+    }
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});
 
@@ -332,6 +335,12 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.account.name).toBe('Main Checking Account');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'Account', entityId: leafAccountId, action: 'ACCOUNT.UPDATED' },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].changes).toMatchObject({ name: { to: 'Main Checking Account' } });
     });
 
     it('should return 400 Bad Request when setting parentId to itself', async () => {
@@ -385,6 +394,11 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.message).toContain('deleted successfully');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'Account', entityId: leafAccountId, action: 'ACCOUNT.DELETED' },
+      });
+      expect(auditRows).toHaveLength(1);
 
       // Verify deletion
       const getRes = await request(app)

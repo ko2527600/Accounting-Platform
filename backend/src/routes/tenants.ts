@@ -8,6 +8,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { BroadcastService } from '../services/broadcastService';
 import { CLOSED_ROLES, isLocationScopedRole } from '../services/warehouseAccessService';
+import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
 
 const router = Router();
 
@@ -253,6 +254,15 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
     console.log(`Invite URL: ${inviteUrl}`);
     console.log(`======================================================\n`);
 
+    await recordAuditLog({
+      action: 'INVITATION.SENT',
+      entity: 'Invitation',
+      entityId: invitation.id,
+      tenantId,
+      actor: actorFromRequest(req),
+      details: `Invited ${invitation.email} as ${invitation.role}.`,
+    });
+
     return res.status(201).json({
       success: true,
       message: 'Invitation email dispatched successfully.',
@@ -343,6 +353,9 @@ router.put('/members/:id/warehouse-access', authenticateJwt, tenantContextMiddle
       }
     }
 
+    const previousAccess = await prisma.warehouseAccess.findMany({ where: { tenantId, userId: id }, select: { warehouseId: true } });
+    const previousWarehouseIds = previousAccess.map((a) => a.warehouseId);
+
     await prisma.$transaction([
       prisma.warehouseAccess.deleteMany({ where: { tenantId, userId: id } }),
       ...(warehouseIds.length > 0
@@ -351,6 +364,16 @@ router.put('/members/:id/warehouse-access', authenticateJwt, tenantContextMiddle
           })]
         : []),
     ]);
+
+    await recordAuditLog({
+      action: 'WAREHOUSE_ACCESS.UPDATED',
+      entity: 'WarehouseAccess',
+      entityId: id,
+      tenantId,
+      actor: actorFromRequest(req),
+      changes: { warehouseIds: { from: previousWarehouseIds, to: warehouseIds } },
+      details: `Shop access updated for team member ${member.email}.`,
+    });
 
     return res.status(200).json({ success: true, message: 'Warehouse access updated.', data: { warehouseIds } });
   } catch (error: any) {
