@@ -11,6 +11,7 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
   const mockPrisma: any = {
     $executeRawUnsafe: jest.fn().mockResolvedValue(1),
     $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn((fn: any) => fn(mockPrisma)),
     tenant: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -18,6 +19,9 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
+    mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma));
   });
 
   describe('DDL Migrations & Schema Definition', () => {
