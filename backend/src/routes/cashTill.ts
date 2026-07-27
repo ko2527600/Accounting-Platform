@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
+import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 
 const router = Router();
 
@@ -20,10 +21,16 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
     const { warehouseId } = req.query;
 
     const till = await withCurrentTenantDb(prisma, async (client) => {
+      if (warehouseId) {
+        await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, String(warehouseId));
+      }
+      const accessibleIds = warehouseId ? null : await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+
       return (client as any).cashTill.findFirst({
         where: {
           tenantId,
           ...(warehouseId && { warehouseId: String(warehouseId) }),
+          ...(accessibleIds !== null && { warehouseId: { in: accessibleIds } }),
           status: 'OPEN',
         },
         include: { warehouse: true, sales: true },
@@ -34,6 +41,10 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({ success: true, data: { till } });
   } catch (error: any) {
     console.error('[CashTill] Error fetching current till:', error);
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: 'Failed to fetch current cash till.' });
   }
 });
@@ -58,6 +69,7 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
       if (!warehouse) {
         throw new Error('Warehouse not found.');
       }
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId);
 
       // Close any previously open till for this warehouse
       await (client as any).cashTill.updateMany({
@@ -82,6 +94,10 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
     console.error('[CashTill] Error opening till:', error);
     if (error.message === 'Warehouse not found.') {
       res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to open cash till.' });
@@ -111,6 +127,8 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
       if (!till || till.status !== 'OPEN') {
         throw new Error('Cash till is not open or does not exist.');
       }
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, till.warehouseId);
 
       const item = await (client as any).inventoryItem.findFirst({
         where: { id: itemId, tenantId },
@@ -175,6 +193,10 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
     res.status(201).json({ success: true, message: 'Cash sale recorded successfully', data: result });
   } catch (error: any) {
     console.error('[CashTill] Error recording cash sale:', error);
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: error.message || 'Failed to record cash sale.' });
   }
 });
@@ -201,6 +223,8 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
       });
 
       if (!till) throw new Error('Cash till not found.');
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, till.warehouseId);
 
       const opening = Number(till.openingCash);
       const sales = Number(till.cashSalesTotal);
@@ -267,6 +291,10 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({ success: true, message: 'Till closed and daily report generated', data: { report } });
   } catch (error: any) {
     console.error('[CashTill] Error closing till:', error);
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     res.status(500).json({ success: false, error: error.message || 'Failed to close till.' });
   }
 });
@@ -279,8 +307,12 @@ router.get('/closeouts', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const closeouts = await withCurrentTenantDb(prisma, async (client) => {
+      const accessibleIds = await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+      const where: any = { tenantId };
+      if (accessibleIds !== null) where.warehouseId = { in: accessibleIds };
+
       return (client as any).dailyCloseoutReport.findMany({
-        where: { tenantId },
+        where,
         include: { warehouse: true, till: true },
         orderBy: { closedAt: 'desc' },
       });

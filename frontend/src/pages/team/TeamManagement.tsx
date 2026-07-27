@@ -6,7 +6,14 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
-import { UserPlus, Copy, Check, Mail, UserCheck } from "lucide-react";
+import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2 } from "lucide-react";
+
+const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier"] as const;
+const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier"]);
+
+function isLocationScopedRole(role: string): boolean {
+  return LOCATION_SCOPED_ROLES.has(role.toLowerCase().trim());
+}
 
 interface Member {
   id: string;
@@ -15,6 +22,7 @@ interface Member {
   role: string;
   isActive: boolean;
   createdAt: string;
+  warehouseAccess?: { warehouseId: string; warehouse: { name: string } }[];
 }
 
 interface Invitation {
@@ -27,26 +35,39 @@ interface Invitation {
   createdAt: string;
 }
 
+interface WarehouseOption {
+  id: string;
+  name: string;
+}
+
 export function TeamManagement() {
   const { user } = useAuth();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isInviteOpen, setIsInviteOpen] = useState(false);
 
   // Invite Form State
   const [inviteEmail, setInviteEmail] = useState("");
-  const [inviteRole, setInviteRole] = useState("");
+  const [inviteRole, setInviteRole] = useState<string>("");
+  const [inviteWarehouseIds, setInviteWarehouseIds] = useState<string[]>([]);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedToken, setCopiedToken] = useState<string | null>(null);
 
+  // Manage Access Modal State
+  const [accessModalMember, setAccessModalMember] = useState<Member | null>(null);
+  const [accessWarehouseIds, setAccessWarehouseIds] = useState<string[]>([]);
+  const [isSavingAccess, setIsSavingAccess] = useState(false);
+
   const fetchTeamData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [membersRes, invitesRes] = await Promise.all([
+      const [membersRes, invitesRes, warehousesRes] = await Promise.all([
         api.get("/tenants/members"),
         api.get("/tenants/invitations").catch(() => ({ data: { success: false, data: { invitations: [] } } })),
+        api.get("/inventory/warehouses").catch(() => ({ data: { success: false, data: { warehouses: [] } } })),
       ]);
 
       if (membersRes.data.success) {
@@ -54,6 +75,9 @@ export function TeamManagement() {
       }
       if (invitesRes.data?.success) {
         setInvitations(invitesRes.data.data.invitations);
+      }
+      if (warehousesRes.data?.success) {
+        setWarehouses(warehousesRes.data.data.warehouses.map((w: any) => ({ id: w.id, name: w.name })));
       }
     } catch (err) {
       console.error("Failed to load team data:", err);
@@ -67,6 +91,12 @@ export function TeamManagement() {
   }, [fetchTeamData]);
 
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  const toggleInviteWarehouse = (warehouseId: string) => {
+    setInviteWarehouseIds((prev) =>
+      prev.includes(warehouseId) ? prev.filter((id) => id !== warehouseId) : [...prev, warehouseId]
+    );
+  };
 
   const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,17 +113,24 @@ export function TeamManagement() {
       return;
     }
 
+    if (isLocationScopedRole(inviteRole) && inviteWarehouseIds.length === 0) {
+      setInviteError(`"${inviteRole}" is a shop-scoped role - select at least one warehouse/shop they'll have access to.`);
+      return;
+    }
+
     setIsSubmitting(true);
     const sentEmail = inviteEmail.trim();
     try {
       const res = await api.post("/tenants/invite", {
         email: sentEmail,
         role: inviteRole,
+        warehouseIds: isLocationScopedRole(inviteRole) ? inviteWarehouseIds : [],
       });
 
       if (res.data.success) {
         setInviteEmail("");
         setInviteRole("");
+        setInviteWarehouseIds([]);
         setIsInviteOpen(false);
         setSuccessMsg(`📩 Email invitation dispatched via Nodemailer to ${sentEmail}!`);
         fetchTeamData();
@@ -110,6 +147,35 @@ export function TeamManagement() {
     navigator.clipboard.writeText(link);
     setCopiedToken(token);
     setTimeout(() => setCopiedToken(null), 2500);
+  };
+
+  const openAccessModal = (member: Member) => {
+    setAccessModalMember(member);
+    setAccessWarehouseIds((member.warehouseAccess || []).map((a) => a.warehouseId));
+  };
+
+  const toggleAccessWarehouse = (warehouseId: string) => {
+    setAccessWarehouseIds((prev) =>
+      prev.includes(warehouseId) ? prev.filter((id) => id !== warehouseId) : [...prev, warehouseId]
+    );
+  };
+
+  const handleSaveAccess = async () => {
+    if (!accessModalMember) return;
+    setIsSavingAccess(true);
+    try {
+      const res = await api.put(`/tenants/members/${accessModalMember.id}/warehouse-access`, {
+        warehouseIds: accessWarehouseIds,
+      });
+      if (res.data.success) {
+        setAccessModalMember(null);
+        fetchTeamData();
+      }
+    } catch (err: any) {
+      alert(err.response?.data?.error || "Failed to update warehouse access.");
+    } finally {
+      setIsSavingAccess(false);
+    }
   };
 
   const isAdmin = user?.role === "Admin";
@@ -162,7 +228,9 @@ export function TeamManagement() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Shop Access</TableHead>
                   <TableHead>Status</TableHead>
+                  {isAdmin && <TableHead className="text-right">Actions</TableHead>}
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -177,11 +245,35 @@ export function TeamManagement() {
                         {member.role}
                       </span>
                     </TableCell>
+                    <TableCell className="text-xs">
+                      {isLocationScopedRole(member.role) ? (
+                        (member.warehouseAccess?.length || 0) === 0 ? (
+                          <span className="text-red-500 flex items-center"><MapPin className="h-3 w-3 mr-1" />No shops assigned</span>
+                        ) : (
+                          <span className="text-secondary-600 dark:text-secondary-300 flex items-center">
+                            <MapPin className="h-3 w-3 mr-1 text-primary-500" />
+                            {member.warehouseAccess!.map((a) => a.warehouse.name).join(", ")}
+                          </span>
+                        )
+                      ) : (
+                        <span className="text-secondary-400">All shops</span>
+                      )}
+                    </TableCell>
                     <TableCell>
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
                         Active
                       </span>
                     </TableCell>
+                    {isAdmin && (
+                      <TableCell className="text-right">
+                        {isLocationScopedRole(member.role) && (
+                          <Button variant="outline" size="sm" onClick={() => openAccessModal(member)} className="inline-flex items-center text-xs">
+                            <Settings2 className="mr-1.5 h-3.5 w-3.5" />
+                            Manage Access
+                          </Button>
+                        )}
+                      </TableCell>
+                    )}
                   </TableRow>
                 ))}
               </TableBody>
@@ -282,29 +374,48 @@ export function TeamManagement() {
 
           <div>
             <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-              Worker Role / Custom Job Title
+              Role
             </label>
-            <Input
-              type="text"
+            <select
               required
-              placeholder="e.g. Shop Manager, Store Clerk, Cashier, Inventory Lead"
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
               value={inviteRole}
-              onChange={(e) => setInviteRole(e.target.value)}
-            />
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <span className="text-xs text-secondary-500 flex items-center mr-1">Quick Suggestions:</span>
-              {["Shop Manager", "Store Clerk", "Accountant", "Cashier", "Auditor"].map((sugg) => (
-                <button
-                  key={sugg}
-                  type="button"
-                  onClick={() => setInviteRole(sugg)}
-                  className="px-2 py-0.5 text-xs rounded bg-secondary-100 dark:bg-secondary-800 text-secondary-700 dark:text-secondary-300 hover:bg-primary-50 dark:hover:bg-primary-900/40 hover:text-primary-600 transition-colors"
-                >
-                  {sugg}
-                </button>
+              onChange={(e) => { setInviteRole(e.target.value); setInviteWarehouseIds([]); }}
+            >
+              <option value="">-- Select Role --</option>
+              {CLOSED_ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
               ))}
-            </div>
+            </select>
+            <p className="text-[11px] text-secondary-500 mt-1">
+              "Shop Manager" and "Cashier" are shop-scoped roles - they'll only see and operate on the shop(s) you assign below. Every other role sees the whole business.
+            </p>
           </div>
+
+          {isLocationScopedRole(inviteRole) && (
+            <div>
+              <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                Assigned Shop(s) (required)
+              </label>
+              {warehouses.length === 0 ? (
+                <p className="text-xs text-red-500">No shops/warehouses exist yet - create one under Inventory first.</p>
+              ) : (
+                <div className="space-y-1.5 max-h-40 overflow-y-auto border border-secondary-200 dark:border-secondary-800 rounded-md p-2">
+                  {warehouses.map((w) => (
+                    <label key={w.id} className="flex items-center space-x-2 text-sm cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={inviteWarehouseIds.includes(w.id)}
+                        onChange={() => toggleInviteWarehouse(w.id)}
+                        className="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span>{w.name}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsInviteOpen(false)}>
@@ -315,6 +426,38 @@ export function TeamManagement() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Manage Warehouse Access Modal */}
+      <Modal isOpen={!!accessModalMember} onClose={() => setAccessModalMember(null)} title={`Manage Shop Access${accessModalMember ? ` — ${accessModalMember.name}` : ""}`}>
+        <div className="space-y-4">
+          <p className="text-xs text-secondary-500">
+            {accessModalMember?.name} ({accessModalMember?.role}) will only see and operate on the shop(s) checked below.
+          </p>
+          {warehouses.length === 0 ? (
+            <p className="text-xs text-red-500">No shops/warehouses exist yet.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-56 overflow-y-auto border border-secondary-200 dark:border-secondary-800 rounded-md p-2">
+              {warehouses.map((w) => (
+                <label key={w.id} className="flex items-center space-x-2 text-sm cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={accessWarehouseIds.includes(w.id)}
+                    onChange={() => toggleAccessWarehouse(w.id)}
+                    className="rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span>{w.name}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setAccessModalMember(null)}>Cancel</Button>
+            <Button type="button" variant="primary" onClick={handleSaveAccess} disabled={isSavingAccess}>
+              {isSavingAccess ? "Saving..." : "Save Access"}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

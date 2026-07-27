@@ -119,7 +119,36 @@ describe('Ledgio System-Wide End-to-End API Integration Suite', () => {
       expect(res.body.data.tenant.name).toBe(`${testCompany} Updated`);
     });
 
-    it('POST /api/v1/tenants/invite - should accept custom worker job titles', async () => {
+    it('POST /api/v1/tenants/invite - should accept a closed-set role like Accountant', async () => {
+      const res = await request(app)
+        .post('/api/v1/tenants/invite')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantId)
+        .send({
+          email: `worker.${Date.now()}@example.com`,
+          role: 'Accountant',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.invitation.role).toBe('Accountant');
+    });
+
+    it('POST /api/v1/tenants/invite - should reject an unrecognized custom job title', async () => {
+      const res = await request(app)
+        .post('/api/v1/tenants/invite')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantId)
+        .send({
+          email: `worker.${Date.now()}@example.com`,
+          role: 'Inventory Lead',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('POST /api/v1/tenants/invite - should require at least one assigned shop for a shop-scoped role', async () => {
       const res = await request(app)
         .post('/api/v1/tenants/invite')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -129,9 +158,9 @@ describe('Ledgio System-Wide End-to-End API Integration Suite', () => {
           role: 'Shop Manager',
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.invitation.role).toBe('Shop Manager');
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain('shop-scoped role');
     });
   });
 

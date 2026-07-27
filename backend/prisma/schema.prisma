@@ -33,6 +33,9 @@ model Invitation {
   email     String
   tenantId  String   @map("tenant_id")
   role      String   @default("Viewer")
+  // Warehouse IDs to grant on acceptance, only meaningful when role is a
+  // location-scoped role ('Shop Manager'/'Cashier') - empty for company-wide roles.
+  warehouseIds String[] @default([]) @map("warehouse_ids")
   token     String   @unique
   status    String   @default("PENDING")
   expiresAt DateTime @map("expires_at")
@@ -64,11 +67,29 @@ model User {
   updatedAt              DateTime @updatedAt @map("updated_at")
 
   tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  warehouseAccess WarehouseAccess[]
 
   @@index([tenantId])
   @@index([email, tenantId])
   @@index([isActive])
   @@map("users")
+}
+
+model WarehouseAccess {
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  userId      String   @map("user_id")
+  warehouseId String   @map("warehouse_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, warehouseId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([warehouseId])
+  @@map("warehouse_access")
 }
 
 enum AccountType {
@@ -355,6 +376,7 @@ model Warehouse {
   tills         CashTill[]
   closeouts     DailyCloseoutReport[]
   adjustments   StockAdjustment[]
+  userAccess    WarehouseAccess[]
 
   @@unique([tenantId, code])
   @@index([tenantId])

@@ -517,6 +517,21 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
       });
     }
 
+    // Grant the warehouses selected at invite time (only meaningful for
+    // location-scoped roles - empty for company-wide roles). Idempotent via
+    // skipDuplicates so re-accepting (existingUser update path above) never
+    // errors on the unique (userId, warehouseId) constraint.
+    if (invitation.warehouseIds && invitation.warehouseIds.length > 0) {
+      await prisma.warehouseAccess.createMany({
+        data: invitation.warehouseIds.map((warehouseId) => ({
+          tenantId: invitation.tenantId,
+          userId: user.id,
+          warehouseId,
+        })),
+        skipDuplicates: true,
+      });
+    }
+
     // Mark invitation as accepted
     await prisma.invitation.update({
       where: { id: invitation.id },

@@ -7,6 +7,7 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { BroadcastService } from '../services/broadcastService';
+import { CLOSED_ROLES, isLocationScopedRole } from '../services/warehouseAccessService';
 
 const router = Router();
 
@@ -136,7 +137,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
  */
 router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
-    const { email, role } = req.body;
+    const { email, role, warehouseIds } = req.body;
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
 
     if (!tenantId) {
@@ -153,14 +154,34 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       });
     }
 
-    if (!role || typeof role !== 'string' || !role.trim()) {
+    const matchedRole = CLOSED_ROLES.find((r) => r.toLowerCase() === String(role || '').trim().toLowerCase());
+    if (!matchedRole) {
       return res.status(400).json({
         success: false,
-        error: 'Please enter a custom role/title for the worker (e.g. Shop Manager, Cashier, Inventory Lead).',
+        error: `Please select a valid role: ${CLOSED_ROLES.join(', ')}.`,
       });
     }
+    const assignedRole = matchedRole;
 
-    const assignedRole = role.trim();
+    const requestedWarehouseIds: string[] = Array.isArray(warehouseIds) ? warehouseIds.filter((id) => typeof id === 'string') : [];
+    if (isLocationScopedRole(assignedRole)) {
+      if (requestedWarehouseIds.length === 0) {
+        return res.status(400).json({
+          success: false,
+          error: `"${assignedRole}" is a shop-scoped role - select at least one warehouse/shop to grant access to.`,
+        });
+      }
+      const validWarehouses = await prisma.warehouse.findMany({
+        where: { id: { in: requestedWarehouseIds }, tenantId },
+        select: { id: true },
+      });
+      if (validWarehouses.length !== requestedWarehouseIds.length) {
+        return res.status(400).json({
+          success: false,
+          error: 'One or more selected warehouses do not belong to this business.',
+        });
+      }
+    }
 
     // Check if user with this email is already a member of this tenant
     const existingUser = await prisma.user.findFirst({
@@ -184,6 +205,7 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         email: email.trim().toLowerCase(),
         tenantId,
         role: assignedRole,
+        warehouseIds: isLocationScopedRole(assignedRole) ? requestedWarehouseIds : [],
         token,
         status: 'PENDING',
         expiresAt,
@@ -271,6 +293,7 @@ router.get('/members', authenticateJwt, tenantContextMiddleware, async (req: Req
         role: true,
         isActive: true,
         createdAt: true,
+        warehouseAccess: { select: { warehouseId: true, warehouse: { select: { name: true } } } },
       },
       orderBy: { createdAt: 'desc' },
     });
@@ -285,6 +308,54 @@ router.get('/members', authenticateJwt, tenantContextMiddleware, async (req: Req
       success: false,
       error: 'Failed to retrieve team members',
     });
+  }
+});
+
+/**
+ * PUT /api/v1/tenants/members/:id/warehouse-access (Admin only)
+ * Replaces a team member's set of assigned warehouses wholesale - only
+ * meaningful for location-scoped roles ('Shop Manager'/'Cashier'), but
+ * allowed for any member so an admin can pre-assign access before/after
+ * changing someone's role.
+ */
+router.put('/members/:id/warehouse-access', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    const { id } = req.params;
+    const { warehouseIds } = req.body;
+
+    if (!Array.isArray(warehouseIds) || warehouseIds.some((w) => typeof w !== 'string')) {
+      return res.status(400).json({ success: false, error: 'warehouseIds must be an array of warehouse IDs.' });
+    }
+
+    const member = await prisma.user.findFirst({ where: { id, tenantId } });
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Team member not found.' });
+    }
+
+    if (warehouseIds.length > 0) {
+      const validWarehouses = await prisma.warehouse.findMany({
+        where: { id: { in: warehouseIds }, tenantId },
+        select: { id: true },
+      });
+      if (validWarehouses.length !== new Set(warehouseIds).size) {
+        return res.status(400).json({ success: false, error: 'One or more selected warehouses do not belong to this business.' });
+      }
+    }
+
+    await prisma.$transaction([
+      prisma.warehouseAccess.deleteMany({ where: { tenantId, userId: id } }),
+      ...(warehouseIds.length > 0
+        ? [prisma.warehouseAccess.createMany({
+            data: warehouseIds.map((warehouseId: string) => ({ tenantId, userId: id, warehouseId })),
+          })]
+        : []),
+    ]);
+
+    return res.status(200).json({ success: true, message: 'Warehouse access updated.', data: { warehouseIds } });
+  } catch (error: any) {
+    console.error('[TenantMembers] Error updating warehouse access:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update warehouse access.' });
   }
 });
 
