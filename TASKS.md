@@ -24,7 +24,7 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Implement Verified Registration Flow with Email Verification & 4-Digit SMS Code (w:10)
 - [x] Integrate Private Android SMS Gateway for instant till shortage warnings (w:10)
 - [x] Configure Nodemailer & Gmail SMTP for automated Monday 8:00 AM executive PDF reports (w:10)
-- [x] Create frontend Verification Screen (/verify-account) & Welcome Sequence with Quick Start Guide PDF (w:8) - the attached PDF was a hardcoded one-line stub (`samplePdfBuffer`) until 2026-07-25; now generated for real via `pdfGenerationService.ts` (pdfkit) with actual per-tenant onboarding content - see Known Issues/STATUS.md.
+- [x] Create frontend Verification Screen (/verify-account) & Welcome Sequence with Quick Start Guide PDF (w:8) - the attached PDF was a hardcoded one-line stub (`samplePdfBuffer`) until 2026-07-25; now generated for real via `pdfGenerationService.ts` (pdfkit) with actual per-tenant onboarding content - see Known Issues/STATUS.md. A real user caught a layout bug (staircase-indented bullets, clipped text) and a missing-features gap (guide didn't mention Tax Rates/Fiscal Periods/Recurring Transactions/Approval Workflows/Multi-Currency) in the actual received email on 2026-07-26 - both fixed, see STATUS.md.
 - [x] Build Public Platform Landing Page (/) with Onboarding Requirements, Terms & Conditions, and SLA 99.9% Uptime Guarantee (w:12)
 - [x] Create Password-Encrypted Secret Footer Link & Admin System-Wide Upgrade Broadcast Console (w:15)
 
