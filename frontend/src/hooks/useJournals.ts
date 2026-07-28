@@ -78,6 +78,22 @@ export function useJournals() {
     }
   }, [fetchJournals]);
 
+  const voidJournal = useCallback(async (id: string) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post(`/journal-entries/${id}/void`);
+      if (response.data.success) {
+        await fetchJournals();
+        return response.data.data.journalEntry;
+      }
+    } catch (error: any) {
+      console.error('Failed to void journal entry:', error);
+      throw error.response?.data?.error || error.message || 'Failed to void journal entry';
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchJournals]);
+
   useEffect(() => {
     fetchJournals();
   }, [fetchJournals]);
@@ -86,6 +102,7 @@ export function useJournals() {
     journals,
     isLoading,
     fetchJournals,
-    postJournal
+    postJournal,
+    voidJournal
   };
 }

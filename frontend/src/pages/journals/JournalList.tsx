@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileSpreadsheet } from "lucide-react";
+import { Plus, Search, FileSpreadsheet, Ban } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useJournals } from "../../hooks/useJournals";
 import { Button } from "../../components/ui/Button";
@@ -15,9 +15,22 @@ import {
 } from "../../components/ui/Table";
 
 export function JournalList() {
-  const { journals } = useJournals();
+  const { journals, voidJournal } = useJournals();
   const [searchTerm, setSearchTerm] = useState("");
+  const [voidingId, setVoidingId] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  const handleVoid = async (id: string, entryLabel: string) => {
+    if (!window.confirm(`Void journal entry ${entryLabel}? This cannot be undone.`)) return;
+    setVoidingId(id);
+    try {
+      await voidJournal(id);
+    } catch (err: any) {
+      alert(typeof err === "string" ? err : "Failed to void journal entry.");
+    } finally {
+      setVoidingId(null);
+    }
+  };
 
   const filteredJournals = useMemo(() => {
     return journals.filter((journal) =>
@@ -71,12 +84,13 @@ export function JournalList() {
               <TableHead>Description</TableHead>
               <TableHead className="text-right">Total Amount</TableHead>
               <TableHead className="text-right">Status</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredJournals.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-secondary-500">
+                <TableCell colSpan={6} className="h-32 text-center text-secondary-500">
                   <div className="flex flex-col items-center justify-center">
                     <FileSpreadsheet className="h-8 w-8 text-secondary-300 mb-2" />
                     No journal entries found.
@@ -104,9 +118,31 @@ export function JournalList() {
                     {formatCurrency(journal.totalDebit)}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Badge variant={journal.status === 'Posted' ? 'success' : 'warning'}>
+                    <Badge
+                      variant={
+                        journal.status === 'Posted'
+                          ? 'success'
+                          : journal.status === 'Void'
+                          ? 'danger'
+                          : 'warning'
+                      }
+                    >
                       {journal.status}
                     </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {journal.status === 'Draft' && (
+                      <Button
+                        variant="outline"
+                        className="h-8 px-2 text-xs text-red-600 hover:text-red-700"
+                        disabled={voidingId === journal.id}
+                        onClick={() => handleVoid(journal.id, journal.id)}
+                        title="Void this draft entry"
+                      >
+                        <Ban className="mr-1 h-3.5 w-3.5" />
+                        {voidingId === journal.id ? "Voiding..." : "Void"}
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))

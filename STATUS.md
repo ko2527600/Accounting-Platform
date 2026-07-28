@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - Add Void Button to Journal Entries List + Close a Real Ledger-Correctness Gap
+
+**What:** The user asked for a Void button on `JournalList.tsx`. The backend `POST /journal-entries/:id/void` endpoint already existed, but investigating how to wire it up surfaced a real correctness gap: `voidJournalEntry` only flips `JournalEntry.status` to `VOID` - it never touches the `ledgers` table. Once an entry is POSTED, its debit/credit rows are written permanently to `ledgers`, and Trial Balance/P&L/Balance Sheet (`reportRepository.ts`) all sum directly from `ledgers` joined to `accounts`, with no filter on the parent journal entry's status. So voiding an already-POSTED entry previously looked successful (status flips to "Void" in the UI) while silently leaving its numbers baked into every report - a plain Void button covering POSTED entries would have been actively misleading.
+
+**Fix (confirmed with the user via `AskUserQuestion`, chose the recommended option):** Void is now correctly scoped to DRAFT entries only, matching standard accounting practice - correcting an already-posted entry requires a reversing entry, not erasing it.
+- Backend: `journalEntryService.voidJournalEntry` now throws a 400 (`"...is already posted to the ledger and cannot be voided. Record a reversing journal entry instead."`) if called on a POSTED entry - closing the gap at the API level, not just hiding the button.
+- Frontend: `useJournals.ts` gained `voidJournal()`; `JournalList.tsx` shows a "Void" button (with a confirmation prompt) only on rows with `status === 'Draft'`. Also fixed the status badge to show `danger` (red) for `Void` instead of falling through to the same `warning` color as `Draft`. `JournalStatus` type (`types/accounting.ts`) was missing `'Void'` entirely - added.
+- A real reversing-entry feature for correcting POSTED entries is a natural follow-up, not built here.
+
+**Verification:** `tsc --noEmit` (backend) and `tsc -b` (frontend) both clean. New `journalEntries.test.ts` case: create + post an entry, attempt to void it, confirm 400 with the correct message and that the entry's status is still `POSTED` afterward (not silently flipped). Full backend suite run: 287/287 passing.
+**Files Affected:** `backend/src/services/journalEntryService.ts`, `backend/src/tests/journalEntries.test.ts`, `frontend/src/hooks/useJournals.ts`, `frontend/src/pages/journals/JournalList.tsx`, `frontend/src/types/accounting.ts`.
+
 ## [Date: 2026-07-27] - Stock Take: Printable Blind-Count Sheets + Reconciliation
 
 **What:** Added a real physical inventory-count workflow: print a per-warehouse stock sheet to count against on paper, then reconcile the counted numbers against system quantities. Requested directly by the user; two design decisions confirmed with them up front: (1) the printed sheet is a **blind count** - it never shows the system's current quantity, only SKU/name/unit and a blank line to write the count on, so a count isn't unconsciously biased toward matching what the app already expects; (2) counted quantities can be entered either via an on-screen editable table or by uploading a filled-in CSV, converging on the same reconciliation flow.
