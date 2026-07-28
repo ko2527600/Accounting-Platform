@@ -214,6 +214,86 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
 });
 
 /**
+ * POST /api/v1/auth/resend-verification
+ * Regenerates and resends the email verification link and/or SMS code for
+ * whichever channel(s) are still unverified, so a user stuck on a
+ * "deactivated" account (verification email lost/never arrived) can
+ * continue without needing to re-register.
+ */
+router.post('/resend-verification', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ success: false, error: 'Email is required.' });
+      return;
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { email: email.toLowerCase().trim() },
+      include: { tenant: true },
+    });
+
+    if (!user) {
+      res.status(404).json({ success: false, error: 'No account found for this email.' });
+      return;
+    }
+
+    if (user.isEmailVerified && user.isPhoneVerified) {
+      res.status(400).json({ success: false, error: 'This account is already fully verified. Please log in.' });
+      return;
+    }
+
+    const updateData: { emailVerificationToken?: string; smsVerificationCode?: string } = {};
+    if (!user.isEmailVerified) {
+      updateData.emailVerificationToken = crypto.randomUUID();
+    }
+    if (!user.isPhoneVerified) {
+      updateData.smsVerificationCode = Math.floor(1000 + Math.random() * 9000).toString();
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: user.id },
+      data: updateData,
+    });
+
+    if (!user.isEmailVerified) {
+      const { EmailService } = require('../services/EmailService');
+      EmailService.sendVerificationEmail(updatedUser.email, updatedUser.name, updatedUser.emailVerificationToken).catch((err: any) => {
+        console.error('[AuthResendVerification] Error resending verification email:', err);
+      });
+    }
+    if (!user.isPhoneVerified && updatedUser.phone) {
+      const { SmsService } = require('../services/smsService');
+      SmsService.send(updatedUser.phone, `Ledgio Verification Code: ${updatedUser.smsVerificationCode}. Do not share this code.`).catch((err: any) => {
+        console.error('[AuthResendVerification] Error resending SMS code:', err);
+      });
+    }
+
+    await recordAuditLog({
+      action: 'AUTH.VERIFICATION_RESENT',
+      entity: 'User',
+      entityId: user.id,
+      tenantId: user.tenantId || null,
+      actor: { userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+      details: `Resent verification for "${user.email}" (email: ${!user.isEmailVerified}, sms: ${!user.isPhoneVerified}).`,
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Verification instructions have been resent.',
+      data: {
+        emailResent: !user.isEmailVerified,
+        smsResent: !user.isPhoneVerified,
+      },
+    });
+  } catch (error: any) {
+    console.error('[AuthResendVerification] Error:', error);
+    res.status(500).json({ success: false, error: 'Failed to resend verification.' });
+  }
+});
+
+/**
  * POST /api/v1/auth/login
  * Authenticates user credentials and returns JWT token.
  */
