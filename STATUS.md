@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - Fix Real Render Deploy Failure #2: NODE_ENV=production Silently Drops devDependencies Needed by the Build
+
+**What:** After the `moduleResolution` fix merged, the next Render deploy attempt failed one step later - `npm run build` now ran but `tsc` immediately errored with `TS7016: Could not find a declaration file for module 'cors'`/`'pdfkit'` and `TS2503: Cannot find namespace 'PDFKit'`, confirmed via the actual Render build log the user shared.
+
+**Root cause:** `render.yaml` sets `NODE_ENV=production` as a service env var, which Render applies uniformly across both the build and runtime phases (there's no separate build-only/runtime-only scoping in the Blueprint spec). `npm ci` inherits that env var and, in this npm/Node setup, treats `NODE_ENV=production` as equivalent to `--omit=dev` - silently skipping the entire `devDependencies` block, including `typescript` itself and the `@types/*` packages the compile step needs. Reproduced exactly: a clean local `rm -rf node_modules && NODE_ENV=production npm ci` left `typescript`, `@types/cors`, and `@types/pdfkit` all absent from `node_modules`, then `npm run build` hit the identical errors seen on Render. Notably, `@types/node-cron` and `@types/nodemailer` were *already* sitting in `dependencies` (not `devDependencies`) in `backend/package.json` before this fix - a clear sign this exact class of bug was hit and worked around for those two packages previously, but not applied consistently to the rest.
+
+**Fix:** Moved every package the actual `tsc` compile of `src/**/*` needs into `dependencies` (which `npm ci` always installs regardless of `NODE_ENV`): `typescript`, `@types/express`, `@types/node`, `@types/cors`, `@types/pdfkit`, and `prisma` (the CLI - needed by `buildCommand`'s `prisma generate`/`migrate deploy`, previously relying on `npx`'s on-demand-fetch fallback rather than the pinned local version). Left genuinely test-only packages in `devDependencies` (`jest`, `ts-jest`, `supertest`, `ts-node-dev`, `@types/jest`, `@types/supertest`, `pdf-parse`, `@types/pdf-parse`) since `*.test.ts` files are excluded from the `tsc` build (`tsconfig.json`'s `exclude`) and aren't needed for a production build. Regenerated `package-lock.json` via `npm install` (package-lock tracks each package's dev-flag independently of `package.json`'s section, so this was required for the fix to actually take effect under `npm ci`).
+
+**Verification:** Reproduced Render's exact `buildCommand` end-to-end locally under `NODE_ENV=production` (`npm ci && npx prisma generate && npm run build`) - all three steps succeed with zero errors, matching what Render will now do. `tsc --noEmit` clean under normal (non-production) `NODE_ENV` too, confirming the local dev/CI workflow is unaffected.
+**Files Affected:** `backend/package.json`, `backend/package-lock.json`.
+
 ## [Date: 2026-07-28] - Fix Real Render Deploy Failure: Legacy `moduleResolution` Rejected by tsc
 
 **What:** The Render Blueprint deploy failed at the `ledgio-backend` build step (the Redis service deployed fine) with `tsconfig.json(5,25): error TS5108: Option 'moduleResolution=node10' has been removed. Please remove it from your configuration.` - confirmed via the actual Render build log the user shared.
