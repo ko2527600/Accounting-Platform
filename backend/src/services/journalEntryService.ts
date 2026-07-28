@@ -300,6 +300,18 @@ export async function voidJournalEntry(id: string, actor?: AuditActor): Promise<
       throw new JournalEntryServiceError(`Journal entry "${entry.entryNumber}" is already voided.`, 400);
     }
 
+    // Voiding only flips this record's status - it does not reverse the ledger
+    // rows a POSTED entry has already written (reports sum directly from
+    // `ledgers`, with no join back to journal entry status). Allowing void on
+    // a POSTED entry would silently leave incorrect numbers in every report.
+    // Correcting a posted entry requires an actual reversing entry, not a void.
+    if (entry.status === 'POSTED') {
+      throw new JournalEntryServiceError(
+        `Journal entry "${entry.entryNumber}" is already posted to the ledger and cannot be voided. Record a reversing journal entry instead.`,
+        400
+      );
+    }
+
     previousStatus = entry.status;
 
     const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'VOID');

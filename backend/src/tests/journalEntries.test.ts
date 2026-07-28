@@ -474,6 +474,43 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(res.body.success).toBe(false);
       expect(res.body.error).toContain('voided');
     });
+
+    it('should return 400 Bad Request when attempting to void an already-POSTED entry (voiding does not reverse ledger rows)', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/journal-entries')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          entryNumber: 'JE-2026-POSTED-NO-VOID',
+          lines: [
+            { accountId: cashAccountId1, debit: 75.0, credit: 0.0 },
+            { accountId: revenueAccountId1, debit: 0.0, credit: 75.0 },
+          ],
+        });
+      const postedEntryId = createRes.body.data.journalEntry.id;
+
+      const postRes = await request(app)
+        .post(`/api/v1/journal-entries/${postedEntryId}/post`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      expect(postRes.status).toBe(200);
+
+      const voidRes = await request(app)
+        .post(`/api/v1/journal-entries/${postedEntryId}/void`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      expect(voidRes.status).toBe(400);
+      expect(voidRes.body.success).toBe(false);
+      expect(voidRes.body.error).toContain('cannot be voided');
+
+      // The entry must still be POSTED, not silently transitioned to VOID.
+      const getRes = await request(app)
+        .get(`/api/v1/journal-entries/${postedEntryId}`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      expect(getRes.body.data.journalEntry.status).toBe('POSTED');
+    });
   });
 
   describe('7. Multi-Tenant Schema Data Isolation', () => {

@@ -17,7 +17,7 @@ export interface Account {
 export type CreateAccountDTO = Omit<Account, 'id' | 'status' | 'balance' | 'createdAt' | 'updatedAt'>;
 export type UpdateAccountDTO = Partial<CreateAccountDTO> & { status?: AccountStatus };
 
-export type JournalStatus = 'Draft' | 'Posted';
+export type JournalStatus = 'Draft' | 'Posted' | 'Void';
 
 export interface JournalLine {
   id: string;
