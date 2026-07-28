@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - Fix Real Render Deploy Failure: Legacy `moduleResolution` Rejected by tsc
+
+**What:** The Render Blueprint deploy failed at the `ledgio-backend` build step (the Redis service deployed fine) with `tsconfig.json(5,25): error TS5108: Option 'moduleResolution=node10' has been removed. Please remove it from your configuration.` - confirmed via the actual Render build log the user shared.
+
+**Investigation:** `backend/tsconfig.json` had `"moduleResolution": "node"`, which TypeScript treats as an alias for the legacy `"node10"` resolution strategy (confirmed via `tsc --showConfig`, which reported it back as `"node10"`). A clean local `rm -rf node_modules && npm ci` against the exact same committed `package-lock.json` (pinning TypeScript 5.9.3) built without any error, ruling out a dependency-resolution/lockfile drift explanation - the difference is environmental (Render defaults to Node.js 24.14.1; this deprecated option is apparently already being enforced as a hard error there). Regardless of the exact trigger, `"moduleResolution": "node"`/`"node10"` is a legacy, deprecated setting on an eventual hard-removal path in TypeScript itself, so fixing it now is correct independent of why it surfaced first on Render.
+
+**Fix:** Removed the explicit `"moduleResolution": "node"` line from `backend/tsconfig.json` entirely - with `"module": "commonjs"` already set, TypeScript infers the equivalent correct resolution strategy automatically, no explicit legacy option needed. Confirmed `frontend/tsconfig.app.json` already uses the modern `"moduleResolution": "bundler"` value, so no equivalent fix was needed there.
+
+**Verification:** Clean `npm ci` + `npm run build` succeeds with zero errors/warnings. `npx tsc --noEmit` clean. Full backend test suite could not be run in this sandbox session (no local Postgres/Redis containers currently up) - relying on the CI workflow's `backend` job (which does run against real Postgres/Redis) to confirm no behavioral regression, since this is a compiler-option-only change with an already-passing clean build.
+**Files Affected:** `backend/tsconfig.json`.
+
 ## [Date: 2026-07-28] - Prepare Frontend for Vercel Deployment
 
 **What:** The user asked to prepare the frontend for hosting on Vercel (the backend is already on Render, per the earlier `render.yaml` work). Investigation found two real gaps that would have broken a Vercel deployment, not just missing config:
