@@ -2,6 +2,14 @@ import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import dotenv from 'dotenv';
+import dns from 'dns';
+
+// Force Node.js DNS resolution to prefer IPv4 over IPv6 across cloud hosts (Render/Containers)
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch (e) {
+  // Ignore fallback
+}
 import healthRouter from './routes/health';
 import metricsRouter from './routes/metrics';
 import migrationsRouter from './routes/migrations';

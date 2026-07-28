@@ -1,7 +1,15 @@
 import nodemailer from 'nodemailer';
+import dns from 'dns';
 import { generateQuickStartGuidePdf } from './pdfGenerationService';
 import { recordAuditLog } from './auditLogService';
 import { escapeHtml } from '../utils/htmlEscape';
+
+// Force Node.js DNS to prefer IPv4 over IPv6 on cloud hosting environments (e.g. Render)
+try {
+  dns.setDefaultResultOrder('ipv4first');
+} catch (e) {
+  // Fallback for older Node versions if any
+}
 
 export interface EmailAttachment {
   filename: string;
@@ -18,12 +26,15 @@ export class EmailService {
     }
 
     return nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true,
       auth: {
         user,
         pass,
       },
-    });
+      family: 4, // Force IPv4 socket family to prevent ENETUNREACH IPv6 connection failure
+    } as any);
   }
 
   /**
