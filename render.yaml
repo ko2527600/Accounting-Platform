@@ -10,14 +10,19 @@
 # Only the backend is deployed here - the frontend (Vite/React SPA) is a
 # separate static-hosting concern (Render Static Site, Vercel, Netlify, etc.)
 # not covered by this file.
-
-databases:
-  - name: ledgio-postgres
-    databaseName: ledgio
-    user: ledgio
-    plan: free # Render's free Postgres expires after 90 days - upgrade to a
-    # paid plan (e.g. basic-1gb) before relying on this for real data.
-    region: oregon
+#
+# Database: Postgres is NOT provisioned by this Blueprint - it uses Prisma
+# Postgres instead (https://console.prisma.io -> create/open a Prisma Postgres
+# database -> "Connect" tab has both connection strings this needs):
+#   - DATABASE_URL: the POOLED connection string (host pooled.db.prisma.io) -
+#     what the app uses for normal runtime queries.
+#   - DIRECT_URL: the DIRECT connection string (host db.prisma.io) - required
+#     for `prisma migrate deploy`, which needs session continuity that the
+#     pooled connection doesn't provide. See backend/prisma/schema.prisma's
+#     `directUrl` field.
+# Both are required - Prisma errors on migrate commands if DIRECT_URL is
+# missing once directUrl is declared in the schema, even though the app's own
+# queries only ever use DATABASE_URL.
 
 services:
   # Redis - used for distributed rate limiting and caching (tenant lookups,
@@ -45,10 +50,13 @@ services:
       - key: NODE_ENV
         value: production
 
+      # Paste the two connection strings from your Prisma Postgres database's
+      # "Connect" tab in Prisma Console (console.prisma.io) - see the header
+      # comment above for which is which.
       - key: DATABASE_URL
-        fromDatabase:
-          name: ledgio-postgres
-          property: connectionString
+        sync: false
+      - key: DIRECT_URL
+        sync: false
 
       - key: REDIS_URL
         fromService:

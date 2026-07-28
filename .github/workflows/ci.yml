@@ -38,6 +38,9 @@ jobs:
     env:
       NODE_ENV: test
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/accounting_db?schema=public&connection_limit=50&pool_timeout=10&connect_timeout=5&statement_timeout=30000
+      # No external pooler in CI, so this just points at the same database as
+      # DATABASE_URL - see backend/prisma/schema.prisma's directUrl comment.
+      DIRECT_URL: postgresql://postgres:postgres@localhost:5432/accounting_db?schema=public&connection_limit=50&pool_timeout=10&connect_timeout=5&statement_timeout=30000
       REDIS_URL: redis://localhost:6379/0
       JWT_SECRET: ci-only-jwt-secret-not-for-production
       BROADCAST_MASTER_SECRET: ci-only-broadcast-secret-not-for-production
