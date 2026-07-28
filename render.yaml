@@ -37,10 +37,10 @@ services:
     name: ledgio-backend
     runtime: node
     rootDir: backend
-    plan: starter # `free` spins the service down after 15 min idle, which
-    # means a slow cold-start on the next request - not great for a live
-    # accounting app people are actively using. Fine to switch to `free`
-    # while just testing this out.
+    plan: free # Free tier for now while onboarding early clients - it spins
+    # the service down after 15 min idle, so the next request after a quiet
+    # period has a slow cold-start. Upgrade to `starter` (or higher) once
+    # there's a real paying client base that needs always-on responsiveness.
     region: oregon
     buildCommand: npm ci && npx prisma generate && npm run build
     preDeployCommand: npx prisma migrate deploy

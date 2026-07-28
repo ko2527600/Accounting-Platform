@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - render.yaml: Backend Web Service on Render's Free Plan (Upgrade Later)
+
+**What:** The user chose to launch on Render's free plan for now, since there are no paying clients yet, and upgrade to a paid plan once there's a real client base that justifies the cost.
+
+**Fix:** `render.yaml`'s `ledgio-backend` web service `plan` changed from `starter` to `free`. The adjacent comment was flipped to match: it now explains the free tier's real trade-off (the service spins down after 15 min idle, so the first request after a quiet period is slow to respond) and explicitly notes to upgrade to `starter`/higher once there are paying clients who need always-on responsiveness. `ledgio-redis` was already on `plan: free` - no change needed there.
+
+**Verification:** `python3 -c "import yaml; yaml.safe_load(open('render.yaml'))"` - valid YAML.
+**Files Affected:** `render.yaml`.
+
 ## [Date: 2026-07-28] - Wire render.yaml to Prisma Postgres Instead of Render's Own Postgres
 
 **What:** The user asked to use Prisma Postgres (their existing Prisma Console project - this repo already has the "Prisma Compute Deploy" integration connected, see the 2026-07-27 `prisma.compute.ts` entry) as the database, rather than provisioning a separate Postgres instance through Render. Before wiring this up, checked whether Prisma Postgres is actually compatible with what this app needs - it relies heavily on raw SQL and a `SET LOCAL search_path` pattern for tenant-schema switching (`tenantClient.ts`'s `withTenantDb`), which not every "Postgres-compatible" proxy supports.
