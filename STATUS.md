@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - Add "Resend Verification" So a Lost/Undelivered Verification Email Doesn't Permanently Block Login
+
+**What:** While testing real onboarding on the live deploy, the user hit a real dead end: an account whose verification email never arrived (unrelated Gmail app-password/deliverability issue on the live environment) got stuck permanently at `POST /auth/login`'s "User account has been deactivated." error, with no way to trigger the email again short of asking someone to fix it server-side. The verification email is only ever sent once, during initial onboarding (`tenantService.ts`'s `onboardTenant`) - there was no resend path anywhere in the app.
+
+**Fix:**
+- New `POST /api/v1/auth/resend-verification` (`backend/src/routes/auth.ts`, added right after the existing `/verify` route, inherits the router-level `authRateLimiter` already applied to all of `/api/v1/auth`) - takes `{ email }`, looks up the user, and for whichever of email/SMS verification is still pending, regenerates a fresh token/code (mirrors the exact generation logic `tenantService.ts`'s onboarding flow already uses) and resends via `EmailService.sendVerificationEmail`/`SmsService.send`. Returns 400 if the account is already fully verified, 404 if no account matches. Records an `AUTH.VERIFICATION_RESENT` audit log entry.
+- `frontend/src/pages/auth/Verification.tsx`: added a "Resend Verification Email" button directly under the pending-email status card (only shown while email is unverified), calling the new endpoint and showing a real success/failure message.
+- `frontend/src/pages/auth/Login.tsx`: when login fails specifically with "User account has been deactivated.", the error banner now shows an inline "Resend Verification" action instead of leaving the user stuck with no next step.
+
+**Verification:** `tsc --noEmit` (backend) and `tsc -b` + `npm run build` (frontend) both clean. Extended `backend/src/tests/verifiedRegistration.test.ts` (using its existing single-tenant registration flow) with 3 new cases: resending for an unverified account regenerates both the email token and SMS code (proving it's not a no-op) and leaves the account still inactive; resending for an unknown email returns 404; resending for an already-fully-verified account returns 400. Full suite could not be run in this sandbox session (no local Postgres/Redis containers up) - relying on CI's `backend` job, which does run against real Postgres/Redis, plus a manual end-to-end check on the live deploy once the underlying Gmail app-password issue is confirmed fixed.
+**Files Affected:** `backend/src/routes/auth.ts`, `backend/src/tests/verifiedRegistration.test.ts`, `frontend/src/pages/auth/Verification.tsx`, `frontend/src/pages/auth/Login.tsx`.
+
 ## [Date: 2026-07-28] - Live Deploy: Backend on Render, Frontend on Vercel - Wire the Real URLs Together
 
 **What:** Both the backend (Render, `render.yaml` fixes above) and the frontend (Vercel, per the earlier "Prepare Frontend for Vercel Deployment" entry) are now genuinely deployed and live:

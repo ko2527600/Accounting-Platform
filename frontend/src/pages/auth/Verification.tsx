@@ -19,6 +19,7 @@ export function Verification() {
   const [isPhoneVerified, setIsPhoneVerified] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  const [isResending, setIsResending] = useState(false);
 
   useEffect(() => {
     // If email verification token is present in URL, auto-verify email
@@ -62,6 +63,24 @@ export function Verification() {
     verifyStep({ smsCode });
   };
 
+  const handleResend = async () => {
+    setIsResending(true);
+    setStatusMsg(null);
+    try {
+      const res = await api.post("/auth/resend-verification", { email });
+      if (res.data.success) {
+        const parts: string[] = [];
+        if (res.data.data.emailResent) parts.push("email link");
+        if (res.data.data.smsResent) parts.push("SMS code");
+        setStatusMsg(`✅ A new ${parts.join(" and ")} has been sent. Please check your inbox/phone.`);
+      }
+    } catch (err: any) {
+      setStatusMsg(`❌ ${err.response?.data?.error || "Failed to resend verification."}`);
+    } finally {
+      setIsResending(false);
+    }
+  };
+
   const isComplete = isEmailVerified && isPhoneVerified;
 
   return (
@@ -103,8 +122,20 @@ export function Verification() {
                 )}
               </div>
               <p className="text-xs text-secondary-500">
-                {isEmailVerified ? "Email address link confirmed." : "We sent a verification link to your email. Click it or confirm below."}
+                {isEmailVerified ? "Email address link confirmed." : "We sent a verification link to your email. Click it, or resend it below if it hasn't arrived."}
               </p>
+              {!isEmailVerified && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  className="w-full"
+                  onClick={handleResend}
+                  disabled={isResending}
+                >
+                  {isResending ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
+                  Resend Verification Email
+                </Button>
+              )}
             </div>
 
             {/* Step 2: 4-Digit SMS Code Form */}
