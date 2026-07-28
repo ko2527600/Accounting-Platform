@@ -107,6 +107,24 @@ Fetched full pages (not just search snippets) for detailed tier breakdowns. Sage
 - Also has: document generation (proposals/quotes/proforma/invoices/receipts), partial payment tracking, expense/supplier bill tracking, payroll record integration, reporting/audit logs, "accountant-ready exports."
 - Does not appear to claim GRA E-VAT integration specifically on this page (worth a dedicated follow-up check on their site for an E-VAT-specific claim, since that's the highest-priority gap in our own list).
 
+### 2026-07-28 - TallyPrime latest release (7.0/7.1) feature set
+Source: user-supplied summary of TallyPrime's current flagship version and its latest upgrade
+
+Latest TallyPrime release highlights:
+- **Cloud Backup** (TallyDrive) - auto-backup to cloud.
+- **SmartFind** - a real cross-report search ("pull up multi-layered reports using simple search terms").
+- **Connected Banking** - payment/reconciliation integration with major banks.
+- **Advanced Compliance** - automation for GST (India's tax system) and e-invoicing with **real-time validation** at the point of transaction.
+- Core Tally feature set otherwise: ledgers/vouchers/cash-flow/reports, godowns (warehouses)/stock/order processing, payroll, fast billing.
+- License model confirms earlier finding: perpetual license + optional TSS subscription; upgrades are free only while TSS is active.
+
+Cross-checked against this codebase:
+- **Connected banking**: `[ALREADY BUILT]` - Mono integration covers this.
+- **Godowns/warehouses**: `[ALREADY BUILT]` - multi-warehouse inventory already exists, arguably more developed here than a generic "godown" concept (warehouse-scoped team access, stock take/reconciliation, transfers).
+- **Payroll**: **GAP** - confirmed via grep, no payroll module exists anywhere in this codebase. Not previously flagged in this document until now.
+- **Real cross-data search ("SmartFind")**: **GAP, and worth flagging precisely** - `Header.tsx`'s search bar (placeholder: "Search accounts, entries, reports... (Cmd+K)") is `readOnly` and only opens a `CommandMenu` component that's actually just a **static list of navigation shortcuts** (jump to Dashboard/Accounts/Journals/Reports/Settings, toggle theme) - it does not search any real data at all. The placeholder text over-promises relative to what it does today. Worth fixing either the UI copy (to stop implying data search) or building real search - the latter is clearly what competitors treat as a baseline feature.
+- **Real-time validation on e-invoicing**: reinforces (doesn't newly discover) the GRA E-VAT gap already flagged as top priority - this is the second source now describing "real-time validation at transaction time" as the compliance pattern tax authorities expect, just in a different country (India's GST vs. Ghana's GRA). Increases confidence this is a durable pattern worth designing for generically if/when E-VAT work starts, not a one-off Ghana quirk.
+
 ### (earlier, from prior session research - see STATUS.md for dates) Ghana/Nigeria general pricing range
 - Ghana cloud accounting SaaS: roughly GH₵100-500/month typical range, some as low as GH₵50/mo.
 - Nigeria: Sage Business Cloud ~₦3,190/mo entry; other local tools $17-30/mo.
@@ -135,6 +153,8 @@ Fetched full pages (not just search snippets) for detailed tier breakdowns. Sage
 | **KPI & financial ratio analysis** | **GAP** | No named ratio/KPI computation (gross margin %, current ratio, etc.) surfaced anywhere. |
 | **180-day cash flow forecast** | **GAP** | Forward-looking projection - distinct from the also-missing historical Cash Flow Statement. |
 | Customizable dashboards | **Likely gap** | Not deeply investigated yet - existing report pages aren't user-configurable in the "rearrange your widgets" sense. |
+| **Payroll** | **GAP** | Confirmed via grep - no payroll module anywhere. Tally, Finza, and several others reviewed all include payroll in some form. |
+| **Real cross-app search** | **GAP, plus a copy-honesty issue** | The header search bar's placeholder ("Search accounts, entries, reports...") implies real data search; it's actually a static navigation-shortcut menu (`CommandMenu.tsx`) with no search logic at all. Should either fix the copy to stop overpromising, or build real search - competitors (Tally's "SmartFind") treat this as baseline. |
 
 ---
 
@@ -164,6 +184,8 @@ In rough order of how compliance-critical they appear from research so far - **t
 10. Expense claims (employee capture/submit/approve/reimburse workflow) - distinct from vendor bills; needs its own approval chain (could potentially reuse the existing Approval Workflows engine as the approval mechanism rather than building a new one).
 11. KPI & financial ratio dashboard (e.g. gross margin %, current ratio, quick ratio) - computed from existing ledger/report data, likely a lighter lift than it sounds since the underlying numbers already exist in `reportingService.ts`.
 12. 180-day cash flow forecast - forward-looking projection, distinct from item 4 (historical Cash Flow Statement); needs its own design thinking on what "forecast" actually means here (trend-based? recurring-transaction-aware, since those are already scheduled and predictable?).
+13. **Low-effort, do independently, same category as item 8**: fix the header search bar's placeholder copy so it stops implying real data search when it's actually just navigation shortcuts - either soften the copy now, or this becomes the spec for a real search feature later.
+14. Payroll module - large feature (employee records, pay runs, statutory deductions specific to Ghana), likely a big dedicated phase; several competitors treat it as standard.
 
 ---
 
