@@ -131,4 +131,61 @@ describe('GET /api/v1/admin/audit-logs (platform-wide, passcode-gated)', () => {
       .set('X-Tenant-ID', tenant1Slug);
     expect(res.status).toBe(401);
   });
+
+  it('filters by tenantId to a single tenant', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', tenantId: tenant1Id, limit: '200' });
+
+    expect(res.status).toBe(200);
+    const details = res.body.data.logs.map((l: any) => l.details);
+    expect(details).toContain('Tenant 1 event');
+    expect(details).not.toContain('Tenant 2 event');
+  });
+
+  it('filters by action, entity, and userEmail', async () => {
+    const byAction = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', action: 'test_action', limit: '200' });
+    expect(byAction.status).toBe(200);
+    expect(byAction.body.data.logs.length).toBeGreaterThanOrEqual(2);
+
+    const byEntity = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', entity: 'TEST_ENTITY', limit: '200' });
+    expect(byEntity.status).toBe(200);
+    expect(byEntity.body.data.logs.every((l: any) => l.entity === 'TEST_ENTITY')).toBe(true);
+
+    const byEmailMiss = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', userEmail: 'nobody-matches-this@example.com', limit: '200' });
+    expect(byEmailMiss.status).toBe(200);
+    expect(byEmailMiss.body.data.logs).toHaveLength(0);
+  });
+
+  it('rejects a malformed date filter', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', dateFrom: 'not-a-date' });
+    expect(res.status).toBe(400);
+  });
+
+  it('GET /admin/audit-logs/export requires the passcode and returns a real CSV with the tenant name joined', async () => {
+    const unauthorized = await request(app).get('/api/v1/admin/audit-logs/export');
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get('/api/v1/admin/audit-logs/export')
+      .query({ passcode: 'test-master-passcode', tenantId: tenant1Id });
+
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/csv');
+    const csv = res.text;
+    expect(csv.split('\r\n')[0]).toBe(
+      'Timestamp,Tenant,Action,Entity,Entity ID,User Email,User ID,IP Address,Details,Changes'
+    );
+    expect(csv).toContain('Tenant 1 event');
+    expect(csv).toContain('Admin Audit Corp 1');
+    expect(csv).not.toContain('Tenant 2 event');
+  });
 });

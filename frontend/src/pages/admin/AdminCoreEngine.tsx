@@ -24,6 +24,8 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../..
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 
+const EMPTY_AUDIT_FILTERS = { action: "", entity: "", userEmail: "", tenantId: "", dateFrom: "", dateTo: "" };
+
 export function AdminCoreEngine() {
   const navigate = useNavigate();
 
@@ -56,10 +58,27 @@ export function AdminCoreEngine() {
 
   // Platform-wide Audit Logs state
   const [auditLogs, setAuditLogs] = useState<
-    { id: string; action: string; entity: string; entityId: string | null; userEmail: string | null; userId: string | null; details: string | null; createdAt: string; tenant: { name: string; slug: string } | null }[] | null
+    {
+      id: string;
+      action: string;
+      entity: string;
+      entityId: string | null;
+      userEmail: string | null;
+      userId: string | null;
+      details: string | null;
+      changes: Record<string, { from: unknown; to: unknown }> | null;
+      createdAt: string;
+      tenant: { name: string; slug: string } | null;
+    }[] | null
   >(null);
   const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
   const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false);
+  const [isExportingAuditLogs, setIsExportingAuditLogs] = useState(false);
+
+  // Audit log filters - draft (what's being typed) vs. applied (what was
+  // last submitted), so typing doesn't refetch on every keystroke.
+  const [draftAuditFilters, setDraftAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [appliedAuditFilters, setAppliedAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
 
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
@@ -142,6 +161,17 @@ export function AdminCoreEngine() {
     };
   }, [isUnlocked, passcode]);
 
+  const buildAuditLogParams = (filters: typeof EMPTY_AUDIT_FILTERS) => {
+    const params: Record<string, string | number> = { passcode, limit: 50 };
+    if (filters.action.trim()) params.action = filters.action.trim();
+    if (filters.entity.trim()) params.entity = filters.entity.trim();
+    if (filters.userEmail.trim()) params.userEmail = filters.userEmail.trim();
+    if (filters.tenantId) params.tenantId = filters.tenantId;
+    if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+    if (filters.dateTo) params.dateTo = filters.dateTo;
+    return params;
+  };
+
   // Fetch the real platform-wide audit log for the "System Audit Logs" tab
   // once unlocked - same passcode-gated pattern as the tenant roster above.
   useEffect(() => {
@@ -152,7 +182,7 @@ export function AdminCoreEngine() {
     setAuditLogsError(null);
 
     api
-      .get("/admin/audit-logs", { params: { passcode, limit: 50 } })
+      .get("/admin/audit-logs", { params: buildAuditLogParams(appliedAuditFilters) })
       .then((res) => {
         if (!cancelled) setAuditLogs(res.data.data.logs);
       })
@@ -166,7 +196,40 @@ export function AdminCoreEngine() {
     return () => {
       cancelled = true;
     };
-  }, [isUnlocked, passcode]);
+  }, [isUnlocked, passcode, appliedAuditFilters]);
+
+  const applyAuditFilters = () => setAppliedAuditFilters(draftAuditFilters);
+
+  const clearAuditFilters = () => {
+    setDraftAuditFilters(EMPTY_AUDIT_FILTERS);
+    setAppliedAuditFilters(EMPTY_AUDIT_FILTERS);
+  };
+
+  const hasActiveAuditFilters = Object.values(appliedAuditFilters).some((v) => v.trim() !== "");
+
+  const handleExportAuditLogs = async () => {
+    setIsExportingAuditLogs(true);
+    try {
+      const res = await api.get("/admin/audit-logs/export", {
+        params: buildAuditLogParams(appliedAuditFilters),
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `platform-audit-log-export-${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export platform audit log:", err);
+      alert("Failed to export the audit log.");
+    } finally {
+      setIsExportingAuditLogs(false);
+    }
+  };
 
   const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -701,13 +764,99 @@ export function AdminCoreEngine() {
             {/* Tab 4: System Audit Logs */}
             {activeTab === "audit" && (
               <Card className="bg-secondary-900 border-secondary-800 text-white">
-                <CardHeader>
-                  <CardTitle className="text-xl font-bold">System Audit Logs</CardTitle>
-                  <CardDescription className="text-secondary-400 text-xs">
-                    Platform-wide activity across every tenant - administrative broadcasts, system configuration events, and tenant-level actions.
-                  </CardDescription>
+                <CardHeader className="flex flex-row items-start justify-between">
+                  <div>
+                    <CardTitle className="text-xl font-bold">System Audit Logs</CardTitle>
+                    <CardDescription className="text-secondary-400 text-xs">
+                      Platform-wide activity across every tenant - administrative broadcasts, system configuration events, and tenant-level actions.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-secondary-700 text-secondary-200 hover:text-white text-xs h-8"
+                    onClick={handleExportAuditLogs}
+                    disabled={isExportingAuditLogs}
+                  >
+                    {isExportingAuditLogs ? "Exporting..." : "Export CSV"}
+                  </Button>
                 </CardHeader>
                 <CardContent className="space-y-4 text-xs text-secondary-300">
+                  {/* Filter Bar */}
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3 p-3 rounded-lg bg-secondary-950 border border-secondary-800">
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Action</label>
+                      <Input
+                        placeholder="e.g. JOURNAL_ENTRY"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.action}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, action: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity</label>
+                      <Input
+                        placeholder="e.g. Invoice"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.entity}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, entity: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">User Email</label>
+                      <Input
+                        placeholder="e.g. jane@shop.com"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.userEmail}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, userEmail: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Tenant</label>
+                      <select
+                        className="w-full h-8 px-2 text-xs rounded-md bg-secondary-900 border border-secondary-700 text-white"
+                        value={draftAuditFilters.tenantId}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, tenantId: e.target.value }))}
+                      >
+                        <option value="">All tenants</option>
+                        {(tenants || []).map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">From</label>
+                      <Input
+                        type="date"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.dateFrom}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">To</label>
+                      <Input
+                        type="date"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.dateTo}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-span-2 md:col-span-6 flex gap-2">
+                      <Button variant="primary" className="h-8 text-xs" onClick={applyAuditFilters}>
+                        Apply Filters
+                      </Button>
+                      {hasActiveAuditFilters && (
+                        <Button
+                          variant="outline"
+                          className="h-8 text-xs border-secondary-700 text-secondary-200 hover:text-white"
+                          onClick={clearAuditFilters}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
                   {isLoadingAuditLogs && (
                     <div className="text-center py-6 text-secondary-500">Loading audit logs...</div>
                   )}
@@ -729,6 +878,7 @@ export function AdminCoreEngine() {
                             <TableHead className="text-secondary-400">Entity</TableHead>
                             <TableHead className="text-secondary-400">User</TableHead>
                             <TableHead className="text-secondary-400">Details</TableHead>
+                            <TableHead className="text-secondary-400">Changes</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -753,12 +903,31 @@ export function AdminCoreEngine() {
                               <TableCell className="text-secondary-400 font-mono max-w-xs truncate" title={log.details || ""}>
                                 {log.details || "-"}
                               </TableCell>
+                              <TableCell className="text-secondary-400">
+                                {log.changes && Object.keys(log.changes).length > 0 ? (
+                                  <div className="space-y-0.5">
+                                    {Object.entries(log.changes).map(([field, diff]) => (
+                                      <div key={field} className="text-[10px] whitespace-nowrap">
+                                        <span className="text-secondary-300 font-semibold">{field}</span>
+                                        <span className="text-secondary-600">: </span>
+                                        {String((diff as any)?.from ?? "—")}
+                                        <span className="text-secondary-600"> → </span>
+                                        <span className="text-secondary-200">{String((diff as any)?.to ?? "—")}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
                       </Table>
                       {auditLogs.length === 0 && (
-                        <div className="text-center py-6 text-secondary-500">No audit log entries yet.</div>
+                        <div className="text-center py-6 text-secondary-500">
+                          {hasActiveAuditFilters ? "No audit logs match the current filters." : "No audit log entries yet."}
+                        </div>
                       )}
                     </div>
                   )}

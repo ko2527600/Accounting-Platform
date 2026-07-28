@@ -506,11 +506,31 @@ model CashSale {
   changeGiven Decimal  @db.Decimal(15, 2) @map("change_given")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  till        CashTill @relation(fields: [tillId], references: [id], onDelete: Cascade)
+  till        CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
+  lines       CashSaleLine[]
 
   @@unique([tenantId, receiptNo])
   @@index([tenantId])
   @@map("cash_sales")
+}
+
+model CashSaleLine {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  saleId    String   @map("sale_id")
+  itemId    String   @map("item_id")
+  itemName  String   @map("item_name")
+  itemSku   String   @map("item_sku")
+  quantity  Int
+  unitPrice Decimal  @db.Decimal(15, 2) @map("unit_price")
+  lineTotal Decimal  @db.Decimal(15, 2) @map("line_total")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  sale      CashSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([saleId])
+  @@map("cash_sale_lines")
 }
 
 model DailyCloseoutReport {
