@@ -72,6 +72,41 @@ equivalent disclaimer today** - this is a real gap worth closing regardless of t
 E-VAT roadmap timing, since it reduces legal exposure immediately at near-zero engineering
 cost (it's a Terms/copy change, not a feature).
 
+### 2026-07-28 - Full pricing/feature detail pass: QuickBooks, Xero, TallyPrime, Zoho Books, Finza
+Fetched full pages (not just search snippets) for detailed tier breakdowns. Sage/TrustRadius returned HTTP 403 (blocked) - not captured, would need a different source.
+
+**QuickBooks** (nerdwallet.com/business/software/learn/quickbooks-pricing):
+- Solopreneur: Free ($0, 2 invoices/mo, 1 bank account) / Lite $20/mo (unlimited invoicing, 2 bank accounts)
+- Online: Simple Start $38/mo (1 user) -> Essentials $75/mo (3 users, +multicurrency) -> Plus $115/mo (5 users, +project profitability, budgeting, inventory) -> Advanced $275/mo (25 users, +custom permissions, batch invoicing)
+- Enterprise: $1,873-$5,364/**year** (Silver/Gold/Platinum/Diamond tiers)
+- Notable: prices increase ~12-17% annually, typically each summer. Assisted Payroll add-on: $2.50/employee/pay period.
+
+**Xero** (saascrmreview.com/xero-pricing):
+- Early $25/mo (20 invoices/5 bills cap, 30-day cash flow forecast) -> Growing $55/mo (unlimited invoices/bills, customizable dashboards) -> Established $90/mo (multicurrency, project tracking, expense claims, KPI analysis, 180-day forecast)
+- All tiers: **unlimited users**, no per-seat licensing - notable contrast to QuickBooks' per-tier user caps.
+- Hidden costs confirmed: payment processing fees on top of subscription; Projects/Expenses on Established have *separate usage-based fees billed retroactively*; some bank feed connections carry variable fees; Payroll (via Gusto) is fully separate billing.
+- Promo: 85% off first 6 months for new US customers (time-limited, not a stable reference price).
+
+**TallyPrime** (markitsolutions.in calculator):
+- Silver (single user): ₹26,550 total (₹22,500 + 18% GST) one-time, ≈₹2,213/mo if amortized over 1 year
+- Gold (unlimited multi-user): ₹79,650 total
+- Server/Enterprise: ₹3,18,600 total
+- TSS (support/updates) annual renewal after year 1: Silver ₹5,310/yr, Gold ₹15,930/yr, Server ₹31,860/yr
+- Silver->Gold upgrade: ₹53,100. Add-ons: Tally Virtual User ₹2,700/user/yr, BizAnalyst mobile app ₹3,300/device/yr.
+- Confirms the one-time-perpetual-license model has real recurring costs anyway (TSS) - "one-time" is a bit of a marketing simplification.
+
+**Zoho Books** (costbench.com):
+- Free: $0/mo, 1 user + 1 accountant, up to 1,000 invoices/yr, **under $50,000 annual revenue cap** (notable - free tier is revenue-gated, not just feature-gated)
+- Standard $20/mo -> Professional $50/mo (+multi-currency, project profitability, inventory) -> Premium $70/mo (+cash flow forecasting, budget management) -> Elite $150/mo (+warehouse management, Shopify) -> Ultimate $275/mo (+advanced analytics/KPI, 3M record capacity)
+- 6 tiers total - the most granular ladder of any competitor researched so far.
+
+**Finza** (finza.africa/best-accounting-software-ghana) - **the most directly relevant competitor, real numbers this time**:
+- **Real starting price: GH₵149/month** (not the generic GH₵100-500 estimate used earlier - this is Finza's actual anchor price)
+- Free trial, no card required
+- **Already ships Ghana-specific tax support: VAT, NHIL, GETFund, WHT** - this directly validates that the layered-tax-breakdown gap we flagged (Section 2, item 2) is both feasible to build AND already expected/delivered by at least one real local competitor. Raises that gap's priority - it's proven market-necessary, not speculative.
+- Also has: document generation (proposals/quotes/proforma/invoices/receipts), partial payment tracking, expense/supplier bill tracking, payroll record integration, reporting/audit logs, "accountant-ready exports."
+- Does not appear to claim GRA E-VAT integration specifically on this page (worth a dedicated follow-up check on their site for an E-VAT-specific claim, since that's the highest-priority gap in our own list).
+
 ### (earlier, from prior session research - see STATUS.md for dates) Ghana/Nigeria general pricing range
 - Ghana cloud accounting SaaS: roughly GH₵100-500/month typical range, some as low as GH₵50/mo.
 - Nigeria: Sage Business Cloud ~₦3,190/mo entry; other local tools $17-30/mo.
@@ -85,7 +120,7 @@ cost (it's a Terms/copy change, not a feature).
 |---|---|---|
 | Real double-entry bookkeeping | `[ALREADY BUILT]` | Core ledger/journal entry system. |
 | Generic tax rate CRUD (name/code/rate/effective dates) | `[ALREADY BUILT]` | `TaxRate` module (Phase 1 this session) - but it's a single flat rate per invoice, not a layered NHIL/GETFund/COVID/VAT breakdown. |
-| **Layered NHIL/GETFund/COVID/VAT tax breakdown per invoice line** | **GAP** | Current `TaxRate` model applies one rate; would need either multiple simultaneous tax-rate application per invoice, or a dedicated "Ghana levy stack" concept. |
+| **Layered NHIL/GETFund/COVID/VAT/WHT tax breakdown per invoice line** | **GAP - now validated as market-necessary** | Current `TaxRate` model applies one rate; would need either multiple simultaneous tax-rate application per invoice, or a dedicated "Ghana levy stack" concept. Finza (real Ghana competitor) confirmed to already ship VAT/NHIL/GETFund/WHT support - this is proven feasible and expected, not speculative. Note: Webhuk mentioned COVID Levy, Finza mentioned WHT instead - the exact authoritative levy list needs confirming against GRA's own documentation (open question). |
 | **GRA E-VAT / SDC real-time invoice certification** | **GAP - significant** | No integration with GRA's API exists at all. This is the single most compliance-critical gap per the research above; likely needs its own dedicated investigation into GRA's actual developer API/certification requirements before scoping. |
 | Multi-currency (purchase in foreign currency, sell in GH₵, auto FX gain/loss) | `[ALREADY BUILT]` | Phase 5 this session - transaction-time conversion, live FX rate API, base-currency-equivalent stored on transactions. |
 | Real bank feed reconciliation | `[ALREADY BUILT]` (bank accounts only) | Mono integration - covers real bank accounts in Ghana/Nigeria. |
@@ -118,7 +153,7 @@ cost (it's a Terms/copy change, not a feature).
 In rough order of how compliance-critical they appear from research so far - **this ordering is provisional** and should be revisited once we're done researching:
 
 1. GRA E-VAT / SDC integration (invoice-time API call, security stamp, QR code on receipts) - needs its own research pass into GRA's actual developer documentation before this can be scoped for real; the Webhuk article describes the requirement but not the technical integration details.
-2. Layered Ghana tax levy breakdown (NHIL/GETFund/COVID/VAT) on invoices.
+2. Layered Ghana tax levy breakdown (NHIL/GETFund/COVID or WHT/VAT) on invoices - moved up in confidence (not necessarily urgency) since a real competitor (Finza) already ships this.
 3. Mobile Money account type + reconciliation (MTN MoMo, Vodafone Cash, AT Money) - need to research whether these have a programmatic API (like Mono for banks) or require a different integration approach.
 4. Cash Flow Statement report (frontend + likely backend service function, mirroring how `getBalanceSheet`/`getProfitAndLoss` are already structured).
 5. Balance Sheet frontend page (backend already exists - this is a smaller, frontend-only gap).
@@ -138,6 +173,9 @@ In rough order of how compliance-critical they appear from research so far - **t
 - Do MTN MoMo / Vodafone Cash / AT Money expose any merchant/developer API for transaction history the way Mono does for banks, or would this need a different approach (manual CSV import, SMS parsing, etc.)?
 - Is there a real cost/timeline estimate available anywhere for GRA E-VAT certification as a business (not just a software vendor)?
 - Worth looking at 1-2 more Ghana-specific competitors (Finza, others named in earlier research) specifically for how they've implemented (or claim to implement) E-VAT and MoMo, to sanity-check feasibility.
+- Confirm the authoritative Ghana levy list directly from GRA's own site - Webhuk's article named NHIL/GETFund/COVID Levy/VAT, Finza's page named VAT/NHIL/GETFund/WHT (Withholding Tax) instead of COVID Levy. These may both be accurate for different transaction types, or one source may be outdated - needs a primary-source check before scoping item 2.
+- Does Finza (or any Ghana competitor) actually claim GRA E-VAT/SDC certification specifically, or only general "tax support"? Their features page didn't mention E-VAT explicitly - worth checking their dedicated pricing/GRA-compliance pages if they have one.
+- Sage Business Cloud Accounting pricing page (TrustRadius) returned HTTP 403 on fetch attempt - if Sage pricing detail is needed, try sage.com directly or a different source next time.
 
 ---
 
