@@ -28,6 +28,24 @@ Key claims/requirements surfaced:
 - **Credit-note-only correction model**: once an invoice is E-VAT certified, you can't delete/edit it - you must issue a Credit Note, preserving the GRA-expected audit trail.
 - **Pricing framing used by competitor**: positioned as "often costing less than your monthly internet data bundle" - i.e. sold on being cheaper than the cost of a full-time accountant, not compared to global SaaS pricing.
 
+### 2026-07-28 - Finza (Ghana competitor) liability disclaimer language
+Source: user-supplied excerpt from Finza's site (competitor's own positioning/legal language, read for pattern - not to be copied verbatim)
+
+> "Finza helps organize business records, documents, payments, and reports. It does not
+> guarantee tax compliance, replace your accountant, or remove the need to review
+> important financial information. Your accountant or tax adviser should confirm the
+> correct treatment for your business."
+
+Why this matters for us specifically: **we currently have no GRA E-VAT integration** (see
+Gap Analysis below), so any claim - explicit or implied - that this platform ensures tax
+compliance would be false today. Finza's disclaimer is a useful pattern: position the
+software as an organizational/record-keeping tool, explicitly defer "correct treatment"
+decisions to the business's own accountant/tax adviser, and don't promise compliance
+outright. Confirmed via grep that our own `docs/TERMS_AND_CONDITIONS.md` has **no
+equivalent disclaimer today** - this is a real gap worth closing regardless of the
+E-VAT roadmap timing, since it reduces legal exposure immediately at near-zero engineering
+cost (it's a Terms/copy change, not a feature).
+
 ### (earlier, from prior session research - see STATUS.md for dates) Ghana/Nigeria general pricing range
 - Ghana cloud accounting SaaS: roughly GH₵100-500/month typical range, some as low as GH₵50/mo.
 - Nigeria: Sage Business Cloud ~₦3,190/mo entry; other local tools $17-30/mo.
@@ -75,6 +93,7 @@ In rough order of how compliance-critical they appear from research so far - **t
 5. Balance Sheet frontend page (backend already exists - this is a smaller, frontend-only gap).
 6. Credit-note correction flow for invoices, if the E-VAT work makes "no editing certified invoices" a real constraint.
 7. Real billing/plan enforcement tied to `tenant.tier` - separate track (see pricing-strategy discussion), not part of the Ghana-compliance research thread, but noted here since it came up in the same conversation.
+8. **Low-effort, do independently of the rest of this list**: add a tax-compliance liability disclaimer to `docs/TERMS_AND_CONDITIONS.md` (and/or landing page), in the spirit of Finza's "we help organize records, we don't guarantee tax compliance or replace your accountant" language - this is a Terms/copy change, not a feature build, and reduces legal exposure immediately while the real E-VAT gap still exists.
 
 ---
 
