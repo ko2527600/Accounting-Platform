@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - render.yaml: Fix Blueprint Validation Error on Free Plan (preDeployCommand Unsupported)
+
+**What:** The user tried applying the Blueprint in the Render dashboard after the free-plan switch and got a real validation error: `services[1] pre-deploy command is not supported for free tier services`. Confirmed this is a genuine Render platform constraint - `preDeployCommand` (used here to run `prisma migrate deploy`) is only available on `starter`+ plans, not `free`.
+
+**Fix:** Removed `preDeployCommand` and appended `&& npx prisma migrate deploy` to the end of `buildCommand` instead, so migrations still run automatically on every deploy - just as a build step rather than a distinct pre-deploy step. Added a comment noting that if/when the service upgrades off the free plan, moving `prisma migrate deploy` back to `preDeployCommand` is preferable (it runs closer to actual deploy time and doesn't block the build from completing on a migration failure).
+
+**Verification:** `python3 -c "import yaml; yaml.safe_load(open('render.yaml'))"` - valid YAML. Full end-to-end Blueprint validation can only be confirmed once the user re-applies it in the Render dashboard.
+**Files Affected:** `render.yaml`.
+
 ## [Date: 2026-07-28] - render.yaml: Backend Web Service on Render's Free Plan (Upgrade Later)
 
 **What:** The user chose to launch on Render's free plan for now, since there are no paying clients yet, and upgrade to a paid plan once there's a real client base that justifies the cost.
