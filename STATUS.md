@@ -2,6 +2,20 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - Prepare Frontend for Vercel Deployment
+
+**What:** The user asked to prepare the frontend for hosting on Vercel (the backend is already on Render, per the earlier `render.yaml` work). Investigation found two real gaps that would have broken a Vercel deployment, not just missing config:
+
+1. **`frontend/src/lib/api.ts` hardcoded `API_BASE_URL = 'http://localhost:4000/api/v1'`** with no env-var override anywhere - every API call from a Vercel-hosted build would have tried (and failed) to reach `localhost` on the visitor's own machine. Fixed: `API_BASE_URL` now reads `import.meta.env.VITE_API_BASE_URL`, falling back to the same `localhost:4000` default for local dev when unset.
+2. **No SPA rewrite config for Vercel.** The app uses `react-router-dom`'s `BrowserRouter` (confirmed in `App.tsx`), so a hard refresh or direct link to any non-root route (e.g. `/journals`) needs the host to serve `index.html` instead of 404ing - Vercel doesn't infer this automatically for a Vite project. New `frontend/vercel.json` with a catch-all `rewrites: [{ source: "/(.*)", destination: "/index.html" }]` (Vercel checks real static files first, so this doesn't intercept the actual built JS/CSS/PWA service worker/manifest assets - only unmatched routes fall through to `index.html`).
+
+Also documented `VITE_API_BASE_URL` in `frontend/.env.example` alongside the existing `VITE_MONO_PUBLIC_KEY` entry.
+
+**Not changed, flagged instead:** once the frontend is actually deployed to a real Vercel URL, the backend's `render.yaml` `APP_URL`/`CORS_ALLOWED_ORIGINS` env vars (currently `sync: false`, unset) need to be filled in with that real URL in Render's dashboard - the backend will otherwise reject credentialed cross-origin requests from the deployed frontend. This is a manual step for the user after both are live, not something this change can complete ahead of time.
+
+**Verification:** `tsc -b` clean. `npm run build` succeeds (Vite + PWA service-worker generation both complete normally); no other hardcoded `localhost` references found anywhere else in `frontend/src`.
+**Files Affected:** `frontend/src/lib/api.ts`, `frontend/.env.example`, `frontend/vercel.json` (new).
+
 ## [Date: 2026-07-28] - render.yaml: Fix Blueprint Validation Error on Free Plan (preDeployCommand Unsupported)
 
 **What:** The user tried applying the Blueprint in the Render dashboard after the free-plan switch and got a real validation error: `services[1] pre-deploy command is not supported for free tier services`. Confirmed this is a genuine Render platform constraint - `preDeployCommand` (used here to run `prisma migrate deploy`) is only available on `starter`+ plans, not `free`.

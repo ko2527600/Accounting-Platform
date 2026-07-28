@@ -1,7 +1,9 @@
 import axios from 'axios';
 
-// Ensure we have a base URL pointing to our local backend service
-const API_BASE_URL = 'http://localhost:4000/api/v1';
+// In production (e.g. Vercel), set VITE_API_BASE_URL to the deployed backend's
+// URL (e.g. https://ledgio-backend.onrender.com/api/v1). Falls back to the
+// local dev backend when unset.
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:4000/api/v1';
 
 export const api = axios.create({
   baseURL: API_BASE_URL,
