@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-28] - Live Deploy: Backend on Render, Frontend on Vercel - Wire the Real URLs Together
+
+**What:** Both the backend (Render, `render.yaml` fixes above) and the frontend (Vercel, per the earlier "Prepare Frontend for Vercel Deployment" entry) are now genuinely deployed and live:
+- Backend: `https://ledgio-backend.onrender.com` (the `prisma migrate deploy` P3005 error was resolved by resetting the Prisma Postgres database's `public` schema to empty before redeploying - it wasn't a code issue, the database itself had non-Prisma-tracked objects present).
+- Frontend: `https://ledgio-fawn.vercel.app`.
+
+**Fix:** Updated `render.yaml`'s `APP_URL` and `CORS_ALLOWED_ORIGINS` from `sync: false` placeholders to hardcoded `value: "https://ledgio-fawn.vercel.app"` - these are public URLs, not secrets, so committing them directly is safe and means Render's Blueprint auto-sync (confirmed active on this project - "All future updates to your Blueprint file will be synced automatically") applies the change to the live service without any manual dashboard step. `VITE_API_BASE_URL` was set to `https://ledgio-backend.onrender.com/api/v1` directly in Vercel's project environment variables (not committed to the repo, since it correctly differs between local dev and the deployed frontend).
+
+**Verification:** `python3 -c "import yaml; yaml.safe_load(open('render.yaml'))"` - valid YAML. Full end-to-end request flow (frontend calling the live backend with CORS accepted) to be confirmed manually once this change syncs to the live Render service.
+**Files Affected:** `render.yaml`.
+
 ## [Date: 2026-07-28] - Fix Real Render Deploy Failure #2: NODE_ENV=production Silently Drops devDependencies Needed by the Build
 
 **What:** After the `moduleResolution` fix merged, the next Render deploy attempt failed one step later - `npm run build` now ran but `tsc` immediately errored with `TS7016: Could not find a declaration file for module 'cors'`/`'pdfkit'` and `TS2503: Cannot find namespace 'PDFKit'`, confirmed via the actual Render build log the user shared.
