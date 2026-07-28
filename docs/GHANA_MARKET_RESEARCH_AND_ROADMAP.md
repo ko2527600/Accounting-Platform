@@ -28,6 +28,32 @@ Key claims/requirements surfaced:
 - **Credit-note-only correction model**: once an invoice is E-VAT certified, you can't delete/edit it - you must issue a Credit Note, preserving the GRA-expected audit trail.
 - **Pricing framing used by competitor**: positioned as "often costing less than your monthly internet data bundle" - i.e. sold on being cheaper than the cost of a full-time accountant, not compared to global SaaS pricing.
 
+### 2026-07-28 - Xero "Established" tier feature list (top-tier gating reference)
+Source: user-supplied excerpt from Xero's pricing page (Established tier, $ price above Growing's $55/mo)
+
+Features Xero reserves for its top paid tier:
+- Multicurrency - invoice/accept payments in multiple currencies, live exchange rates, track gains/losses.
+- Project tracking - quote, invoice, track time/costs/profitability per project (usage charges apply on top).
+- Expense claims - capture, submit, approve, reimburse employee expenses (usage charges apply on top).
+- KPI & financial ratio analysis dashboards.
+- 180-day cash flow forecast (distinct from a Cash Flow *Statement* - this is forward-looking projection, not a historical report).
+- Customizable dashboards / financial health scorecards.
+
+Cross-checked against this codebase (grepped `backend/src/routes/` and `schema.prisma`):
+- **Multicurrency**: `[ALREADY BUILT]` here too (Phase 5 this session) - notable that Xero gates this behind its *most expensive* tier, which supports pricing this platform's multi-currency capability as a real premium differentiator, not a throwaway feature.
+- **Project tracking (quote/invoice/time/cost/profitability per project)**: **GAP** - nothing like this exists anywhere in the schema or routes.
+- **Expense claims (employee capture/submit/approve/reimburse)**: **GAP** - doesn't exist. Distinct from vendor bills - this is employee-submitted personal expense reimbursement, a different workflow entirely.
+- **KPI & financial ratio analysis**: **GAP** - no ratio/KPI computation exists (e.g. current ratio, gross margin %, etc. aren't surfaced anywhere as named metrics).
+- **180-day cash flow forecast**: **GAP** - distinct from the already-flagged missing Cash Flow *Statement*; a forecast is forward-looking/projected, a statement is historical. Both are missing, but they're two different features.
+- **Customizable dashboards**: not deeply investigated - `ExecutiveReports.tsx`/`AdminCoreEngine.tsx` exist but aren't user-configurable in the "rearrange your own widgets" sense Xero implies. Treat as likely-gap, not yet confirmed either way.
+
+Relevance to our own pricing-tier design (see earlier pricing-strategy discussion in this
+conversation): Xero's checklist framing - "if you need X, Y, or Z, you need the top tier;
+otherwise the mid tier covers you" - is a clean, concrete model for how to justify a
+premium tier here too. Multicurrency is *already real* for us, so it could anchor a
+"Growth"/"Enterprise" tier the same way Xero uses it, once real plan enforcement exists
+(see item 7 in Candidate System Features).
+
 ### 2026-07-28 - Finza (Ghana competitor) liability disclaimer language
 Source: user-supplied excerpt from Finza's site (competitor's own positioning/legal language, read for pattern - not to be copied verbatim)
 
@@ -69,6 +95,11 @@ cost (it's a Terms/copy change, not a feature).
 | Credit-note-based correction model (no deleting certified invoices) | **GAP** | Need to check current invoice edit/delete behavior against this expectation once E-VAT work is scoped - not investigated yet. |
 | Cloud-hosted, accessible remotely | `[ALREADY BUILT]` | Render (backend) + Vercel (frontend), live. |
 | Mobile access | `[PARTIALLY BUILT]` | PWA installable (Phase from earlier this session) - not a native app, but installs to home screen and works like one. |
+| **Project tracking** (quote/invoice/time/cost/profitability per project) | **GAP** | Xero gates this behind its top tier - nothing like it exists here (verified via grep). |
+| **Expense claims** (employee capture/submit/approve/reimburse) | **GAP** | Distinct from vendor bills - employee personal-expense reimbursement workflow, doesn't exist. |
+| **KPI & financial ratio analysis** | **GAP** | No named ratio/KPI computation (gross margin %, current ratio, etc.) surfaced anywhere. |
+| **180-day cash flow forecast** | **GAP** | Forward-looking projection - distinct from the also-missing historical Cash Flow Statement. |
+| Customizable dashboards | **Likely gap** | Not deeply investigated yet - existing report pages aren't user-configurable in the "rearrange your widgets" sense. |
 
 ---
 
@@ -94,6 +125,10 @@ In rough order of how compliance-critical they appear from research so far - **t
 6. Credit-note correction flow for invoices, if the E-VAT work makes "no editing certified invoices" a real constraint.
 7. Real billing/plan enforcement tied to `tenant.tier` - separate track (see pricing-strategy discussion), not part of the Ghana-compliance research thread, but noted here since it came up in the same conversation.
 8. **Low-effort, do independently of the rest of this list**: add a tax-compliance liability disclaimer to `docs/TERMS_AND_CONDITIONS.md` (and/or landing page), in the spirit of Finza's "we help organize records, we don't guarantee tax compliance or replace your accountant" language - this is a Terms/copy change, not a feature build, and reduces legal exposure immediately while the real E-VAT gap still exists.
+9. Project tracking (quote/invoice/time/cost/profitability per project) - a genuinely large feature (new schema entities, time tracking, profitability rollups), likely its own dedicated phase whenever prioritized.
+10. Expense claims (employee capture/submit/approve/reimburse workflow) - distinct from vendor bills; needs its own approval chain (could potentially reuse the existing Approval Workflows engine as the approval mechanism rather than building a new one).
+11. KPI & financial ratio dashboard (e.g. gross margin %, current ratio, quick ratio) - computed from existing ledger/report data, likely a lighter lift than it sounds since the underlying numbers already exist in `reportingService.ts`.
+12. 180-day cash flow forecast - forward-looking projection, distinct from item 4 (historical Cash Flow Statement); needs its own design thinking on what "forecast" actually means here (trend-based? recurring-transaction-aware, since those are already scheduled and predictable?).
 
 ---
 
