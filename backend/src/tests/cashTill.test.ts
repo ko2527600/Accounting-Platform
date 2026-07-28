@@ -81,12 +81,12 @@ describe('Cash Till API - concurrent sale safety', () => {
         .post('/api/v1/tills/sales')
         .set('Authorization', `Bearer ${adminToken}`)
         .set('X-Tenant-ID', tenantSlug)
-        .send({ tillId, itemId, quantity: 8, cashGiven: 20 }),
+        .send({ tillId, items: [{ itemId, quantity: 8 }], cashGiven: 20 }),
       request(app)
         .post('/api/v1/tills/sales')
         .set('Authorization', `Bearer ${adminToken}`)
         .set('X-Tenant-ID', tenantSlug)
-        .send({ tillId, itemId, quantity: 8, cashGiven: 20 }),
+        .send({ tillId, items: [{ itemId, quantity: 8 }], cashGiven: 20 }),
     ]);
 
     const statuses = [saleA.status, saleB.status].sort((a, b) => a - b);

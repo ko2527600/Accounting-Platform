@@ -33,7 +33,7 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
           ...(accessibleIds !== null && { warehouseId: { in: accessibleIds } }),
           status: 'OPEN',
         },
-        include: { warehouse: true, sales: true },
+        include: { warehouse: true, sales: { include: { lines: true }, orderBy: { createdAt: 'desc' } } },
         orderBy: { openedAt: 'desc' },
       });
     });
@@ -108,14 +108,34 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
  * POST /api/v1/tills/sales
  * Records a physical cash sale, updates inventory stock, and posts revenue.
  */
+/**
+ * POST /api/v1/tills/sales
+ * Records a real cash sale for a basket of one or more items in a single
+ * transaction - one receipt, one cash-given/change calculation, one atomic
+ * stock deduction across every line. Body: { tillId, items: [{itemId,
+ * quantity}], cashGiven }.
+ */
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { tillId, itemId, quantity, cashGiven } = req.body;
+    const { tillId, items, cashGiven } = req.body;
 
-    if (!tillId || !itemId || !quantity || !cashGiven) {
-      res.status(400).json({ success: false, error: 'Till ID, item ID, quantity, and cash given are required.' });
+    if (!tillId || !Array.isArray(items) || items.length === 0 || cashGiven === undefined || cashGiven === null || cashGiven === '') {
+      res.status(400).json({ success: false, error: 'Till ID, at least one cart item, and cash given are required.' });
       return;
+    }
+    for (const line of items) {
+      if (!line || typeof line.itemId !== 'string' || !line.itemId) {
+        res.status(400).json({ success: false, error: 'Every cart line must include an item ID.' });
+        return;
+      }
+      if (!Number.isInteger(line.quantity) || line.quantity <= 0) {
+        res.status(400).json({
+          success: false,
+          error: `Invalid quantity for item ${line.itemId} - must be a whole number greater than zero.`,
+        });
+        return;
+      }
     }
 
     const result = await withCurrentTenantDb(prisma, async (client) => {
@@ -130,44 +150,59 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
 
       await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, till.warehouseId);
 
-      const item = await (client as any).inventoryItem.findFirst({
-        where: { id: itemId, tenantId },
-      });
+      const itemIds = [...new Set(items.map((l: any) => l.itemId))];
+      const foundItems = await (client as any).inventoryItem.findMany({ where: { id: { in: itemIds }, tenantId } });
+      const itemsById = new Map(foundItems.map((it: any) => [it.id, it]));
 
-      if (!item) {
+      const missingId = itemIds.find((id: string) => !itemsById.has(id));
+      if (missingId) {
         throw new Error('Inventory item not found.');
       }
 
-      // Check warehouse stock (existence / friendly error message only - the actual
-      // deduction below is guarded atomically, same as inventory transfers).
-      const stock = await (client as any).warehouseStock.findUnique({
-        where: { warehouseId_itemId: { warehouseId: till.warehouseId, itemId } },
+      const stocks = await (client as any).warehouseStock.findMany({
+        where: { warehouseId: till.warehouseId, itemId: { in: itemIds } },
       });
+      const stockByItemId = new Map(stocks.map((s: any) => [s.itemId, s]));
 
-      if (!stock || stock.quantityOnHand < quantity) {
-        throw new Error(`Insufficient stock in ${till.warehouse.name} (Available: ${stock?.quantityOnHand || 0} ${item.unitOfMeasure}).`);
+      // Friendly pre-check for every line before touching anything - the
+      // actual deduction below is still atomically guarded per line to
+      // protect against a genuine concurrent race.
+      for (const line of items) {
+        const item = itemsById.get(line.itemId) as any;
+        const stock = stockByItemId.get(line.itemId) as any;
+        if (!stock || stock.quantityOnHand < line.quantity) {
+          throw new Error(
+            `Insufficient stock for ${item.name} in ${till.warehouse.name} (Available: ${stock?.quantityOnHand || 0} ${item.unitOfMeasure}).`
+          );
+        }
       }
 
-      const totalAmount = Number(item.sellingPrice) * Number(quantity);
+      const totalAmount = items.reduce((sum: number, line: any) => {
+        const item = itemsById.get(line.itemId) as any;
+        return sum + Number(item.sellingPrice) * line.quantity;
+      }, 0);
+
       const changeGiven = Number(cashGiven) - totalAmount;
-
       if (changeGiven < 0) {
-        throw new Error(`Cash given (GH₵ ${cashGiven}) is less than total bill amount (GH₵ ${totalAmount}).`);
+        throw new Error(`Cash given (GH₵ ${cashGiven}) is less than total bill amount (GH₵ ${totalAmount.toFixed(2)}).`);
       }
 
-      // 1. Deduct stock from shop warehouse - atomic guarded decrement so two
-      // concurrent sales of the same item can't both read the same stale
-      // quantity and both succeed (lost-update / phantom-stock bug).
-      const deduction = await (client as any).warehouseStock.updateMany({
-        where: { id: stock.id, quantityOnHand: { gte: Number(quantity) } },
-        data: { quantityOnHand: { decrement: Number(quantity) } },
-      });
-
-      if (deduction.count === 0) {
-        throw new Error(`Insufficient stock in ${till.warehouse.name} (stock changed concurrently, please retry).`);
+      // 1. Deduct stock per line - atomic guarded decrement so two concurrent
+      // sales of the same item can't both read the same stale quantity and
+      // both succeed (lost-update / phantom-stock bug).
+      for (const line of items) {
+        const stock = stockByItemId.get(line.itemId) as any;
+        const deduction = await (client as any).warehouseStock.updateMany({
+          where: { id: stock.id, quantityOnHand: { gte: line.quantity } },
+          data: { quantityOnHand: { decrement: line.quantity } },
+        });
+        if (deduction.count === 0) {
+          const item = itemsById.get(line.itemId) as any;
+          throw new Error(`Insufficient stock for ${item.name} (stock changed concurrently, please retry).`);
+        }
       }
 
-      // 2. Record cash sale
+      // 2. Record the cash sale header and its lines.
       const receiptNo = `REC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
       const sale = await (client as any).cashSale.create({
         data: {
@@ -180,6 +215,22 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
+      const lines = items.map((line: any) => {
+        const item = itemsById.get(line.itemId) as any;
+        return {
+          itemId: line.itemId,
+          itemName: item.name as string,
+          itemSku: item.sku as string,
+          quantity: line.quantity as number,
+          unitPrice: Number(item.sellingPrice),
+          lineTotal: Number(item.sellingPrice) * line.quantity,
+        };
+      });
+
+      await (client as any).cashSaleLine.createMany({
+        data: lines.map((l: any) => ({ tenantId, saleId: sale.id, ...l })),
+      });
+
       // 3. Increment till total cash sales atomically - avoids losing concurrent
       // sales' contributions to the running total.
       await (client as any).cashTill.update({
@@ -187,7 +238,7 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         data: { cashSalesTotal: { increment: totalAmount } },
       });
 
-      return { sale, item, totalAmount, changeGiven };
+      return { sale, lines, totalAmount, changeGiven };
     });
 
     res.status(201).json({ success: true, message: 'Cash sale recorded successfully', data: result });

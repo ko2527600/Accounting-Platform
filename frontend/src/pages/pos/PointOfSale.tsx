@@ -5,7 +5,7 @@ import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
-import { ShoppingCart, Lock, Unlock, Receipt, AlertTriangle, CheckCircle2, XCircle } from "lucide-react";
+import { ShoppingCart, Lock, Unlock, Receipt, AlertTriangle, CheckCircle2, XCircle, Search, Plus, Minus, Trash2 } from "lucide-react";
 
 interface WarehouseOption {
   id: string;
@@ -21,6 +21,26 @@ interface InventoryItemOption {
   stockQty: number;
 }
 
+interface CartLine {
+  itemId: string;
+  sku: string;
+  name: string;
+  unitOfMeasure: string;
+  sellingPrice: number;
+  stockQty: number;
+  quantity: number;
+}
+
+interface CashSaleLine {
+  id: string;
+  itemId: string;
+  itemName: string;
+  itemSku: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+}
+
 interface CashSale {
   id: string;
   receiptNo: string;
@@ -28,6 +48,7 @@ interface CashSale {
   cashGiven: number;
   changeGiven: number;
   createdAt: string;
+  lines?: CashSaleLine[];
 }
 
 interface CashTill {
@@ -41,6 +62,13 @@ interface CashTill {
   warehouse?: { name: string };
 }
 
+interface LastReceipt {
+  receiptNo: string;
+  amount: number;
+  changeGiven: number;
+  lines: { itemName: string; quantity: number }[];
+}
+
 export function PointOfSale() {
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
@@ -52,13 +80,13 @@ export function PointOfSale() {
   const [openingCash, setOpeningCash] = useState("");
   const [isOpeningTill, setIsOpeningTill] = useState(false);
 
-  // Sale Form
-  const [selectedItemId, setSelectedItemId] = useState("");
-  const [saleQty, setSaleQty] = useState("1");
+  // Cart
+  const [itemSearch, setItemSearch] = useState("");
+  const [cart, setCart] = useState<CartLine[]>([]);
   const [cashGiven, setCashGiven] = useState("");
   const [isRecordingSale, setIsRecordingSale] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
-  const [lastReceipt, setLastReceipt] = useState<{ receiptNo: string; amount: number; changeGiven: number; itemName: string; quantity: number } | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<LastReceipt | null>(null);
 
   // Close Till Modal
   const [isCloseModalOpen, setIsCloseModalOpen] = useState(false);
@@ -125,6 +153,8 @@ export function PointOfSale() {
     fetchTillAndItems();
     setLastReceipt(null);
     setCloseoutResult(null);
+    setCart([]);
+    setItemSearch("");
   }, [fetchTillAndItems]);
 
   const handleOpenTill = async (e: React.FormEvent) => {
@@ -143,21 +173,60 @@ export function PointOfSale() {
     }
   };
 
-  const selectedItem = items.find((it) => it.id === selectedItemId);
-  const saleTotal = selectedItem ? selectedItem.sellingPrice * Number(saleQty || 0) : 0;
-  const changeDue = cashGiven ? Number(cashGiven) - saleTotal : 0;
+  // Cart helpers - the search list shows "stock remaining to add" (physical
+  // stock minus what's already sitting in the cart), so a cashier can never
+  // build a cart that the backend would reject for exceeding stock.
+  const cartQtyFor = (itemId: string) => cart.find((l) => l.itemId === itemId)?.quantity || 0;
+
+  const filteredItems = items.filter((it) => {
+    const q = itemSearch.trim().toLowerCase();
+    if (!q) return true;
+    return it.name.toLowerCase().includes(q) || it.sku.toLowerCase().includes(q);
+  });
+
+  const addToCart = (item: InventoryItemOption) => {
+    const remaining = item.stockQty - cartQtyFor(item.id);
+    if (remaining <= 0) return;
+    setCart((prev) => {
+      const existing = prev.find((l) => l.itemId === item.id);
+      if (existing) {
+        return prev.map((l) => (l.itemId === item.id ? { ...l, quantity: l.quantity + 1 } : l));
+      }
+      return [
+        ...prev,
+        {
+          itemId: item.id,
+          sku: item.sku,
+          name: item.name,
+          unitOfMeasure: item.unitOfMeasure,
+          sellingPrice: item.sellingPrice,
+          stockQty: item.stockQty,
+          quantity: 1,
+        },
+      ];
+    });
+  };
+
+  const adjustCartQty = (itemId: string, delta: number) => {
+    setCart((prev) =>
+      prev
+        .map((l) => (l.itemId === itemId ? { ...l, quantity: Math.min(l.stockQty, l.quantity + delta) } : l))
+        .filter((l) => l.quantity > 0)
+    );
+  };
+
+  const removeFromCart = (itemId: string) => setCart((prev) => prev.filter((l) => l.itemId !== itemId));
+
+  const cartTotal = cart.reduce((sum, l) => sum + l.sellingPrice * l.quantity, 0);
+  const changeDue = cashGiven ? Number(cashGiven) - cartTotal : 0;
 
   const handleRecordSale = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaleError(null);
-    if (!till || !selectedItem) return;
+    if (!till || cart.length === 0) return;
 
-    if (Number(saleQty) > selectedItem.stockQty) {
-      setSaleError(`Only ${selectedItem.stockQty} ${selectedItem.unitOfMeasure} of ${selectedItem.name} in stock here.`);
-      return;
-    }
-    if (Number(cashGiven) < saleTotal) {
-      setSaleError(`Cash given must be at least ${formatMoney(saleTotal)}.`);
+    if (Number(cashGiven) < cartTotal) {
+      setSaleError(`Cash given must be at least ${formatMoney(cartTotal)}.`);
       return;
     }
 
@@ -165,8 +234,7 @@ export function PointOfSale() {
     try {
       const res = await api.post("/tills/sales", {
         tillId: till.id,
-        itemId: selectedItemId,
-        quantity: Number(saleQty),
+        items: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })),
         cashGiven: Number(cashGiven),
       });
 
@@ -175,11 +243,10 @@ export function PointOfSale() {
           receiptNo: res.data.data.sale.receiptNo,
           amount: res.data.data.totalAmount,
           changeGiven: res.data.data.changeGiven,
-          itemName: res.data.data.item.name,
-          quantity: Number(saleQty),
+          lines: res.data.data.lines.map((l: any) => ({ itemName: l.itemName, quantity: l.quantity })),
         });
-        setSelectedItemId("");
-        setSaleQty("1");
+        setCart([]);
+        setItemSearch("");
         setCashGiven("");
         fetchTillAndItems();
       }
@@ -334,11 +401,11 @@ export function PointOfSale() {
           </div>
 
           <div className="grid gap-6 lg:grid-cols-3">
-            {/* Sale Form */}
+            {/* Cart / Sale Form */}
             <Card className="lg:col-span-2">
               <CardHeader>
                 <CardTitle>Record a Sale</CardTitle>
-                <CardDescription>Select the product a customer is buying and enter cash received.</CardDescription>
+                <CardDescription>Search for products, add them to the basket, then check out the whole basket at once.</CardDescription>
               </CardHeader>
               <CardContent>
                 {saleError && (
@@ -346,52 +413,113 @@ export function PointOfSale() {
                     {saleError}
                   </div>
                 )}
-                <form onSubmit={handleRecordSale} className="space-y-4">
-                  <div>
-                    <label className="block text-sm font-medium mb-1">Product</label>
-                    <select
-                      required
-                      className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
-                      value={selectedItemId}
-                      onChange={(e) => setSelectedItemId(e.target.value)}
-                    >
-                      <option value="">-- Select Product --</option>
-                      {items.map((it) => (
-                        <option key={it.id} value={it.id}>
-                          {it.name} ({it.sku}) — {formatMoney(it.sellingPrice)} — {it.stockQty} {it.unitOfMeasure} in stock
-                        </option>
-                      ))}
-                    </select>
-                    {items.length === 0 && !isLoading && (
-                      <p className="text-xs text-amber-600 mt-1">No products with stock at this shop yet.</p>
+
+                {/* Product Search */}
+                <div className="relative mb-3">
+                  <Search className="absolute left-3 top-2.5 h-4 w-4 text-secondary-400" />
+                  <Input
+                    type="text"
+                    placeholder="Search product by name or SKU..."
+                    value={itemSearch}
+                    onChange={(e) => setItemSearch(e.target.value)}
+                    className="pl-9"
+                  />
+                </div>
+
+                {items.length === 0 && !isLoading ? (
+                  <p className="text-xs text-amber-600 mb-4">No products with stock at this shop yet.</p>
+                ) : (
+                  <div className="max-h-48 overflow-y-auto border border-secondary-200 dark:border-secondary-800 rounded-lg mb-4 divide-y divide-secondary-100 dark:divide-secondary-800">
+                    {filteredItems.length === 0 ? (
+                      <div className="p-3 text-xs text-secondary-500 text-center">No products match "{itemSearch}".</div>
+                    ) : (
+                      filteredItems.map((it) => {
+                        const remaining = it.stockQty - cartQtyFor(it.id);
+                        return (
+                          <button
+                            type="button"
+                            key={it.id}
+                            onClick={() => addToCart(it)}
+                            disabled={remaining <= 0}
+                            className="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-secondary-50 dark:hover:bg-secondary-900 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                          >
+                            <div>
+                              <div className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{it.name}</div>
+                              <div className="text-xs text-secondary-500">{it.sku} — {formatMoney(it.sellingPrice)} — {remaining} {it.unitOfMeasure} left</div>
+                            </div>
+                            <Plus className="h-4 w-4 text-primary-600 flex-shrink-0 ml-2" />
+                          </button>
+                        );
+                      })
                     )}
                   </div>
+                )}
+
+                {/* Cart */}
+                <div className="border border-secondary-200 dark:border-secondary-800 rounded-lg overflow-hidden mb-4">
+                  {cart.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-secondary-500">
+                      Basket is empty. Search above and click a product to add it.
+                    </div>
+                  ) : (
+                    <table className="w-full text-sm">
+                      <tbody>
+                        {cart.map((l) => (
+                          <tr key={l.itemId} className="border-t border-secondary-100 dark:border-secondary-800 first:border-t-0">
+                            <td className="p-2">
+                              <div className="font-medium text-secondary-900 dark:text-secondary-50">{l.name}</div>
+                              <div className="text-xs text-secondary-500">{formatMoney(l.sellingPrice)} / {l.unitOfMeasure}</div>
+                            </td>
+                            <td className="p-2">
+                              <div className="flex items-center gap-1.5">
+                                <button type="button" onClick={() => adjustCartQty(l.itemId, -1)} className="h-6 w-6 flex items-center justify-center rounded bg-secondary-100 dark:bg-secondary-800 hover:bg-secondary-200 dark:hover:bg-secondary-700">
+                                  <Minus className="h-3 w-3" />
+                                </button>
+                                <span className="w-8 text-center font-medium">{l.quantity}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => adjustCartQty(l.itemId, 1)}
+                                  disabled={l.quantity >= l.stockQty}
+                                  className="h-6 w-6 flex items-center justify-center rounded bg-secondary-100 dark:bg-secondary-800 hover:bg-secondary-200 dark:hover:bg-secondary-700 disabled:opacity-40"
+                                >
+                                  <Plus className="h-3 w-3" />
+                                </button>
+                              </div>
+                            </td>
+                            <td className="p-2 text-right font-semibold whitespace-nowrap">{formatMoney(l.sellingPrice * l.quantity)}</td>
+                            <td className="p-2">
+                              <button type="button" onClick={() => removeFromCart(l.itemId)} className="text-secondary-400 hover:text-red-500 p-1">
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </div>
+
+                <form onSubmit={handleRecordSale} className="space-y-4">
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium mb-1">Quantity</label>
-                      <Input type="number" required min={1} value={saleQty} onChange={(e) => setSaleQty(e.target.value)} />
+                      <div className="text-xs text-secondary-500">Basket Total</div>
+                      <div className="text-xl font-bold">{formatMoney(cartTotal)}</div>
                     </div>
                     <div>
                       <label className="block text-sm font-medium mb-1">Cash Given</label>
-                      <Input type="number" required min={0} step="0.01" value={cashGiven} onChange={(e) => setCashGiven(e.target.value)} />
+                      <Input type="number" required min={0} step="0.01" value={cashGiven} onChange={(e) => setCashGiven(e.target.value)} disabled={cart.length === 0} />
                     </div>
                   </div>
 
-                  <div className="p-4 bg-secondary-50 dark:bg-secondary-900 rounded-lg grid grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-xs text-secondary-500">Total Due</div>
-                      <div className="text-xl font-bold">{formatMoney(saleTotal)}</div>
-                    </div>
-                    <div>
-                      <div className="text-xs text-secondary-500">Change Due</div>
-                      <div className={`text-xl font-bold ${changeDue < 0 ? "text-red-500" : "text-emerald-600"}`}>
-                        {formatMoney(Math.max(0, changeDue))}
-                      </div>
+                  <div className="p-4 bg-secondary-50 dark:bg-secondary-900 rounded-lg">
+                    <div className="text-xs text-secondary-500">Change Due</div>
+                    <div className={`text-xl font-bold ${changeDue < 0 ? "text-red-500" : "text-emerald-600"}`}>
+                      {formatMoney(Math.max(0, changeDue))}
                     </div>
                   </div>
 
-                  <Button type="submit" variant="primary" className="w-full" disabled={isRecordingSale || !selectedItemId}>
-                    {isRecordingSale ? "Recording..." : "Record Sale"}
+                  <Button type="submit" variant="primary" className="w-full" disabled={isRecordingSale || cart.length === 0 || !cashGiven}>
+                    {isRecordingSale ? "Recording..." : `Record Sale${cart.length > 0 ? ` (${cart.length} item${cart.length === 1 ? "" : "s"})` : ""}`}
                   </Button>
                 </form>
 
@@ -402,7 +530,7 @@ export function PointOfSale() {
                       Sale recorded — Receipt {lastReceipt.receiptNo}
                     </div>
                     <p className="text-xs text-emerald-700 dark:text-emerald-400">
-                      {lastReceipt.quantity} × {lastReceipt.itemName} — Total {formatMoney(lastReceipt.amount)} — Change given {formatMoney(lastReceipt.changeGiven)}
+                      {lastReceipt.lines.map((l) => `${l.quantity} × ${l.itemName}`).join(", ")} — Total {formatMoney(lastReceipt.amount)} — Change given {formatMoney(lastReceipt.changeGiven)}
                     </p>
                   </div>
                 )}
@@ -420,12 +548,17 @@ export function PointOfSale() {
                 ) : (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {[...till.sales].reverse().map((sale) => (
-                      <div key={sale.id} className="flex items-center justify-between p-2 rounded-md bg-secondary-50 dark:bg-secondary-900 text-xs">
-                        <div>
+                      <div key={sale.id} className="p-2 rounded-md bg-secondary-50 dark:bg-secondary-900 text-xs">
+                        <div className="flex items-center justify-between">
                           <div className="font-mono text-secondary-500">{sale.receiptNo}</div>
-                          <div className="text-secondary-400">{new Date(sale.createdAt).toLocaleTimeString()}</div>
+                          <div className="font-bold">{formatMoney(Number(sale.amount))}</div>
                         </div>
-                        <div className="font-bold">{formatMoney(Number(sale.amount))}</div>
+                        <div className="text-secondary-400 flex items-center justify-between mt-0.5">
+                          <span className="truncate max-w-[70%]" title={sale.lines?.map((l) => `${l.quantity}× ${l.itemName}`).join(", ")}>
+                            {sale.lines?.map((l) => `${l.quantity}× ${l.itemName}`).join(", ") || "—"}
+                          </span>
+                          <span>{new Date(sale.createdAt).toLocaleTimeString()}</span>
+                        </div>
                       </div>
                     ))}
                   </div>

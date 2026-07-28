@@ -249,8 +249,7 @@ describe('Ledgio System-Wide End-to-End API Integration Suite', () => {
         .set('X-Tenant-ID', tenantId)
         .send({
           tillId,
-          itemId,
-          quantity: 1,
+          items: [{ itemId, quantity: 1 }],
           cashGiven: 1000,
         });
 

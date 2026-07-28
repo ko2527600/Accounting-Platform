@@ -119,7 +119,7 @@ describe('Scheduled Reports API', () => {
       .post('/api/v1/tills/sales')
       .set('Authorization', `Bearer ${token1}`)
       .set('X-Tenant-ID', tenant1Slug)
-      .send({ tillId, itemId, quantity: 3, cashGiven: 30 });
+      .send({ tillId, items: [{ itemId, quantity: 3 }], cashGiven: 30 });
 
     await request(app)
       .post('/api/v1/tills/close')
