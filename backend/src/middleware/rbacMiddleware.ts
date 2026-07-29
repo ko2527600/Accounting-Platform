@@ -1,22 +1,34 @@
 import { Request, Response, NextFunction } from 'express';
 import { JwtPayload } from '../utils/jwt';
 
-export type UserRole = 'Admin' | 'Accountant' | 'Auditor' | 'Viewer';
+export type UserRole = 'Admin' | 'Accountant' | 'Auditor' | 'Viewer' | 'HR';
 
 export const USER_ROLES: Record<UserRole, UserRole> = {
   Admin: 'Admin',
   Accountant: 'Accountant',
   Auditor: 'Auditor',
   Viewer: 'Viewer',
+  HR: 'HR',
 };
 
 // Role hierarchy rank mapping (higher index = higher privilege)
 const ROLE_HIERARCHY: Record<UserRole, number> = {
   Viewer: 1,
   Auditor: 2,
+  HR: 2,
   Accountant: 3,
   Admin: 4,
 };
+
+// Roles that are explicitly scoped to their own screen(s) - denied by
+// default on any requireRole()-gated route unless that role is listed
+// there explicitly. Unlike a free-text worker title (e.g. "Shop Manager"),
+// these are NOT given blanket operational access as a fallback (rule 5
+// below) - Auditor/Viewer are read-only reviewers, HR only manages the
+// team roster, none of them should incidentally gain write access to
+// Journal Entries, Invoices, Inventory, etc. just by having an
+// unrecognized-but-not-explicitly-listed role string.
+const SCOPED_ROLES = new Set(['viewer', 'auditor', 'hr']);
 
 // Extend Express Request interface to include user payload
 declare global {
@@ -54,8 +66,8 @@ export function hasRequiredRole(userRole: string, allowedRoles: string[]): boole
     return true;
   }
 
-  // 4. Viewer / Auditor read-only restrictions
-  if (uRoleLower === 'viewer' || uRoleLower === 'auditor') {
+  // 4. Viewer / Auditor / HR - scoped roles, only allowed where explicitly listed
+  if (SCOPED_ROLES.has(uRoleLower)) {
     return allowedLower.includes(uRoleLower);
   }
 

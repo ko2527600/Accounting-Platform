@@ -106,17 +106,30 @@ const Dashboard = () => {
   );
 };
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token, isLoading } = useAuth();
-  
+// Roles that are NOT allowed into raw Settings screens (Workspace Settings,
+// Tax Rates, Fiscal Periods, Recurring Transactions) even by typing the URL
+// directly - the Sidebar already hides the link for these roles, but that's
+// just UX; this is the actual access-control gate. Backend already rejects
+// the underlying writes (`requireRole('Admin')` on `PUT /tenants/current`,
+// etc.), but a Shop Manager/Cashier/HR/Auditor shouldn't be able to browse
+// into the settings UI at all, per the "only the boss changes settings" rule.
+const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "auditor"]);
+
+function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode; blockedRoles?: Set<string> }) {
+  const { token, isLoading, user } = useAuth();
+
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900">Loading...</div>;
   }
-  
+
   if (!token) {
     return <Navigate to="/login" replace />;
   }
-  
+
+  if (blockedRoles && blockedRoles.has((user?.role || "").toLowerCase().trim())) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <>{children}</>;
 }
 
@@ -137,10 +150,10 @@ function App() {
             {/* Protected Routes */}
             <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/tax-rates" element={<ProtectedRoute><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/fiscal-periods" element={<ProtectedRoute><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/recurring-transactions" element={<ProtectedRoute><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/tax-rates" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />

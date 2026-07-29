@@ -8,7 +8,7 @@ import { PrismaClient } from '@prisma/client';
  * role strings trigger location scoping, so this change is purely
  * additive and carries zero regression risk for every other role.
  */
-export const CLOSED_ROLES = ['Admin', 'Accountant', 'Auditor', 'Viewer', 'Shop Manager', 'Cashier'] as const;
+export const CLOSED_ROLES = ['Admin', 'Accountant', 'Auditor', 'Viewer', 'Shop Manager', 'Cashier', 'HR'] as const;
 
 const LOCATION_SCOPED_ROLES = new Set(['shop manager', 'cashier']);
 

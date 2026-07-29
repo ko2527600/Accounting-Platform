@@ -241,4 +241,64 @@ describe('Location-scoped permissions (Shop Manager / Cashier)', () => {
       .send({ warehouseId: warehouseAId, itemId, mode: 'add', quantity: 1, reason: 'Should now be blocked after re-assignment' });
     expect(shopANowBlocked.status).toBe(403);
   });
+
+  describe('HR role - team-roster visibility only, no admin/operational powers', () => {
+    const hrEmail = `hr_whperm_${runId}@corp.com`;
+    let hrToken: string;
+
+    afterAll(async () => {
+      await deleteUserByEmail(prisma, hrEmail).catch(() => {});
+    });
+
+    it('accepts HR as a valid, non-location-scoped invite role (no warehouseIds required)', async () => {
+      const invite = await request(app)
+        .post('/api/v1/tenants/invite')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ email: hrEmail, role: 'HR' });
+      expect(invite.status).toBe(201);
+
+      const accept = await request(app)
+        .post('/api/v1/auth/accept-invitation')
+        .send({ token: invite.body.data.invitation.token, name: 'HR Staffer', password: 'Password123!' });
+      expect(accept.status).toBe(200);
+      hrToken = accept.body.data.token;
+    });
+
+    it('lets HR view the team roster (read-only)', async () => {
+      const res = await request(app)
+        .get('/api/v1/tenants/members')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      expect(res.status).toBe(200);
+      expect(res.body.data.members.some((m: any) => m.email === hrEmail)).toBe(true);
+    });
+
+    it('blocks HR from inviting staff or granting permissions (Admin-only)', async () => {
+      const inviteAttempt = await request(app)
+        .post('/api/v1/tenants/invite')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ email: `hr_should_not_invite_${runId}@corp.com`, role: 'Viewer' });
+      expect(inviteAttempt.status).toBe(403);
+    });
+
+    it('blocks HR from changing workspace settings (Admin-only)', async () => {
+      const res = await request(app)
+        .put('/api/v1/tenants/current')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ companyName: 'HR Should Not Be Able To Rename This' });
+      expect(res.status).toBe(403);
+    });
+
+    it('blocks HR from operational writes it has no explicit access to (e.g. inventory adjustments)', async () => {
+      const res = await request(app)
+        .post('/api/v1/inventory/adjustments')
+        .set('Authorization', `Bearer ${hrToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ warehouseId: warehouseAId, itemId, mode: 'add', quantity: 1, reason: 'HR should not be able to do this' });
+      expect(res.status).toBe(403);
+    });
+  });
 });

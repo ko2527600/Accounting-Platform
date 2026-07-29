@@ -8,7 +8,7 @@ import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2 } from "lucide-react";
 
-const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier"] as const;
+const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier", "HR"] as const;
 const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier"]);
 
 function isLocationScopedRole(role: string): boolean {

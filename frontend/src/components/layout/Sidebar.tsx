@@ -1,5 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
 import { cn } from "../../lib/utils";
+import { useAuth } from "../../contexts/AuthContext";
 import {
   LayoutDashboard,
   BookOpen,
@@ -84,8 +85,51 @@ const navigationGroups: NavGroup[] = [
   },
 ];
 
+// Roles scoped to their own reduced set of screens - anything not listed
+// here (Admin, Accountant, Viewer, or any legacy free-text worker title) is
+// unrestricted and sees the full sidebar, matching pre-existing behavior.
+// Shop Manager/Cashier are already warehouse-scoped by the backend
+// (assertWarehouseAccess) - this just keeps the nav from advertising
+// screens (Settings, Finance, Team Management) they have no real use for
+// and whose write actions the backend rejects anyway. HR gets a
+// Team-Management-only screen; Auditor gets a read-focused financial
+// review set with no operational entry points (POS, Inventory writes,
+// Settings, Team Management).
+const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
+  "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos"],
+  cashier: ["/dashboard", "/inventory", "/pos"],
+  hr: ["/dashboard", "/team"],
+  auditor: [
+    "/dashboard",
+    "/accounts",
+    "/journals",
+    "/banking",
+    "/invoices",
+    "/bills",
+    "/reports/executive",
+    "/reports/ledger",
+    "/reports/pnl",
+    "/reports/budgets",
+    "/audit-logs",
+  ],
+};
+
+function getVisibleHrefs(role: string | undefined): Set<string> | null {
+  if (!role) return null;
+  const allowed = RESTRICTED_ROLE_NAV[role.toLowerCase().trim()];
+  return allowed ? new Set(allowed) : null;
+}
+
 export function Sidebar() {
   const location = useLocation();
+  const { user } = useAuth();
+  const visibleHrefs = getVisibleHrefs(user?.role);
+
+  const visibleGroups = visibleHrefs
+    ? navigationGroups
+        .map((group) => ({ ...group, items: group.items.filter((item) => visibleHrefs.has(item.href)) }))
+        .filter((group) => group.items.length > 0)
+    : navigationGroups;
 
   return (
     <aside className="w-64 bg-white dark:bg-secondary-900 border-r border-secondary-200 dark:border-secondary-800 hidden md:flex flex-col transition-colors duration-200">
@@ -96,7 +140,7 @@ export function Sidebar() {
       </div>
 
       <nav className="flex-1 px-4 py-4 space-y-6 overflow-y-auto">
-        {navigationGroups.map((group) => (
+        {visibleGroups.map((group) => (
           <div key={group.sectionTitle} className="space-y-1">
             <h3 className="px-3 text-[10px] font-bold tracking-wider text-secondary-400 dark:text-secondary-500 uppercase">
               {group.sectionTitle}
@@ -132,15 +176,17 @@ export function Sidebar() {
         ))}
       </nav>
 
-      <div className="p-4 border-t border-secondary-200 dark:border-secondary-800">
-        <Link
-          to="/settings"
-          className="group flex items-center px-3 py-2 text-xs font-medium rounded-lg text-secondary-600 hover:bg-secondary-50 hover:text-secondary-900 dark:text-secondary-400 dark:hover:bg-secondary-800 dark:hover:text-secondary-50 transition-all duration-200"
-        >
-          <Settings className="flex-shrink-0 -ml-1 mr-3 h-4 w-4 text-secondary-400 group-hover:text-secondary-500 dark:text-secondary-500 dark:group-hover:text-secondary-400" />
-          Workspace Settings
-        </Link>
-      </div>
+      {!visibleHrefs && (
+        <div className="p-4 border-t border-secondary-200 dark:border-secondary-800">
+          <Link
+            to="/settings"
+            className="group flex items-center px-3 py-2 text-xs font-medium rounded-lg text-secondary-600 hover:bg-secondary-50 hover:text-secondary-900 dark:text-secondary-400 dark:hover:bg-secondary-800 dark:hover:text-secondary-50 transition-all duration-200"
+          >
+            <Settings className="flex-shrink-0 -ml-1 mr-3 h-4 w-4 text-secondary-400 group-hover:text-secondary-500 dark:text-secondary-500 dark:group-hover:text-secondary-400" />
+            Workspace Settings
+          </Link>
+        </div>
+      )}
     </aside>
   );
 }
