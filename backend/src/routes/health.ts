@@ -13,6 +13,14 @@ router.get('/', async (_req: Request, res: Response) => {
     database: 'unknown',
     redis: 'unknown',
     memory: process.memoryUsage(),
+    integrations: {
+      // Booleans only - never expose the actual credential values here.
+      email: Boolean(process.env.EMAIL_USER?.trim() && process.env.EMAIL_PASS?.trim()) ? 'configured' : 'not configured',
+      sms: Boolean(process.env.SMS_GATEWAY_USER?.trim() && process.env.SMS_GATEWAY_PASS?.trim())
+        || Boolean(process.env.ARKESEL_API_KEY?.trim())
+        || Boolean(process.env.MNOTIFY_API_KEY?.trim())
+        ? 'configured' : 'not configured',
+    },
   };
 
   let isHealthy = true;

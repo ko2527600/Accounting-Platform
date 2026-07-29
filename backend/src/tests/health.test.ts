@@ -15,4 +15,15 @@ describe('GET /health', () => {
     expect(response.status).toBe(200);
     expect(response.body).toHaveProperty('status', 'healthy');
   });
+
+  it('should report email/sms integration configuration status without leaking credentials', async () => {
+    const response = await request(app).get('/health');
+    expect(response.body.integrations).toBeDefined();
+    expect(['configured', 'not configured']).toContain(response.body.integrations.email);
+    expect(['configured', 'not configured']).toContain(response.body.integrations.sms);
+    const bodyString = JSON.stringify(response.body);
+    if (process.env.EMAIL_PASS) {
+      expect(bodyString).not.toContain(process.env.EMAIL_PASS);
+    }
+  });
 });
