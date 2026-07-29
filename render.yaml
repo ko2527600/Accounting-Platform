@@ -90,9 +90,11 @@ services:
         sync: false
       - key: FX_RATE_API_KEY
         sync: false
-      - key: EMAIL_USER
+      # Resend (https://resend.com) HTTP email API - direct SMTP doesn't work
+      # from Render (outbound SMTP ports are blocked to prevent spam abuse).
+      - key: RESEND_API_KEY
         sync: false
-      - key: EMAIL_PASS
+      - key: EMAIL_FROM # optional - only needed once a real domain is verified on Resend
         sync: false
       - key: ARKESEL_API_KEY
         sync: false

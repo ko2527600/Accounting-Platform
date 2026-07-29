@@ -1,15 +1,14 @@
-import nodemailer from 'nodemailer';
-import dns from 'dns';
+import axios from 'axios';
 import { generateQuickStartGuidePdf } from './pdfGenerationService';
 import { recordAuditLog } from './auditLogService';
 import { escapeHtml } from '../utils/htmlEscape';
 
-// Force Node.js DNS to prefer IPv4 over IPv6 on cloud hosting environments (e.g. Render)
-try {
-  dns.setDefaultResultOrder('ipv4first');
-} catch (e) {
-  // Fallback for older Node versions if any
-}
+// Direct SMTP to Gmail (port 465 and 587 both) hit ETIMEDOUT connecting from
+// this host - confirmed via live logs, consistent with the hosting platform
+// blocking outbound SMTP entirely (a common anti-spam-abuse restriction on
+// cloud/PaaS hosts). Resend's HTTP API sends over port 443, which isn't
+// subject to that restriction.
+const RESEND_API_URL = 'https://api.resend.com/emails';
 
 export interface EmailAttachment {
   filename: string;
@@ -17,32 +16,42 @@ export interface EmailAttachment {
   contentType?: string;
 }
 
-export class EmailService {
-  private static getTransporter() {
-    const user = process.env.EMAIL_USER?.trim();
-    const pass = process.env.EMAIL_PASS?.replace(/["'\s]/g, '');
-    if (!user || !pass) {
-      throw new Error('Email sending is not configured: EMAIL_USER and EMAIL_PASS environment variables are required.');
-    }
+interface ResendEmailPayload {
+  from: string;
+  to: string[];
+  subject: string;
+  html: string;
+  attachments?: { filename: string; content: string }[];
+}
 
-    return nodemailer.createTransport({
-      host: 'smtp.gmail.com',
-      // Port 465 (implicit TLS) connections were timing out (ETIMEDOUT on CONN)
-      // from this host even after fixing the earlier IPv6 ENETUNREACH issue -
-      // consistent with the hosting platform restricting outbound port 465
-      // specifically (a common anti-spam-abuse restriction on cloud hosts).
-      // Port 587 (STARTTLS) is the standard SMTP submission port and is much
-      // less commonly blocked.
-      port: 587,
-      secure: false,
-      requireTLS: true,
-      auth: {
-        user,
-        pass,
-      },
-      family: 4, // Force IPv4 socket family to prevent ENETUNREACH IPv6 connection failure
-      connectionTimeout: 10000, // fail fast (10s) rather than hanging on a blocked port
-    } as any);
+export class EmailService {
+  public static isConfigured(): boolean {
+    return Boolean(process.env.RESEND_API_KEY?.trim());
+  }
+
+  /**
+   * The address Resend sends from. Without a verified domain on the Resend
+   * account, only their sandbox address works - and mail sent from it can
+   * only be delivered to the Resend account's own registered email, not
+   * arbitrary recipients. Set EMAIL_FROM once a real domain is verified.
+   */
+  private static getFromAddress(): string {
+    return process.env.EMAIL_FROM?.trim() || 'Ledgio ERP <onboarding@resend.dev>';
+  }
+
+  private static buildPayload(to: string, subject: string, html: string, attachments: EmailAttachment[]): ResendEmailPayload {
+    return {
+      from: this.getFromAddress(),
+      to: [to],
+      subject,
+      html,
+      attachments: attachments.length > 0
+        ? attachments.map((a) => ({
+            filename: a.filename,
+            content: (Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content)).toString('base64'),
+          }))
+        : undefined,
+    };
   }
 
   /**
@@ -56,43 +65,43 @@ export class EmailService {
     html: string,
     attachments: EmailAttachment[] = []
   ): Promise<boolean> {
-    const from = (process.env.EMAIL_USER || '').trim();
-
-    const mailOptions = {
-      from: `"Ledgio ERP" <${from}>`,
-      to,
-      subject,
-      html,
-      attachments,
-    };
-
     if (process.env.NODE_ENV === 'test' && !process.env.EMAIL_TEST_LIVE) {
       // Mock dispatch in test environment
       return true;
     }
 
+    const apiKey = process.env.RESEND_API_KEY?.trim();
+    if (!apiKey) {
+      console.error('[EmailService] Email sending is not configured: RESEND_API_KEY environment variable is required.');
+      return false;
+    }
+
+    const payload = this.buildPayload(to, subject, html, attachments);
+    const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+
     try {
-      const transporter = this.getTransporter();
-      const info = await transporter.sendMail(mailOptions);
-      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
+      const res = await axios.post(RESEND_API_URL, payload, { headers, timeout: 10000 });
+      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${res.data?.id}`);
 
       // Log successful email dispatch in AuditLog
       await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Email sent to ${to} (${subject}).` });
       return true;
     } catch (firstErr: any) {
-      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr);
+      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr.response?.data || firstErr.message);
 
       // Retry once after 5 minutes (300,000ms)
       setTimeout(async () => {
         try {
-          await this.getTransporter().sendMail(mailOptions);
+          const retryRes = await axios.post(RESEND_API_URL, payload, { headers, timeout: 10000 });
+          console.log(`[EmailService] ✅ Retry succeeded: Email dispatched to ${to}. MessageId: ${retryRes.data?.id}`);
           await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Retry succeeded: Email sent to ${to}.` });
         } catch (retryErr: any) {
-          console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, retryErr.message);
+          const message = retryErr.response?.data?.message || retryErr.message;
+          console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, message);
           await recordAuditLog({
             action: 'CRITICAL_FAILURE',
             entity: 'EMAIL_SERVICE',
-            details: `Critical Failure: Automated email report to ${to} failed twice. Error: ${retryErr.message}`,
+            details: `Critical Failure: Automated email report to ${to} failed twice. Error: ${message}`,
           });
         }
       }, 300000);

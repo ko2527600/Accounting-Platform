@@ -22,8 +22,8 @@ describe('GET /health', () => {
     expect(['configured', 'not configured']).toContain(response.body.integrations.email);
     expect(['configured', 'not configured']).toContain(response.body.integrations.sms);
     const bodyString = JSON.stringify(response.body);
-    if (process.env.EMAIL_PASS) {
-      expect(bodyString).not.toContain(process.env.EMAIL_PASS);
+    if (process.env.RESEND_API_KEY) {
+      expect(bodyString).not.toContain(process.env.RESEND_API_KEY);
     }
   });
 });
