@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
   Smartphone,
   Mail,
@@ -9,10 +8,34 @@ import {
   CheckCircle2,
   ChevronRight,
   Download,
-  Share
+  Share,
+  FileText
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt";
+
+const LEGAL_TABS: { policyName: string; label: string; teaser: string }[] = [
+  {
+    policyName: "terms-and-conditions",
+    label: "Terms & Conditions",
+    teaser: "How your business's multi-tenant workspace, data isolation, and account responsibilities work.",
+  },
+  {
+    policyName: "privacy-policy",
+    label: "Privacy Policy",
+    teaser: "What we collect, every named third-party subprocessor, and your Ghana Data Protection Act rights.",
+  },
+  {
+    policyName: "sla",
+    label: "Service Level Agreement (SLA 99.9%)",
+    teaser: "Our 99.9% monthly uptime guarantee for ledgers, point-of-sale, and financial reporting.",
+  },
+  {
+    policyName: "customization-policy",
+    label: "Customization Tier Policy",
+    teaser: "How custom fields and schema isolation options are managed by your subscription tier.",
+  },
+];
 
 function isIos(): boolean {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
@@ -20,7 +43,6 @@ function isIos(): boolean {
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "privacy" | "sla" | "tier">("terms");
   const { isInstallable, isInstalled, promptInstall } = useInstallPrompt();
 
   return (
@@ -347,61 +369,24 @@ export function LandingPage() {
             <p className="text-xs text-secondary-400 mt-1">Inspect platform legal terms, SLA guarantees, and tier policies.</p>
           </div>
 
-          <div className="flex justify-center space-x-4 border-b border-secondary-800 pb-4 mb-6">
-            <button
-              onClick={() => setActiveLegalTab("terms")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "terms" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Terms & Conditions
-            </button>
-            <button
-              onClick={() => setActiveLegalTab("privacy")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "privacy" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Privacy Policy
-            </button>
-            <button
-              onClick={() => setActiveLegalTab("sla")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "sla" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Service Level Agreement (SLA 99.9%)
-            </button>
-            <button
-              onClick={() => setActiveLegalTab("tier")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "tier" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Customization Tier Policy
-            </button>
-          </div>
-
-          <div className="p-6 bg-secondary-900 border border-secondary-800 rounded-xl text-xs text-secondary-300 leading-relaxed font-sans max-h-64 overflow-y-auto">
-            {activeLegalTab === "terms" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">Ledgio Master Terms of Service</h4>
-                <p>By registering a business tenant account on Ledgio ERP, you agree that your database schema will be isolated under PostgreSQL multi-tenant architecture. Account holders are responsible for maintaining owner mobile phone numbers for SMS shortage notifications.</p>
-              </div>
-            )}
-
-            {activeLegalTab === "privacy" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">Privacy Policy</h4>
-                <p>We collect only what's needed to run your workspace: administrator name, email, mobile number, and the business records you enter. We name every third-party subprocessor we use (email, SMS, bank feed, and FX-rate providers) and never sell your data. Registration with Ghana's Data Protection Commission under the Data Protection Act, 2012 (Act 843) is currently in progress.</p>
-              </div>
-            )}
-
-            {activeLegalTab === "sla" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">Service Level Agreement (SLA 99.9% Uptime)</h4>
-                <p>Ledgio guarantees 99.9% monthly service uptime for core double-entry general ledgers, point-of-sale cash tills, and financial reporting services. System maintenance windows are communicated in advance via Email and SMS broadcasts.</p>
-              </div>
-            )}
-
-            {activeLegalTab === "tier" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">Customization & Feature Enforcer Policy</h4>
-                <p>Custom field extensions and dedicated schema isolation options are managed based on your subscribed subscription tier. Tier 1 tenants operate with standard Chart of Accounts templates.</p>
-              </div>
-            )}
+          <div className="grid gap-4 sm:grid-cols-2">
+            {LEGAL_TABS.map((tab) => (
+              <Link
+                key={tab.policyName}
+                to={`/legal/${tab.policyName}`}
+                className="group p-5 bg-secondary-900 border border-secondary-800 rounded-xl hover:border-emerald-600/60 transition-colors flex flex-col"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <FileText className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                  <h4 className="font-bold text-white text-sm">{tab.label}</h4>
+                </div>
+                <p className="text-xs text-secondary-400 leading-relaxed flex-1">{tab.teaser}</p>
+                <span className="mt-3 inline-flex items-center text-xs font-semibold text-emerald-400 group-hover:text-emerald-300">
+                  Read full document
+                  <ChevronRight className="h-3.5 w-3.5 ml-1 group-hover:translate-x-0.5 transition-transform" />
+                </span>
+              </Link>
+            ))}
           </div>
         </div>
       </section>
