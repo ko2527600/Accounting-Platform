@@ -426,7 +426,7 @@ export function AdminCoreEngine() {
                     <Mail className="h-6 w-6" />
                   </div>
                   <div>
-                    <div className="text-xs text-secondary-400">Email Service (Resend)</div>
+                    <div className="text-xs text-secondary-400">Email Service (SendGrid)</div>
                     <div
                       className={`text-lg font-extrabold ${
                         !healthData ? "text-secondary-500" : healthData.integrations?.email === "configured" ? "text-emerald-400" : "text-amber-400"
@@ -500,7 +500,7 @@ export function AdminCoreEngine() {
                     System-Wide Email & SMS Upgrade Broadcast Console
                   </CardTitle>
                   <CardDescription className="text-secondary-400 text-xs">
-                    Dispatch batch upgrade notices, maintenance alerts, or feature releases to all registered business owners across SMS (Android Gateway) and Email (Resend).
+                    Dispatch batch upgrade notices, maintenance alerts, or feature releases to all registered business owners across SMS (Android Gateway) and Email (SendGrid).
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-6">
@@ -567,8 +567,8 @@ export function AdminCoreEngine() {
                         onChange={(e: any) => setChannel(e.target.value)}
                         className="w-full h-10 px-3 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs"
                       >
-                        <option value="BOTH">Email (Resend) & SMS (Android Gateway)</option>
-                        <option value="EMAIL">Email Only (Resend)</option>
+                        <option value="BOTH">Email (SendGrid) & SMS (Android Gateway)</option>
+                        <option value="EMAIL">Email Only (SendGrid)</option>
                         <option value="SMS">SMS Only (Android Gateway)</option>
                       </select>
                     </div>

@@ -6,9 +6,15 @@ import { escapeHtml } from '../utils/htmlEscape';
 // Direct SMTP to Gmail (port 465 and 587 both) hit ETIMEDOUT connecting from
 // this host - confirmed via live logs, consistent with the hosting platform
 // blocking outbound SMTP entirely (a common anti-spam-abuse restriction on
-// cloud/PaaS hosts). Resend's HTTP API sends over port 443, which isn't
+// cloud/PaaS hosts). SendGrid's HTTP API sends over port 443, which isn't
 // subject to that restriction.
-const RESEND_API_URL = 'https://api.resend.com/emails';
+//
+// Using SendGrid's Single Sender Verification (not domain authentication):
+// no domain is required, just one verified individual email address - the
+// tradeoff is weaker deliverability than a verified domain (more likely to
+// land in spam) and a lower sending reputation ceiling. Worth moving to a
+// verified domain once one is available; see EMAIL_FROM in .env.example.
+const SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
 
 export interface EmailAttachment {
   filename: string;
@@ -16,39 +22,48 @@ export interface EmailAttachment {
   contentType?: string;
 }
 
-interface ResendEmailPayload {
-  from: string;
-  to: string[];
+interface SendGridEmailPayload {
+  personalizations: { to: { email: string }[] }[];
+  from: { email: string; name?: string };
   subject: string;
-  html: string;
-  attachments?: { filename: string; content: string }[];
+  content: { type: string; value: string }[];
+  attachments?: { content: string; filename: string; type: string; disposition: 'attachment' }[];
 }
 
 export class EmailService {
   public static isConfigured(): boolean {
-    return Boolean(process.env.RESEND_API_KEY?.trim());
+    // SendGrid's Single Sender Verification requires an exact, individually
+    // verified from-address - unlike Resend's sandbox default, there's no
+    // fallback address that works without explicit setup.
+    return Boolean(process.env.SENDGRID_API_KEY?.trim() && process.env.EMAIL_FROM?.trim());
   }
 
   /**
-   * The address Resend sends from. Without a verified domain on the Resend
-   * account, only their sandbox address works - and mail sent from it can
-   * only be delivered to the Resend account's own registered email, not
-   * arbitrary recipients. Set EMAIL_FROM once a real domain is verified.
+   * Parses "Display Name <email@example.com>" into SendGrid's separate
+   * name/email fields, falling back to treating the whole string as the
+   * email if no display name is present.
    */
-  private static getFromAddress(): string {
-    return process.env.EMAIL_FROM?.trim() || 'Ledgio ERP <onboarding@resend.dev>';
+  private static parseFromAddress(raw: string): { email: string; name?: string } {
+    const match = raw.match(/^(.*?)\s*<(.+)>$/);
+    if (match) {
+      return { name: match[1].trim() || undefined, email: match[2].trim() };
+    }
+    return { email: raw.trim() };
   }
 
-  private static buildPayload(to: string, subject: string, html: string, attachments: EmailAttachment[]): ResendEmailPayload {
+  private static buildPayload(to: string, subject: string, html: string, attachments: EmailAttachment[]): SendGridEmailPayload {
+    const from = this.parseFromAddress(process.env.EMAIL_FROM!.trim());
     return {
-      from: this.getFromAddress(),
-      to: [to],
+      personalizations: [{ to: [{ email: to }] }],
+      from,
       subject,
-      html,
+      content: [{ type: 'text/html', value: html }],
       attachments: attachments.length > 0
         ? attachments.map((a) => ({
             filename: a.filename,
             content: (Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content)).toString('base64'),
+            type: a.contentType || 'application/octet-stream',
+            disposition: 'attachment' as const,
           }))
         : undefined,
     };
@@ -70,9 +85,10 @@ export class EmailService {
       return true;
     }
 
-    const apiKey = process.env.RESEND_API_KEY?.trim();
-    if (!apiKey) {
-      console.error('[EmailService] Email sending is not configured: RESEND_API_KEY environment variable is required.');
+    const apiKey = process.env.SENDGRID_API_KEY?.trim();
+    const from = process.env.EMAIL_FROM?.trim();
+    if (!apiKey || !from) {
+      console.error('[EmailService] Email sending is not configured: SENDGRID_API_KEY and EMAIL_FROM environment variables are both required (EMAIL_FROM must match a Single Sender verified in SendGrid).');
       return false;
     }
 
@@ -80,8 +96,8 @@ export class EmailService {
     const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
 
     try {
-      const res = await axios.post(RESEND_API_URL, payload, { headers, timeout: 10000 });
-      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${res.data?.id}`);
+      const res = await axios.post(SENDGRID_API_URL, payload, { headers, timeout: 10000 });
+      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. Status: ${res.status}, MessageId: ${res.headers?.['x-message-id']}`);
 
       // Log successful email dispatch in AuditLog
       await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Email sent to ${to} (${subject}).` });
@@ -92,11 +108,11 @@ export class EmailService {
       // Retry once after 5 minutes (300,000ms)
       setTimeout(async () => {
         try {
-          const retryRes = await axios.post(RESEND_API_URL, payload, { headers, timeout: 10000 });
-          console.log(`[EmailService] ✅ Retry succeeded: Email dispatched to ${to}. MessageId: ${retryRes.data?.id}`);
+          const retryRes = await axios.post(SENDGRID_API_URL, payload, { headers, timeout: 10000 });
+          console.log(`[EmailService] ✅ Retry succeeded: Email dispatched to ${to}. Status: ${retryRes.status}`);
           await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Retry succeeded: Email sent to ${to}.` });
         } catch (retryErr: any) {
-          const message = retryErr.response?.data?.message || retryErr.message;
+          const message = retryErr.response?.data?.errors?.[0]?.message || retryErr.message;
           console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, message);
           await recordAuditLog({
             action: 'CRITICAL_FAILURE',

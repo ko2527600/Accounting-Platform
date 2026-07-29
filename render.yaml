@@ -90,11 +90,13 @@ services:
         sync: false
       - key: FX_RATE_API_KEY
         sync: false
-      # Resend (https://resend.com) HTTP email API - direct SMTP doesn't work
-      # from Render (outbound SMTP ports are blocked to prevent spam abuse).
-      - key: RESEND_API_KEY
+      # SendGrid (https://sendgrid.com) HTTP email API - direct SMTP doesn't
+      # work from Render (outbound SMTP ports are blocked to prevent spam
+      # abuse). Uses Single Sender Verification (no domain purchase needed) -
+      # verify a sender at https://app.sendgrid.com/settings/sender_auth.
+      - key: SENDGRID_API_KEY
         sync: false
-      - key: EMAIL_FROM # optional - only needed once a real domain is verified on Resend
+      - key: EMAIL_FROM # REQUIRED - must exactly match the address verified as a Single Sender in SendGrid
         sync: false
       - key: ARKESEL_API_KEY
         sync: false

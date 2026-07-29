@@ -2,6 +2,23 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-29] - Migrate Outbound Email from Resend to SendGrid (Single Sender Verification, No Domain Needed)
+
+**What:** With `RESEND_API_KEY` actually set in production, real live logs confirmed the Resend integration itself works correctly - but every send to a real user failed with a 403: `"You can only send testing emails to your own email address ([the account owner's Resend signup email]). To send emails to other recipients, please verify a domain at resend.com/domains..."`. Resend's sandbox restriction requires a verified domain before it will deliver to anyone but the account owner - and the user doesn't currently own a domain. Asked what to do; the user chose to send from their own individual email address instead of buying a domain.
+
+**Fix:** Migrated `EmailService.ts` from Resend to **SendGrid's v3 Mail Send API** (`POST https://api.sendgrid.com/v3/mail/send`), using SendGrid's **Single Sender Verification** rather than full domain authentication - this lets the user verify one individual email address (e.g. their own Gmail address) in the SendGrid dashboard and send to arbitrary recipients from it, with no domain purchase required. Key differences from the Resend implementation:
+- `EmailService.isConfigured()` now requires **both** `SENDGRID_API_KEY` and `EMAIL_FROM` - unlike Resend, which had a sandbox fallback address, SendGrid's single-sender mode has no usable default; `EMAIL_FROM` must exactly match the address verified in SendGrid or the send is rejected.
+- New `parseFromAddress()` splits `"Display Name <email@example.com>"` into SendGrid's separate `{email, name}` fields (SendGrid's API doesn't accept a combined string like Resend's did).
+- Payload/response shape changed to SendGrid's format (`personalizations`/`content`/base64 `attachments` with `disposition: 'attachment'`); `sendMail()`'s public signature, retry-once-after-5-minutes behavior, and audit logging are otherwise unchanged.
+- Updated `backend/.env.example` and `render.yaml` (`RESEND_API_KEY`/optional `EMAIL_FROM` → `SENDGRID_API_KEY`/required `EMAIL_FROM`), `backend/src/routes/health.ts`'s `integrations.email` check, `health.test.ts`'s credential-leak assertion, and `AdminCoreEngine.tsx`'s cosmetic copy ("Email Service (Resend)" → "Email Service (SendGrid)", etc.) to match.
+
+**Known tradeoff, explicitly flagged to the user:** Single Sender Verification has weaker deliverability than a verified domain (more likely to land in spam folders) and a lower sending-reputation ceiling - it's a real stopgap to unblock real user delivery today, not the long-term answer. Migrating to full domain authentication once the user owns a domain is a straightforward follow-up (same SendGrid API, just a different verification type - no further code change needed beyond re-pointing `EMAIL_FROM` at the new domain address).
+
+**Not yet confirmed working end-to-end** - this environment can't make outbound HTTPS calls to SendGrid either, so this is verified by compilation + full test suite only. Needs: sign up at sendgrid.com, verify a Single Sender under **Settings → Sender Authentication → Single Sender Verification** (confirms via a link sent to that email address), generate an API key, then set `SENDGRID_API_KEY` and `EMAIL_FROM` (matching the verified sender exactly) in Render.
+
+**Verification:** `tsc --noEmit` (backend) and `tsc -b` (frontend) both clean. Full backend suite (`npm test`) run twice in a row against real local Postgres/Redis: 306/306 passing both times.
+**Files Affected:** `backend/src/services/EmailService.ts`, `backend/src/routes/health.ts`, `backend/src/tests/health.test.ts`, `backend/.env.example`, `render.yaml`, `frontend/src/pages/admin/AdminCoreEngine.tsx`.
+
 ## [Date: 2026-07-29] - Migrate Outbound Email from SMTP (Gmail/Nodemailer) to Resend's HTTP API
 
 **What:** After both SMTP submission ports failed identically (port 465, then the port 587/STARTTLS experiment from the previous entry - confirmed via a live log showing the same `ETIMEDOUT`/`command: 'CONN'` error on 587 too), it's now confirmed Render blocks outbound SMTP entirely, not just one port - a well-known anti-spam-abuse restriction on many cloud/PaaS hosts. Direct SMTP to Gmail was never going to work from this host regardless of port or credential. Asked the user which HTTP-based transactional email provider to migrate to (`AskUserQuestion`); they chose **Resend**.
