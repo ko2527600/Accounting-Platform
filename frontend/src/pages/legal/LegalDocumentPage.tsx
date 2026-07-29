@@ -1,7 +1,63 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { ArrowLeft, Building2, FileText } from "lucide-react";
 import { api } from "../../lib/api";
+
+// The docs/*.md source files use a blockquote (> text) for one-off callouts
+// (e.g. "Placeholder notice"). Styled distinctly so it reads as an aside,
+// not part of the legal text itself.
+const markdownComponents = {
+  h1: (props: React.ComponentPropsWithoutRef<"h1">) => (
+    <h1 className="text-xl font-bold text-white mt-8 mb-3 first:mt-0" {...props} />
+  ),
+  h2: (props: React.ComponentPropsWithoutRef<"h2">) => (
+    <h2 className="text-lg font-bold text-white mt-8 mb-3 pb-2 border-b border-secondary-800" {...props} />
+  ),
+  h3: (props: React.ComponentPropsWithoutRef<"h3">) => (
+    <h3 className="text-base font-semibold text-white mt-6 mb-2" {...props} />
+  ),
+  p: (props: React.ComponentPropsWithoutRef<"p">) => (
+    <p className="text-sm text-secondary-300 leading-relaxed mb-4" {...props} />
+  ),
+  ul: (props: React.ComponentPropsWithoutRef<"ul">) => (
+    <ul className="list-disc list-outside pl-5 space-y-1.5 mb-4 text-sm text-secondary-300" {...props} />
+  ),
+  ol: (props: React.ComponentPropsWithoutRef<"ol">) => (
+    <ol className="list-decimal list-outside pl-5 space-y-1.5 mb-4 text-sm text-secondary-300" {...props} />
+  ),
+  li: (props: React.ComponentPropsWithoutRef<"li">) => <li className="leading-relaxed" {...props} />,
+  strong: (props: React.ComponentPropsWithoutRef<"strong">) => (
+    <strong className="font-semibold text-white" {...props} />
+  ),
+  a: (props: React.ComponentPropsWithoutRef<"a">) => (
+    <a className="text-emerald-400 hover:text-emerald-300 underline underline-offset-2" {...props} />
+  ),
+  blockquote: (props: React.ComponentPropsWithoutRef<"blockquote">) => (
+    <blockquote
+      className="border-l-2 border-amber-500/60 bg-amber-950/20 pl-4 py-2 my-4 text-xs text-amber-200/90 italic"
+      {...props}
+    />
+  ),
+  code: (props: React.ComponentPropsWithoutRef<"code">) => (
+    <code className="px-1.5 py-0.5 rounded bg-secondary-800 text-emerald-300 text-xs font-mono" {...props} />
+  ),
+  hr: () => <hr className="border-secondary-800 my-8" />,
+  table: (props: React.ComponentPropsWithoutRef<"table">) => (
+    <div className="overflow-x-auto mb-4 rounded-lg border border-secondary-800">
+      <table className="w-full text-xs text-left" {...props} />
+    </div>
+  ),
+  thead: (props: React.ComponentPropsWithoutRef<"thead">) => (
+    <thead className="bg-secondary-800/60 text-secondary-200 font-semibold" {...props} />
+  ),
+  th: (props: React.ComponentPropsWithoutRef<"th">) => <th className="px-3 py-2 border-b border-secondary-800" {...props} />,
+  td: (props: React.ComponentPropsWithoutRef<"td">) => (
+    <td className="px-3 py-2 border-b border-secondary-800/60 text-secondary-300 align-top" {...props} />
+  ),
+  tr: (props: React.ComponentPropsWithoutRef<"tr">) => <tr className="even:bg-secondary-900/40" {...props} />,
+};
 
 const POLICY_NAV: { policyName: string; label: string }[] = [
   { policyName: "terms-and-conditions", label: "Terms & Conditions" },
@@ -99,8 +155,8 @@ export function LegalDocumentPage() {
         )}
 
         {!isLoading && !error && content && (
-          <div className="prose dark:prose-invert max-w-none whitespace-pre-line font-mono text-xs leading-relaxed bg-secondary-900 border border-secondary-800 rounded-xl p-6 sm:p-8">
-            {content}
+          <div className="max-w-none bg-secondary-900 border border-secondary-800 rounded-xl p-6 sm:p-10">
+            <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{content}</ReactMarkdown>
           </div>
         )}
       </main>

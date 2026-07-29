@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-29] - Render Legal Documents as Real Markdown, Not Raw Text (react-markdown + remark-gfm)
+
+**What:** Immediately after shipping the 4 new `/legal/:policyName` pages, the user flagged the actual rendering as unprofessional - `LegalDocumentPage.tsx` was rendering the fetched Markdown as raw text (`whitespace-pre-line`), so every document showed literal `#`/`##`/`**`/`|` characters straight from the source `.md` files instead of real headings, bold text, and tables. A real Terms of Service/Privacy Policy showing raw Markdown syntax to a business owner reads as broken, not just unstyled.
+
+**Fix:** Added `react-markdown` + `remark-gfm` (GFM adds pipe-table support, which `PRIVACY_POLICY.md`'s subprocessor table needs) as frontend dependencies. `LegalDocumentPage.tsx` now renders the fetched content through `<ReactMarkdown>` with a full set of custom-styled component overrides (`h1`-`h3`, `p`, `ul`/`ol`/`li`, `strong`, `a`, `blockquote`, `code`, `hr`, and a real `<table>`) matching the site's existing dark theme palette - no `@tailwindcss/typography` plugin exists in this repo (confirmed via grep), so styling is applied directly via Tailwind utility classes on each element rather than relying on `prose` classes, which would have been a no-op. The Markdown-sourced placeholder callout (`> **Placeholder notice:** ...` in `PRIVACY_POLICY.md`) now renders as a distinct amber blockquote aside instead of blending into the body text.
+
+**Verification:** `tsc -b` clean. **Live manual verification**: started both dev servers, used Playwright to load all 4 `/legal/:policyName` pages and confirmed via `document.body.innerText` that no raw Markdown syntax (`##`, `**`, `| ---`) leaks through on any of them; confirmed a real `<table>` DOM element renders for the Privacy Policy's subprocessor table (previously a run-on line of pipe characters); confirmed via computed-style inspection that paragraph styling is consistent across the document (ruling out an apparent color difference in one screenshot, which turned out to be a PNG compression artifact, not a real bug).
+**Files Affected:** `frontend/src/pages/legal/LegalDocumentPage.tsx`, `frontend/package.json`, `frontend/package-lock.json`.
+
 ## [Date: 2026-07-29] - Turn the Landing Page's Legal Tabs into Real, Full-Content, Linkable Pages
 
 **What:** The user pointed out the landing page's "Legal & Compliance Trust Center" section only ever showed a hand-typed 1-2 sentence blurb per tab (Terms/Privacy/SLA/Customization Tier), truncated inside a fixed-height 256px scrollable box - not the real documents. The actual full documents (`docs/TERMS_AND_CONDITIONS.md`, `PRIVACY_POLICY.md`, `SLA.md`, `CUSTOMIZATION_POLICY.md`) already existed and were already served via the existing `GET /api/legal/:policyName` endpoint (the same one `Register.tsx`'s onboarding modal already fetches from) - the landing page just never used it.
