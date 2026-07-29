@@ -2,6 +2,20 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-29] - Turn Features, How It Works, and the Legal Trust Center into Standalone Pages
+
+**What:** Continuing the same pattern just applied to the legal documents, the user asked for the landing page's remaining nav-bar anchor sections - "Features," "How It Works," and "Terms & SLA" - to become real standalone pages too, rather than same-page scroll anchors (`#features`/`#onboarding`/`#legal`).
+
+**Fix:** Extracted the repeated header/footer markup (previously duplicated across `LandingPage.tsx` and the newly-added `LegalDocumentPage.tsx`) into two shared components, `PublicHeader.tsx` and `PublicFooter.tsx`, so all public marketing pages now render an identical, consistently-linked header instead of drifting copies. Added three new routes:
+- `/features` (`FeaturesPage.tsx`) - the existing "Why Businesses Choose Ledgio" content, standalone.
+- `/how-it-works` (`HowItWorksPage.tsx`) - the existing onboarding-steps + requirements-checklist content, standalone.
+- `/legal` (`LegalHubPage.tsx`) - the Legal & Compliance Trust Center card grid (previously only reachable by scrolling the homepage), now its own page; `LegalDocumentPage.tsx`'s "Back to Trust Center" link now points here instead of a homepage anchor.
+
+`PublicHeader.tsx`'s nav bar now links "Features"/"How It Works"/"Terms & SLA" to these real routes (Pricing stays a same-page `#pricing` anchor, since only Features/How It Works/Terms & SLA were asked for - it wasn't part of this request). The homepage keeps its existing full-content sections for the scroll-through story (nothing was removed), with a new "View full [X] page →" link added under each, so both the single-page narrative and the standalone pages stay reachable. Extracted the shared `LEGAL_DOCS` list (previously duplicated inline in `LandingPage.tsx`) into `frontend/src/lib/legalDocs.ts`, imported by `LandingPage.tsx`, `LegalHubPage.tsx`, and `LegalDocumentPage.tsx` to avoid drift between the three places that render it.
+
+**Verification:** `tsc -b` clean. **Live manual verification**: started both dev servers, used Playwright to confirm the header nav renders identically (same 4 links, same hrefs) across `/`, `/features`, `/how-it-works`, and `/legal`; confirmed `LegalDocumentPage.tsx`'s "Back to Trust Center" link now correctly navigates to `/legal`; confirmed the homepage's 3 new "View full [X] page" links point to `/features`, `/how-it-works`, and `/legal` respectively; screenshots confirmed all three new pages render cleanly with the shared header/footer.
+**Files Affected:** `frontend/src/components/layout/PublicHeader.tsx` (new), `frontend/src/components/layout/PublicFooter.tsx` (new), `frontend/src/pages/landing/FeaturesPage.tsx` (new), `frontend/src/pages/landing/HowItWorksPage.tsx` (new), `frontend/src/pages/legal/LegalHubPage.tsx` (new), `frontend/src/lib/legalDocs.ts` (new), `frontend/src/pages/landing/LandingPage.tsx`, `frontend/src/pages/legal/LegalDocumentPage.tsx`, `frontend/src/App.tsx`.
+
 ## [Date: 2026-07-29] - Render Legal Documents as Real Markdown, Not Raw Text (react-markdown + remark-gfm)
 
 **What:** Immediately after shipping the 4 new `/legal/:policyName` pages, the user flagged the actual rendering as unprofessional - `LegalDocumentPage.tsx` was rendering the fetched Markdown as raw text (`whitespace-pre-line`), so every document showed literal `#`/`##`/`**`/`|` characters straight from the source `.md` files instead of real headings, bold text, and tables. A real Terms of Service/Privacy Policy showing raw Markdown syntax to a business owner reads as broken, not just unstyled.

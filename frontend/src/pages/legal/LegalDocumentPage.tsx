@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { ArrowLeft, Building2, FileText } from "lucide-react";
+import { ArrowLeft, FileText } from "lucide-react";
 import { api } from "../../lib/api";
+import { PublicHeader } from "../../components/layout/PublicHeader";
+import { PublicFooter } from "../../components/layout/PublicFooter";
+import { LEGAL_DOCS } from "../../lib/legalDocs";
 
 // The docs/*.md source files use a blockquote (> text) for one-off callouts
 // (e.g. "Placeholder notice"). Styled distinctly so it reads as an aside,
@@ -59,13 +62,6 @@ const markdownComponents = {
   tr: (props: React.ComponentPropsWithoutRef<"tr">) => <tr className="even:bg-secondary-900/40" {...props} />,
 };
 
-const POLICY_NAV: { policyName: string; label: string }[] = [
-  { policyName: "terms-and-conditions", label: "Terms & Conditions" },
-  { policyName: "privacy-policy", label: "Privacy Policy" },
-  { policyName: "sla", label: "Service Level Agreement" },
-  { policyName: "customization-policy", label: "Customization Tier Policy" },
-];
-
 export function LegalDocumentPage() {
   const { policyName } = useParams<{ policyName: string }>();
   const [title, setTitle] = useState<string | null>(null);
@@ -106,37 +102,29 @@ export function LegalDocumentPage() {
 
   return (
     <div className="min-h-screen bg-secondary-950 text-secondary-100 font-sans">
-      <header className="sticky top-0 z-40 border-b border-secondary-800/80 bg-secondary-950/90 backdrop-blur-md">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <Link to="/" className="flex items-center space-x-3">
-            <div className="p-2.5 bg-gradient-to-tr from-emerald-600 to-blue-600 rounded-xl shadow-lg shadow-emerald-950">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
-            <span className="text-2xl font-black tracking-tight text-white">Ledgio</span>
-          </Link>
-          <Link
-            to="/#legal"
-            className="inline-flex items-center text-xs font-semibold text-secondary-400 hover:text-white transition-colors"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
-            Back to Trust Center
-          </Link>
-        </div>
-      </header>
+      <PublicHeader />
 
       <main className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <Link
+          to="/legal"
+          className="inline-flex items-center text-xs font-semibold text-secondary-400 hover:text-white transition-colors mb-6"
+        >
+          <ArrowLeft className="h-3.5 w-3.5 mr-1.5" />
+          Back to Trust Center
+        </Link>
+
         <nav className="flex flex-wrap gap-2 mb-8">
-          {POLICY_NAV.map((item) => (
+          {LEGAL_DOCS.map((doc) => (
             <Link
-              key={item.policyName}
-              to={`/legal/${item.policyName}`}
+              key={doc.policyName}
+              to={`/legal/${doc.policyName}`}
               className={`px-3 py-1.5 rounded-full text-xs font-semibold border transition-colors ${
-                item.policyName === policyName
+                doc.policyName === policyName
                   ? "bg-emerald-500/10 border-emerald-500 text-emerald-400"
                   : "border-secondary-800 text-secondary-400 hover:text-white hover:border-secondary-600"
               }`}
             >
-              {item.label}
+              {doc.label}
             </Link>
           ))}
         </nav>
@@ -160,6 +148,8 @@ export function LegalDocumentPage() {
           </div>
         )}
       </main>
+
+      <PublicFooter />
     </div>
   );
 }

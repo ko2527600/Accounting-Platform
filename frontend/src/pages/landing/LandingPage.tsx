@@ -3,7 +3,6 @@ import {
   Smartphone,
   Mail,
   Building2,
-  Lock,
   ArrowRight,
   CheckCircle2,
   ChevronRight,
@@ -13,29 +12,9 @@ import {
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt";
-
-const LEGAL_TABS: { policyName: string; label: string; teaser: string }[] = [
-  {
-    policyName: "terms-and-conditions",
-    label: "Terms & Conditions",
-    teaser: "How your business's multi-tenant workspace, data isolation, and account responsibilities work.",
-  },
-  {
-    policyName: "privacy-policy",
-    label: "Privacy Policy",
-    teaser: "What we collect, every named third-party subprocessor, and your Ghana Data Protection Act rights.",
-  },
-  {
-    policyName: "sla",
-    label: "Service Level Agreement (SLA 99.9%)",
-    teaser: "Our 99.9% monthly uptime guarantee for ledgers, point-of-sale, and financial reporting.",
-  },
-  {
-    policyName: "customization-policy",
-    label: "Customization Tier Policy",
-    teaser: "How custom fields and schema isolation options are managed by your subscription tier.",
-  },
-];
+import { PublicHeader } from "../../components/layout/PublicHeader";
+import { PublicFooter } from "../../components/layout/PublicFooter";
+import { LEGAL_DOCS } from "../../lib/legalDocs";
 
 function isIos(): boolean {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
@@ -47,43 +26,7 @@ export function LandingPage() {
 
   return (
     <div className="min-h-screen bg-secondary-950 text-secondary-100 font-sans selection:bg-emerald-500 selection:text-white">
-      {/* 1. Header Navigation */}
-      <header className="sticky top-0 z-40 border-b border-secondary-800/80 bg-secondary-950/90 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigate("/")}>
-            <div className="p-2.5 bg-gradient-to-tr from-emerald-600 to-blue-600 rounded-xl shadow-lg shadow-emerald-950">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
-            <span className="text-2xl font-black tracking-tight text-white">
-              Ledg<span className="text-emerald-400">io</span>
-            </span>
-          </div>
-
-          <div className="hidden md:flex items-center space-x-8 text-sm font-medium text-secondary-300">
-            <a href="#features" className="hover:text-emerald-400 transition-colors">Features</a>
-            <a href="#onboarding" className="hover:text-emerald-400 transition-colors">How It Works</a>
-            <a href="#pricing" className="hover:text-emerald-400 transition-colors">Pricing</a>
-            <a href="#legal" className="hover:text-emerald-400 transition-colors">Terms & SLA</a>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate("/login")}
-              className="border-secondary-700 text-secondary-200 hover:bg-secondary-800 hover:text-white"
-            >
-              Member Login
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => navigate("/register")}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950 font-bold"
-            >
-              Register Business Free
-            </Button>
-          </div>
-        </div>
-      </header>
+      <PublicHeader />
 
       {/* 2. Hero Section */}
       <section className="relative pt-20 pb-28 overflow-hidden bg-gradient-to-b from-secondary-950 via-secondary-900 to-secondary-950">
@@ -186,6 +129,16 @@ export function LandingPage() {
               </p>
             </div>
           </div>
+
+          <div className="mt-10 text-center">
+            <Link
+              to="/features"
+              className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View full Features page
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Link>
+          </div>
         </div>
       </section>
 
@@ -249,6 +202,16 @@ export function LandingPage() {
                 <span><strong>Legal Compliance Acceptance:</strong> Agreement to platform Terms & Conditions and SLA 99.9% Uptime.</span>
               </li>
             </ul>
+          </div>
+
+          <div className="mt-10 text-center">
+            <Link
+              to="/how-it-works"
+              className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View full How It Works page
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Link>
           </div>
         </div>
       </section>
@@ -370,17 +333,17 @@ export function LandingPage() {
           </div>
 
           <div className="grid gap-4 sm:grid-cols-2">
-            {LEGAL_TABS.map((tab) => (
+            {LEGAL_DOCS.map((doc) => (
               <Link
-                key={tab.policyName}
-                to={`/legal/${tab.policyName}`}
+                key={doc.policyName}
+                to={`/legal/${doc.policyName}`}
                 className="group p-5 bg-secondary-900 border border-secondary-800 rounded-xl hover:border-emerald-600/60 transition-colors flex flex-col"
               >
                 <div className="flex items-center space-x-2 mb-2">
                   <FileText className="h-4 w-4 text-emerald-400 flex-shrink-0" />
-                  <h4 className="font-bold text-white text-sm">{tab.label}</h4>
+                  <h4 className="font-bold text-white text-sm">{doc.label}</h4>
                 </div>
-                <p className="text-xs text-secondary-400 leading-relaxed flex-1">{tab.teaser}</p>
+                <p className="text-xs text-secondary-400 leading-relaxed flex-1">{doc.teaser}</p>
                 <span className="mt-3 inline-flex items-center text-xs font-semibold text-emerald-400 group-hover:text-emerald-300">
                   Read full document
                   <ChevronRight className="h-3.5 w-3.5 ml-1 group-hover:translate-x-0.5 transition-transform" />
@@ -388,34 +351,21 @@ export function LandingPage() {
               </Link>
             ))}
           </div>
+
+          <div className="mt-10 text-center">
+            <Link
+              to="/legal"
+              className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View full Legal & Compliance Trust Center
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Link>
+          </div>
         </div>
       </section>
 
       {/* 7. Footer & Secret Encrypted Admin Broadcast Access */}
-      <footer className="border-t border-secondary-800/80 bg-secondary-950 py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0">
-          <div className="flex items-center space-x-2">
-            <Building2 className="h-5 w-5 text-emerald-400" />
-            <span className="text-sm font-bold text-white">Ledgio Multi-Tenant ERP</span>
-          </div>
-
-          <div className="text-xs text-secondary-500">
-            © 2026 Ledgio. All rights reserved. Registered under strict tenant schema isolation.
-          </div>
-
-          {/* SECRET ENCRYPTED FOOTER LINK (Mocking Ledgio Accounting Engine) */}
-          <div>
-            <button
-              onClick={() => navigate("/admin/core-engine")}
-              className="text-[11px] font-mono text-secondary-600 hover:text-amber-400 transition-colors flex items-center space-x-1"
-              title="Click to open Encrypted Admin Core Engine Hub"
-            >
-              <Lock className="h-3 w-3 mr-1" />
-              <span>Ledgio Accounting Engine v2.4 (Encrypted)</span>
-            </button>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

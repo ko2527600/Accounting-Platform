@@ -10,6 +10,9 @@ import { Register } from "./pages/auth/Register";
 import { AcceptInvitation } from "./pages/auth/AcceptInvitation";
 import { Verification } from "./pages/auth/Verification";
 import { LandingPage } from "./pages/landing/LandingPage";
+import { FeaturesPage } from "./pages/landing/FeaturesPage";
+import { HowItWorksPage } from "./pages/landing/HowItWorksPage";
+import { LegalHubPage } from "./pages/legal/LegalHubPage";
 import { LegalDocumentPage } from "./pages/legal/LegalDocumentPage";
 import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
@@ -146,6 +149,9 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/accept-invite" element={<AcceptInvitation />} />
             <Route path="/verify-account" element={<Verification />} />
+            <Route path="/features" element={<FeaturesPage />} />
+            <Route path="/how-it-works" element={<HowItWorksPage />} />
+            <Route path="/legal" element={<LegalHubPage />} />
             <Route path="/legal/:policyName" element={<LegalDocumentPage />} />
             <Route path="/admin/core-engine" element={<AdminCoreEngine />} />
             
