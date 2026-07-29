@@ -125,6 +125,29 @@ Cross-checked against this codebase:
 - **Real cross-data search ("SmartFind")**: **GAP, and worth flagging precisely** - `Header.tsx`'s search bar (placeholder: "Search accounts, entries, reports... (Cmd+K)") is `readOnly` and only opens a `CommandMenu` component that's actually just a **static list of navigation shortcuts** (jump to Dashboard/Accounts/Journals/Reports/Settings, toggle theme) - it does not search any real data at all. The placeholder text over-promises relative to what it does today. Worth fixing either the UI copy (to stop implying data search) or building real search - the latter is clearly what competitors treat as a baseline feature.
 - **Real-time validation on e-invoicing**: reinforces (doesn't newly discover) the GRA E-VAT gap already flagged as top priority - this is the second source now describing "real-time validation at transaction time" as the compliance pattern tax authorities expect, just in a different country (India's GST vs. Ghana's GRA). Increases confidence this is a durable pattern worth designing for generically if/when E-VAT work starts, not a one-off Ghana quirk.
 
+### 2026-07-28 - TallyPrime's "Voucher" model vs. our architecture
+User question: how does this platform compare to Tally's core Voucher concept?
+
+Tally treats every transaction (sale, purchase, payment, receipt, journal, stock move,
+contra transfer, credit/debit note) as a typed "Voucher," each with its own auto-numbering
+series - one unified abstraction underneath the whole product.
+
+Checked our schema (`grep -in "creditnote|debitnote|contra|voucher|stockjournal"
+schema.prisma` - no matches other than an unrelated "CONTRACT" enum value) and confirmed
+auto-numbering already exists per-module (`entryNumber` on JournalEntry, `invoiceNumber`
+on Invoice, `billNumber` on VendorBill - each `@unique` per tenant). Conclusion:
+
+- Most Tally voucher types ARE covered, just architecturally different - separate
+  purpose-built modules (Invoices/Bills/JournalEntries/StockAdjustments/CashSales) instead
+  of one generic Voucher table, all still posting to the same ledger. Not a real gap, just
+  a different design.
+- **Contra Voucher (transfer between the business's own cash/bank accounts) - real gap,
+  confirmed via schema.** No dedicated entity for "moved GH₵X from till to bank" - would
+  have to be hand-built as a manual journal entry today, with no dedicated UI for it.
+- **Credit Note / Debit Note - real gap, same item already flagged in the E-VAT research
+  thread** (Section 2/4) as the "credit-note correction model" Ghana's E-VAT rules expect.
+  Confirmed no dedicated entity exists.
+
 ### (earlier, from prior session research - see STATUS.md for dates) Ghana/Nigeria general pricing range
 - Ghana cloud accounting SaaS: roughly GH₵100-500/month typical range, some as low as GH₵50/mo.
 - Nigeria: Sage Business Cloud ~₦3,190/mo entry; other local tools $17-30/mo.
@@ -145,7 +168,8 @@ Cross-checked against this codebase:
 | **Mobile Money (MTN/Vodafone/AT) as a reconcilable account type** | **GAP** | Only bank accounts via Mono exist today; MoMo wallets are a distinct, non-bank account type this app doesn't model. Confirmed as a recurring, explicitly-named requirement across multiple sources now. |
 | Balance Sheet report | **Partially built** | `getBalanceSheet` exists in `reportingService.ts` (backend), but there's no frontend page for it (only `ProfitAndLoss.tsx` exists as a dedicated report page; `ExecutiveReports.tsx`/`GeneralLedger.tsx` are the other report pages). |
 | **Cash Flow Statement** | **GAP** | Doesn't exist anywhere (backend or frontend). Directly relevant to the "bankability" pitch. |
-| Credit-note-based correction model (no deleting certified invoices) | **GAP** | Need to check current invoice edit/delete behavior against this expectation once E-VAT work is scoped - not investigated yet. |
+| **Credit Note / Debit Note entity** | **GAP - confirmed via schema** | No dedicated entity exists (grepped `schema.prisma`, no matches). Also the mechanism E-VAT rules expect for correcting certified invoices (Section 1's Webhuk entry). |
+| **Contra Voucher** (transfer between the business's own cash/bank accounts) | **GAP - confirmed via schema** | No dedicated entity/UI for recording an internal fund transfer (e.g. till to bank) - would require a hand-built manual journal entry today. |
 | Cloud-hosted, accessible remotely | `[ALREADY BUILT]` | Render (backend) + Vercel (frontend), live. |
 | Mobile access | `[PARTIALLY BUILT]` | PWA installable (Phase from earlier this session) - not a native app, but installs to home screen and works like one. |
 | **Project tracking** (quote/invoice/time/cost/profitability per project) | **GAP** | Xero gates this behind its top tier - nothing like it exists here (verified via grep). |
@@ -177,7 +201,8 @@ In rough order of how compliance-critical they appear from research so far - **t
 3. Mobile Money account type + reconciliation (MTN MoMo, Vodafone Cash, AT Money) - need to research whether these have a programmatic API (like Mono for banks) or require a different integration approach.
 4. Cash Flow Statement report (frontend + likely backend service function, mirroring how `getBalanceSheet`/`getProfitAndLoss` are already structured).
 5. Balance Sheet frontend page (backend already exists - this is a smaller, frontend-only gap).
-6. Credit-note correction flow for invoices, if the E-VAT work makes "no editing certified invoices" a real constraint.
+6. Credit Note / Debit Note entity + correction flow - confirmed as a real gap (not just theorized), independently useful even before E-VAT work lands (general invoice correction/refund need, not solely a compliance feature).
+6b. Contra Voucher (internal transfer between the business's own cash/bank/till accounts) - confirmed real gap; likely a small, self-contained feature (a constrained two-account journal entry with its own UI/numbering) - possibly worth doing early as a quick win relative to the bigger items on this list.
 7. Real billing/plan enforcement tied to `tenant.tier` - separate track (see pricing-strategy discussion), not part of the Ghana-compliance research thread, but noted here since it came up in the same conversation.
 8. **Low-effort, do independently of the rest of this list**: add a tax-compliance liability disclaimer to `docs/TERMS_AND_CONDITIONS.md` (and/or landing page), in the spirit of Finza's "we help organize records, we don't guarantee tax compliance or replace your accountant" language - this is a Terms/copy change, not a feature build, and reduces legal exposure immediately while the real E-VAT gap still exists.
 9. Project tracking (quote/invoice/time/cost/profitability per project) - a genuinely large feature (new schema entities, time tracking, profitability rollups), likely its own dedicated phase whenever prioritized.
