@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-29] - Try SMTP Port 587 (STARTTLS) After Port 465 Kept Timing Out on Render
+
+**What:** After the earlier IPv6 fix (`ENETUNREACH` on `smtp.gmail.com`, fixed via `dns.setDefaultResultOrder('ipv4first')` + `family: 4`) actually deployed, real verification emails still failed - but with a different error this time: `Error: Connection timeout ... code: 'ETIMEDOUT', command: 'CONN'` on port 465. Confirmed via a live log this is a genuinely new failure mode (no more IPv6 addresses in the error), consistent with the hosting platform restricting outbound port 465 specifically - a common anti-spam-abuse restriction on cloud/PaaS hosts (port 465 uses implicit TLS; port 587, the standard SMTP *submission* port with STARTTLS, is much less commonly blocked).
+
+**Fix:** `EmailService.ts`'s `getTransporter()` switched from `port: 465, secure: true` to `port: 587, secure: false, requireTLS: true` (STARTTLS negotiated after connecting, standard Gmail-supported submission config). Added `connectionTimeout: 10000` so a still-blocked port fails fast (10s) instead of hanging on nodemailer's much longer default timeout.
+
+**Not yet confirmed working** - this is an experiment based on a well-known class of platform restriction, not something verifiable from the sandbox (no outbound SMTP access here either). Needs a real end-to-end test once deployed: trigger a resend-verification and check the Logs tab for `[EmailService] ✅ Email dispatched successfully` vs. another `❌`/`ETIMEDOUT`. If port 587 is *also* blocked, the durable fix is migrating off direct SMTP entirely to an HTTPS-based transactional email API (SendGrid, Mailgun, Resend, Postmark, etc.) - those aren't subject to SMTP-port restrictions since they run over port 443. Not implemented yet since port 587 hasn't been ruled out.
+
+**Verification:** `tsc --noEmit` clean. No test asserts an exact SMTP port (`grep` confirmed).
+**Files Affected:** `backend/src/services/EmailService.ts`.
+
 ## [Date: 2026-07-29] - Wire Admin Core Engine's SMS/Email Status Cards to Real Data
 
 **What:** While diagnosing the live email-delivery outage, the user pointed out the Admin Core Engine's "Engine Diagnostics" tab shows "Android SMS Gateway" and "Gmail SMTP Service" cards permanently reading "Not Monitored" - confirmed via code these were entirely hardcoded, no API call behind them at all (a "No Mock Data Ever" violation).

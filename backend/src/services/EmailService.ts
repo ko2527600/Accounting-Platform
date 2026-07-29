@@ -27,13 +27,21 @@ export class EmailService {
 
     return nodemailer.createTransport({
       host: 'smtp.gmail.com',
-      port: 465,
-      secure: true,
+      // Port 465 (implicit TLS) connections were timing out (ETIMEDOUT on CONN)
+      // from this host even after fixing the earlier IPv6 ENETUNREACH issue -
+      // consistent with the hosting platform restricting outbound port 465
+      // specifically (a common anti-spam-abuse restriction on cloud hosts).
+      // Port 587 (STARTTLS) is the standard SMTP submission port and is much
+      // less commonly blocked.
+      port: 587,
+      secure: false,
+      requireTLS: true,
       auth: {
         user,
         pass,
       },
       family: 4, // Force IPv4 socket family to prevent ENETUNREACH IPv6 connection failure
+      connectionTimeout: 10000, // fail fast (10s) rather than hanging on a blocked port
     } as any);
   }
 
