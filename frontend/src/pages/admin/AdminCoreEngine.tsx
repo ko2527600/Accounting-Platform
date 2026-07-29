@@ -45,6 +45,7 @@ export function AdminCoreEngine() {
     redis: string;
     uptime: number;
     timestamp: string;
+    integrations?: { email: string; sms: string };
   } | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [isLoadingHealth, setIsLoadingHealth] = useState(false);
@@ -408,7 +409,13 @@ export function AdminCoreEngine() {
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Android SMS Gateway</div>
-                    <div className="text-lg font-extrabold text-secondary-400">Not Monitored</div>
+                    <div
+                      className={`text-lg font-extrabold ${
+                        !healthData ? "text-secondary-500" : healthData.integrations?.sms === "configured" ? "text-emerald-400" : "text-amber-400"
+                      }`}
+                    >
+                      {!healthData ? "Checking..." : healthData.integrations?.sms === "configured" ? "Configured" : "Not Configured"}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -420,7 +427,13 @@ export function AdminCoreEngine() {
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Gmail SMTP Service</div>
-                    <div className="text-lg font-extrabold text-secondary-400">Not Monitored</div>
+                    <div
+                      className={`text-lg font-extrabold ${
+                        !healthData ? "text-secondary-500" : healthData.integrations?.email === "configured" ? "text-emerald-400" : "text-amber-400"
+                      }`}
+                    >
+                      {!healthData ? "Checking..." : healthData.integrations?.email === "configured" ? "Configured" : "Not Configured"}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
