@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-29] - Wire Admin Core Engine's SMS/Email Status Cards to Real Data
+
+**What:** While diagnosing the live email-delivery outage, the user pointed out the Admin Core Engine's "Engine Diagnostics" tab shows "Android SMS Gateway" and "Gmail SMTP Service" cards permanently reading "Not Monitored" - confirmed via code these were entirely hardcoded, no API call behind them at all (a "No Mock Data Ever" violation).
+
+**Fix:** `backend/src/routes/health.ts`'s `/health` endpoint (already extended earlier today with an `integrations.email`/`integrations.sms` field reporting `"configured"`/`"not configured"` - booleans only, never actual credential values) already had exactly the data these cards needed; the frontend just hadn't been wired up to consume it yet since that backend change landed independently. `AdminCoreEngine.tsx`'s two summary cards now read `healthData.integrations.sms`/`.email` and show real "Configured"/"Not Configured" status (green/amber) instead of a static gray "Not Monitored" label.
+
+**Verification:** `tsc -b` clean.
+**Files Affected:** `frontend/src/pages/admin/AdminCoreEngine.tsx`.
+
 ## [Date: 2026-07-28] - Add "Resend Verification" So a Lost/Undelivered Verification Email Doesn't Permanently Block Login
 
 **What:** While testing real onboarding on the live deploy, the user hit a real dead end: an account whose verification email never arrived (unrelated Gmail app-password/deliverability issue on the live environment) got stuck permanently at `POST /auth/login`'s "User account has been deactivated." error, with no way to trigger the email again short of asking someone to fix it server-side. The verification email is only ever sent once, during initial onboarding (`tenantService.ts`'s `onboardTenant`) - there was no resend path anywhere in the app.
