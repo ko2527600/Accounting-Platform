@@ -210,9 +210,37 @@ interface TableColumn {
 }
 
 /**
+ * Truncates `text` (in the doc's currently-set font/size) to fit within
+ * `maxWidth`, appending an ellipsis if it doesn't already fit. pdfkit's own
+ * `ellipsis: true` text() option only truncates when line-wrapping is active,
+ * which fights with fixed-height table rows - measuring/truncating manually
+ * up front and drawing with `lineBreak: false` guarantees a single line that
+ * never overflows into the next column or wraps the row taller than expected.
+ */
+function truncateToWidth(doc: PDFKit.PDFDocument, text: string, maxWidth: number): string {
+  if (doc.widthOfString(text) <= maxWidth) return text;
+  const ellipsis = '…';
+  if (doc.widthOfString(ellipsis) > maxWidth) return '';
+
+  let low = 0;
+  let high = text.length;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    const candidate = text.slice(0, mid) + ellipsis;
+    if (doc.widthOfString(candidate) <= maxWidth) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return text.slice(0, low) + ellipsis;
+}
+
+/**
  * Draws a ruled table with a header row, handling page breaks by redrawing
- * the header on each new page. Cells are single-line (ellipsized if too long
- * for their column) - callers must size columns for their expected content.
+ * the header on each new page. Cells are single-line (truncated with an
+ * ellipsis if too long for their column) - callers must size columns for
+ * their expected content.
  */
 function drawSimpleTable(
   doc: PDFKit.PDFDocument,
@@ -231,7 +259,8 @@ function drawSimpleTable(
     let x = leftX;
     doc.font('Helvetica-Bold').fontSize(10).fillColor('#ffffff');
     for (const col of columns) {
-      doc.text(col.header, x + 6, headerY + rowHeight / 2 - 5, { width: col.width - 12, ellipsis: true });
+      const cellWidth = col.width - 12;
+      doc.text(truncateToWidth(doc, col.header, cellWidth), x + 6, headerY + rowHeight / 2 - 5, { width: cellWidth, lineBreak: false });
       x += col.width;
     }
     doc.y = headerY + rowHeight;
@@ -252,7 +281,8 @@ function drawSimpleTable(
     let x = leftX;
     doc.font('Helvetica').fontSize(10).fillColor(INK);
     for (let i = 0; i < columns.length; i++) {
-      doc.text(row[i] ?? '', x + 6, rowY + rowHeight / 2 - 5, { width: columns[i].width - 12, ellipsis: true });
+      const cellWidth = columns[i].width - 12;
+      doc.text(truncateToWidth(doc, row[i] ?? '', cellWidth), x + 6, rowY + rowHeight / 2 - 5, { width: cellWidth, lineBreak: false });
       x += columns[i].width;
     }
     doc
@@ -617,9 +647,9 @@ export function generateStockTakeSheetPdf(
 
     const tableWidth = doc.page.width - leftX - rightMargin;
     const columns: TableColumn[] = [
-      { header: 'SKU', width: tableWidth * 0.2 },
-      { header: 'Item Name', width: tableWidth * 0.38 },
-      { header: 'Unit', width: tableWidth * 0.14 },
+      { header: 'SKU', width: tableWidth * 0.28 },
+      { header: 'Item Name', width: tableWidth * 0.32 },
+      { header: 'Unit', width: tableWidth * 0.12 },
       { header: 'Counted Qty', width: tableWidth * 0.28 },
     ];
     const rows = items.map((item) => [item.sku, item.name, item.unitOfMeasure, '']);

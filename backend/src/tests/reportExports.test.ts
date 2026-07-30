@@ -27,8 +27,16 @@ describe('Real PDF/Word/CSV export for reports (replaces window.print() and fake
   const tenantSlug = `report-export-corp-${runId}`;
   const tenantSchema = `tenant_report_export_corp_${runId}`;
   const adminEmail = `admin_reportexport_${runId}@corp.com`;
-  const sku = `REX-${runId}`;
-  const shopName = `Report Export Shop ${runId}`;
+  // Deliberately short (unlike the full-runId-embedding convention used
+  // elsewhere in this file for tenant/user uniqueness) - these two values get
+  // rendered into narrow PDF table columns designed for realistic SKU/shop
+  // name lengths, and a run-id-length string would legitimately trigger the
+  // same single-line ellipsis truncation drawSimpleTable() applies to any
+  // genuinely long value, which would make this test's "contains the real
+  // value" assertion fail for a reason unrelated to what it's checking.
+  const runSuffix = String(runId).slice(-6);
+  const sku = `REX${runSuffix}`;
+  const shopName = `Shop ${runSuffix}`;
 
   let adminToken: string;
   let tenantId: string;
