@@ -1,11 +1,15 @@
-import { Download, Printer, FileText } from "lucide-react";
+import { useState } from "react";
+import { Download, Printer, FileText, FileType } from "lucide-react";
 import { useProfitAndLoss } from "../../hooks/useProfitAndLoss";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
 import { exportToCsv } from "../../lib/exportCsv";
+import { api } from "../../lib/api";
+import { downloadBlobResponse } from "../../lib/downloadBlob";
 
 export function ProfitAndLoss() {
   const { settings } = useTenantSettings();
+  const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
   const {
     revenueAccounts,
     expenseAccounts,
@@ -32,6 +36,19 @@ export function ProfitAndLoss() {
     exportToCsv(`profit_and_loss_${new Date().toISOString().split('T')[0]}`, exportData);
   };
 
+  const handleExportFile = async (format: "pdf" | "docx") => {
+    setIsExporting(format);
+    try {
+      const response = await api.get(`/reports/profit-loss/export?format=${format}`, { responseType: "blob" });
+      downloadBlobResponse(response, `Profit_And_Loss_${new Date().toISOString().split('T')[0]}.${format}`);
+    } catch (err) {
+      console.error(`Failed to export Profit & Loss as ${format}:`, err);
+      alert(`Failed to export Profit & Loss as ${format.toUpperCase()}.`);
+    } finally {
+      setIsExporting(null);
+    }
+  };
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 print:hidden">
@@ -48,15 +65,13 @@ export function ProfitAndLoss() {
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
-          <Button variant="outline" onClick={async () => {
-            try {
-              window.print();
-            } catch (e) {
-              console.error(e);
-            }
-          }}>
+          <Button variant="outline" disabled={isExporting === "pdf"} onClick={() => handleExportFile("pdf")}>
             <FileText className="mr-2 h-4 w-4 text-primary-600" />
-            Export PDF
+            {isExporting === "pdf" ? "Exporting..." : "Export PDF"}
+          </Button>
+          <Button variant="outline" disabled={isExporting === "docx"} onClick={() => handleExportFile("docx")}>
+            <FileType className="mr-2 h-4 w-4 text-blue-600" />
+            {isExporting === "docx" ? "Exporting..." : "Export Word"}
           </Button>
           <Button variant="primary" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />

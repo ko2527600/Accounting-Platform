@@ -266,6 +266,300 @@ function drawSimpleTable(
   }
 }
 
+interface ReportAccountRow {
+  code: string;
+  name: string;
+  balance: number;
+}
+
+function formatMoney(amount: number, currency: string): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(amount);
+}
+
+function drawReportCover(doc: PDFKit.PDFDocument, tenantName: string, title: string, subtitle: string): void {
+  doc.rect(0, 0, doc.page.width, 110).fill(INK);
+  doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(20).text(tenantName, 56, 40);
+  doc.fillColor('#a7f3d0').font('Helvetica').fontSize(11).text(title, 56, 66);
+  doc.y = 130;
+  doc.x = 56;
+  doc.fillColor(MUTED).font('Helvetica').fontSize(10.5).text(subtitle, 56);
+  doc.moveDown(0.8);
+}
+
+function drawTotalRow(doc: PDFKit.PDFDocument, label: string, value: string, opts: { color?: string } = {}): void {
+  const leftX = doc.page.margins.left;
+  const rightX = doc.page.width - doc.page.margins.right;
+  doc.moveDown(0.4);
+  doc.x = leftX;
+  doc
+    .moveTo(leftX, doc.y)
+    .lineTo(rightX, doc.y)
+    .strokeColor('#0f172a')
+    .lineWidth(1)
+    .stroke();
+  doc.moveDown(0.3);
+  doc.x = leftX;
+  doc
+    .fillColor(opts.color || INK)
+    .font('Helvetica-Bold')
+    .fontSize(12)
+    .text(label, leftX, doc.y, { continued: true, width: (rightX - leftX) * 0.6 });
+  doc.text(value, { align: 'right' });
+}
+
+/**
+ * Generates a real Balance Sheet PDF (Assets/Liabilities/Equity + the
+ * balance-check row), mirroring exactly what BalanceSheet.tsx renders
+ * on-screen, using reportingService.getBalanceSheet()'s real result -
+ * replaces the previous window.print()-based fake "Export PDF" button.
+ */
+export function generateBalanceSheetPdf(
+  tenantName: string,
+  currency: string,
+  asOfDateLabel: string,
+  data: {
+    assets: ReportAccountRow[];
+    totalAssets: number;
+    liabilities: ReportAccountRow[];
+    totalLiabilities: number;
+    equity: ReportAccountRow[];
+    retainedEarnings: number;
+    totalEquity: number;
+    totalLiabilitiesAndEquity: number;
+    isBalanced: boolean;
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: true, compress: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    drawReportCover(doc, tenantName, 'Balance Sheet', `As of ${asOfDateLabel} — all figures in ${currency}`);
+
+    const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const columns: TableColumn[] = [
+      { header: 'Code', width: tableWidth * 0.15 },
+      { header: 'Account', width: tableWidth * 0.55 },
+      { header: 'Balance', width: tableWidth * 0.3 },
+    ];
+
+    addSectionHeading(doc, 'Assets');
+    drawSimpleTable(doc, columns, data.assets.map(a => [a.code, a.name, formatMoney(a.balance, currency)]));
+    drawTotalRow(doc, 'Total Assets', formatMoney(data.totalAssets, currency));
+
+    addSectionHeading(doc, 'Liabilities');
+    drawSimpleTable(doc, columns, data.liabilities.map(l => [l.code, l.name, formatMoney(l.balance, currency)]));
+    drawTotalRow(doc, 'Total Liabilities', formatMoney(data.totalLiabilities, currency));
+
+    addSectionHeading(doc, 'Equity');
+    const equityRows = data.equity.map(e => [e.code, e.name, formatMoney(e.balance, currency)]);
+    equityRows.push(['', 'Retained Earnings', formatMoney(data.retainedEarnings, currency)]);
+    drawSimpleTable(doc, columns, equityRows);
+    drawTotalRow(doc, 'Total Equity', formatMoney(data.totalEquity, currency));
+
+    drawTotalRow(
+      doc,
+      'Total Liabilities & Equity',
+      formatMoney(data.totalLiabilitiesAndEquity, currency),
+      { color: data.isBalanced ? BRAND_GREEN : '#dc2626' }
+    );
+    doc.moveDown(0.3);
+    doc.x = doc.page.margins.left;
+    doc
+      .fillColor(data.isBalanced ? BRAND_GREEN : '#dc2626')
+      .font('Helvetica')
+      .fontSize(9.5)
+      .text(data.isBalanced ? 'Assets = Liabilities + Equity (balanced)' : 'Assets do not equal Liabilities + Equity - check ledger entries', doc.page.margins.left);
+
+    doc.end();
+  });
+}
+
+/**
+ * Generates a real Profit & Loss PDF (Income/Expenses + Net Profit/Loss),
+ * mirroring ProfitAndLoss.tsx's on-screen layout.
+ */
+export function generateProfitAndLossPdf(
+  tenantName: string,
+  currency: string,
+  asOfDateLabel: string,
+  data: {
+    revenues: ReportAccountRow[];
+    totalRevenue: number;
+    expenses: ReportAccountRow[];
+    totalExpenses: number;
+    netProfit: number;
+    isProfit: boolean;
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: true, compress: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    drawReportCover(doc, tenantName, 'Profit and Loss Statement', `As of ${asOfDateLabel} — all figures in ${currency}`);
+
+    const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const columns: TableColumn[] = [
+      { header: 'Code', width: tableWidth * 0.15 },
+      { header: 'Account', width: tableWidth * 0.55 },
+      { header: 'Balance', width: tableWidth * 0.3 },
+    ];
+
+    addSectionHeading(doc, 'Income');
+    drawSimpleTable(doc, columns, data.revenues.map(r => [r.code, r.name, formatMoney(r.balance, currency)]));
+    drawTotalRow(doc, 'Total Income', formatMoney(data.totalRevenue, currency));
+
+    addSectionHeading(doc, 'Expenses');
+    drawSimpleTable(doc, columns, data.expenses.map(e => [e.code, e.name, formatMoney(e.balance, currency)]));
+    drawTotalRow(doc, 'Total Expenses', formatMoney(data.totalExpenses, currency));
+
+    drawTotalRow(
+      doc,
+      data.isProfit ? 'Net Profit' : 'Net Loss',
+      formatMoney(data.netProfit, currency),
+      { color: data.isProfit ? BRAND_GREEN : '#dc2626' }
+    );
+
+    doc.end();
+  });
+}
+
+export interface ExecutiveReportCloseoutRow {
+  closedAt: string;
+  warehouseName: string;
+  closedBy: string;
+  openingCash: number;
+  cashSales: number;
+  expectedCash: number;
+  actualCash: number;
+  discrepancy: number;
+}
+
+/**
+ * Generates a real PDF for the Executive Performance & Till Closeout report -
+ * the daily/monthly/yearly revenue summary plus the shop leaderboard, or (for
+ * reportType 'closeouts') the full end-of-day till closeout ledger.
+ */
+export function generateExecutiveReportPdf(
+  tenantName: string,
+  currency: string,
+  reportType: 'daily' | 'monthly' | 'yearly' | 'closeouts',
+  data: {
+    periodTotal?: number;
+    shopLeaderboard?: { name: string; code: string; location: string | null; totalRevenue: number }[];
+    closeouts?: ExecutiveReportCloseoutRow[];
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: true, compress: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('error', reject);
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    const titleMap = { daily: 'Daily', monthly: 'Monthly', yearly: 'Yearly', closeouts: 'Till Closeout' } as const;
+    drawReportCover(
+      doc,
+      tenantName,
+      'Executive Performance Report',
+      `${titleMap[reportType]} report — all figures in ${currency}`
+    );
+
+    const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+
+    if (reportType === 'closeouts') {
+      addSectionHeading(doc, 'End-of-Day Till Closeouts');
+      const columns: TableColumn[] = [
+        { header: 'Date/Time', width: tableWidth * 0.2 },
+        { header: 'Shop', width: tableWidth * 0.2 },
+        { header: 'Closed By', width: tableWidth * 0.16 },
+        { header: 'Expected', width: tableWidth * 0.15 },
+        { header: 'Actual', width: tableWidth * 0.15 },
+        { header: 'Discrepancy', width: tableWidth * 0.14 },
+      ];
+      const rows = (data.closeouts || []).map(c => [
+        new Date(c.closedAt).toLocaleString(),
+        c.warehouseName,
+        c.closedBy,
+        formatMoney(c.expectedCash, currency),
+        formatMoney(c.actualCash, currency),
+        formatMoney(c.discrepancy, currency),
+      ]);
+      drawSimpleTable(doc, columns, rows);
+    } else {
+      addSectionHeading(doc, `Total ${titleMap[reportType]} Sales Revenue`);
+      doc.x = doc.page.margins.left;
+      doc.fillColor(INK).font('Helvetica-Bold').fontSize(22).text(formatMoney(data.periodTotal || 0, currency));
+
+      addSectionHeading(doc, 'Top-Selling Shops Leaderboard');
+      const columns: TableColumn[] = [
+        { header: 'Shop', width: tableWidth * 0.3 },
+        { header: 'Code', width: tableWidth * 0.15 },
+        { header: 'Location', width: tableWidth * 0.3 },
+        { header: 'Total Revenue', width: tableWidth * 0.25 },
+      ];
+      const rows = (data.shopLeaderboard || []).map(s => [s.name, s.code, s.location || '-', formatMoney(s.totalRevenue, currency)]);
+      drawSimpleTable(doc, columns, rows);
+    }
+
+    doc.end();
+  });
+}
+
+/**
+ * Generates a real PDF for the Inventory Decision Intelligence Tower -
+ * Fast-Selling items, Slow-Moving (dead) stock, and smart re-allocation
+ * suggestions.
+ */
+export function generateStockIntelligencePdf(
+  tenantName: string,
+  data: {
+    fastSellers: { sku: string; name: string; totalStock: number; unitOfMeasure: string }[];
+    slowMoving: { sku: string; name: string; totalStock: number; unitOfMeasure: string }[];
+    suggestions: { itemName: string; fromWarehouseName: string; toWarehouseName: string; suggestedQty: number }[];
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: true, compress: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('error', reject);
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+
+    drawReportCover(doc, tenantName, 'Inventory Decision Intelligence', 'Fast-moving items, dead stock, and smart re-allocation suggestions');
+
+    const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const itemColumns: TableColumn[] = [
+      { header: 'SKU', width: tableWidth * 0.2 },
+      { header: 'Item Name', width: tableWidth * 0.45 },
+      { header: 'Unit', width: tableWidth * 0.15 },
+      { header: 'Total Stock', width: tableWidth * 0.2 },
+    ];
+
+    addSectionHeading(doc, `Fast-Selling Items (${data.fastSellers.length})`);
+    drawSimpleTable(doc, itemColumns, data.fastSellers.map(i => [i.sku, i.name, i.unitOfMeasure, String(i.totalStock)]));
+
+    addSectionHeading(doc, `Slow-Moving / Dead Stock (${data.slowMoving.length})`);
+    drawSimpleTable(doc, itemColumns, data.slowMoving.map(i => [i.sku, i.name, i.unitOfMeasure, String(i.totalStock)]));
+
+    addSectionHeading(doc, `Smart Re-Allocation Suggestions (${data.suggestions.length})`);
+    const suggestionColumns: TableColumn[] = [
+      { header: 'Item', width: tableWidth * 0.34 },
+      { header: 'From', width: tableWidth * 0.24 },
+      { header: 'To', width: tableWidth * 0.24 },
+      { header: 'Suggested Qty', width: tableWidth * 0.18 },
+    ];
+    drawSimpleTable(doc, suggestionColumns, data.suggestions.map(s => [s.itemName, s.fromWarehouseName, s.toWarehouseName, String(s.suggestedQty)]));
+
+    doc.end();
+  });
+}
+
 export interface StockSheetItem {
   sku: string;
   name: string;

@@ -4,7 +4,8 @@ import { Button } from "../../components/ui/Button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
-import { Calendar, Download, FileSpreadsheet, Store, CheckCircle, AlertTriangle, TrendingUp } from "lucide-react";
+import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { Calendar, Download, FileSpreadsheet, FileType, Store, CheckCircle, AlertTriangle, TrendingUp } from "lucide-react";
 
 interface CloseoutReport {
   id: string;
@@ -35,6 +36,7 @@ export function ExecutiveReports() {
   const [shopLeaderboard, setShopLeaderboard] = useState<ShopLeader[]>([]);
   const [closeouts, setCloseouts] = useState<CloseoutReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
 
   const fetchReports = async () => {
     setIsLoading(true);
@@ -68,19 +70,22 @@ export function ExecutiveReports() {
   const handleExportCSV = async () => {
     try {
       const res = await api.get(`/analytics/export/csv?reportType=${activeTab}`, { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `Ledgio_${activeTab}_report_${Date.now()}.csv`);
-      document.body.appendChild(link);
-      link.click();
+      downloadBlobResponse(res, `Ledgio_${activeTab}_report_${Date.now()}.csv`);
     } catch (err) {
       alert("Failed to export CSV dataset.");
     }
   };
 
-  const handleExportPDF = () => {
-    window.print();
+  const handleExportFile = async (format: "pdf" | "docx") => {
+    setIsExporting(format);
+    try {
+      const res = await api.get(`/analytics/export/${format}?reportType=${activeTab}`, { responseType: "blob" });
+      downloadBlobResponse(res, `Ledgio_${activeTab}_report_${Date.now()}.${format}`);
+    } catch (err) {
+      alert(`Failed to export ${format.toUpperCase()} report.`);
+    } finally {
+      setIsExporting(null);
+    }
   };
 
   return (
@@ -100,9 +105,13 @@ export function ExecutiveReports() {
             <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" />
             Export Excel / CSV
           </Button>
-          <Button variant="primary" onClick={handleExportPDF} className="flex items-center">
+          <Button variant="outline" disabled={isExporting === "docx"} onClick={() => handleExportFile("docx")} className="flex items-center">
+            <FileType className="mr-2 h-4 w-4 text-blue-600" />
+            {isExporting === "docx" ? "Exporting..." : "Export Word"}
+          </Button>
+          <Button variant="primary" disabled={isExporting === "pdf"} onClick={() => handleExportFile("pdf")} className="flex items-center">
             <Download className="mr-2 h-4 w-4" />
-            Export PDF
+            {isExporting === "pdf" ? "Exporting..." : "Export PDF"}
           </Button>
         </div>
       </div>
@@ -305,9 +314,9 @@ export function ExecutiveReports() {
                   <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" />
                   Download CSV
                 </Button>
-                <Button variant="primary" onClick={handleExportPDF} className="w-1/2 flex items-center justify-center">
+                <Button variant="primary" disabled={isExporting === "pdf"} onClick={() => handleExportFile("pdf")} className="w-1/2 flex items-center justify-center">
                   <Download className="mr-2 h-4 w-4" />
-                  Download PDF
+                  {isExporting === "pdf" ? "Exporting..." : "Download PDF"}
                 </Button>
               </div>
             </CardContent>
