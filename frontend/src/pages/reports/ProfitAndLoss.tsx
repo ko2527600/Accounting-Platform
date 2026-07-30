@@ -6,9 +6,11 @@ import { Button } from "../../components/ui/Button";
 import { exportToCsv } from "../../lib/exportCsv";
 import { api } from "../../lib/api";
 import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { useToast } from "../../contexts/ToastContext";
 
 export function ProfitAndLoss() {
   const { settings } = useTenantSettings();
+  const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
   const {
     revenueAccounts,
@@ -43,7 +45,7 @@ export function ProfitAndLoss() {
       downloadBlobResponse(response, `Profit_And_Loss_${new Date().toISOString().split('T')[0]}.${format}`);
     } catch (err) {
       console.error(`Failed to export Profit & Loss as ${format}:`, err);
-      alert(`Failed to export Profit & Loss as ${format.toUpperCase()}.`);
+      showToast(`Failed to export Profit & Loss as ${format.toUpperCase()}.`, "error");
     } finally {
       setIsExporting(null);
     }

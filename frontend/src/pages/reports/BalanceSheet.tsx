@@ -6,9 +6,11 @@ import { Button } from "../../components/ui/Button";
 import { exportToCsv } from "../../lib/exportCsv";
 import { api } from "../../lib/api";
 import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { useToast } from "../../contexts/ToastContext";
 
 export function BalanceSheet() {
   const { settings } = useTenantSettings();
+  const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
   const {
     assetAccounts,
@@ -55,7 +57,7 @@ export function BalanceSheet() {
       downloadBlobResponse(response, `Balance_Sheet_${new Date().toISOString().split('T')[0]}.${format}`);
     } catch (err) {
       console.error(`Failed to export Balance Sheet as ${format}:`, err);
-      alert(`Failed to export Balance Sheet as ${format.toUpperCase()}.`);
+      showToast(`Failed to export Balance Sheet as ${format.toUpperCase()}.`, "error");
     } finally {
       setIsExporting(null);
     }

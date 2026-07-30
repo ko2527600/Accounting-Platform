@@ -6,6 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
+import { useToast } from "../../contexts/ToastContext";
 import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2 } from "lucide-react";
 
 const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier", "HR"] as const;
@@ -42,6 +43,7 @@ interface WarehouseOption {
 
 export function TeamManagement() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
@@ -177,7 +179,7 @@ export function TeamManagement() {
         fetchTeamData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to update warehouse access.");
+      showToast(err.response?.data?.error || "Failed to update warehouse access.", "error");
     } finally {
       setIsSavingAccess(false);
     }

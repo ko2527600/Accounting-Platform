@@ -8,11 +8,13 @@ import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Card, CardHeader, CardContent, CardFooter } from "../ui/Card";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
 
 export function JournalBuilder() {
   const navigate = useNavigate();
   const { postJournal, isLoading: isPosting } = useJournals();
   const { accounts } = useAccounts();
+  const { showToast } = useToast();
 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState("");
@@ -75,7 +77,7 @@ export function JournalBuilder() {
     const validLines = lines.filter(l => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0));
 
     if (validLines.length < 2) {
-      alert("At least two valid lines are required.");
+      showToast("At least two valid lines are required.", "error");
       return;
     }
 
@@ -89,7 +91,7 @@ export function JournalBuilder() {
       await postJournal(payload);
       navigate("/journals");
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, "error");
     }
   };
 

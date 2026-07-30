@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { ToastProvider } from "./contexts/ToastContext";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
@@ -142,6 +143,7 @@ function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode;
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
+      <ToastProvider>
       <AuthProvider>
         <BrowserRouter>
           <CommandMenu />
@@ -188,6 +190,7 @@ function App() {
           </Routes>
         </BrowserRouter>
       </AuthProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

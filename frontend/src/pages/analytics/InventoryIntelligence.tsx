@@ -4,6 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { useToast } from "../../contexts/ToastContext";
 import { Flame, Clock, Lightbulb, Download, FileSpreadsheet, FileType, RefreshCw, ArrowRight } from "lucide-react";
 
 interface FastSeller {
@@ -39,6 +40,7 @@ export function InventoryIntelligence() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
+  const { showToast } = useToast();
 
   const fetchIntelligence = async () => {
     setIsLoading(true);
@@ -65,7 +67,7 @@ export function InventoryIntelligence() {
       const res = await api.get("/analytics/export/csv?reportType=stock-intelligence", { responseType: "blob" });
       downloadBlobResponse(res, `Stock_Intelligence_Report_${Date.now()}.csv`);
     } catch (err) {
-      alert("Failed to export CSV dataset.");
+      showToast("Failed to export CSV dataset.", "error");
     }
   };
 
@@ -75,7 +77,7 @@ export function InventoryIntelligence() {
       const res = await api.get(`/analytics/export/${format}?reportType=stock-intelligence`, { responseType: "blob" });
       downloadBlobResponse(res, `Stock_Intelligence_Report_${Date.now()}.${format}`);
     } catch (err) {
-      alert(`Failed to export ${format.toUpperCase()} report.`);
+      showToast(`Failed to export ${format.toUpperCase()} report.`, "error");
     } finally {
       setIsExporting(null);
     }

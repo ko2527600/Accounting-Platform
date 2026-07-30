@@ -5,6 +5,7 @@ import { Button } from "../../components/ui/Button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
+import { useToast } from "../../contexts/ToastContext";
 import { Landmark, Plus, CheckCircle, RefreshCw, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 
 const MONO_PUBLIC_KEY = import.meta.env.VITE_MONO_PUBLIC_KEY as string | undefined;
@@ -32,6 +33,7 @@ interface BankTx {
 
 export function BankReconciliation() {
   const { user } = useAuth();
+  const { showToast } = useToast();
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -96,7 +98,7 @@ export function BankReconciliation() {
       await Promise.all(bankAccounts.map((acc) => api.post(`/banking/accounts/${acc.id}/sync`)));
       await fetchBankingData();
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to sync bank feeds.");
+      showToast(err.response?.data?.error || "Failed to sync bank feeds.", "error");
     } finally {
       setIsSyncing(false);
     }
@@ -109,7 +111,7 @@ export function BankReconciliation() {
         fetchBankingData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Reconciliation failed.");
+      showToast(err.response?.data?.error || "Reconciliation failed.", "error");
     }
   };
 

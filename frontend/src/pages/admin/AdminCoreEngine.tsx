@@ -23,11 +23,13 @@ import { Input } from "../../components/ui/Input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../../components/ui/Card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
 
 const EMPTY_AUDIT_FILTERS = { action: "", entity: "", userEmail: "", tenantId: "", dateFrom: "", dateTo: "" };
 
 export function AdminCoreEngine() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   // Master Lock State
   const [passcode, setPasscode] = useState("");
@@ -226,7 +228,7 @@ export function AdminCoreEngine() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to export platform audit log:", err);
-      alert("Failed to export the audit log.");
+      showToast("Failed to export the audit log.", "error");
     } finally {
       setIsExportingAuditLogs(false);
     }

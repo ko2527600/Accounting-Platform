@@ -5,6 +5,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
 import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { useToast } from "../../contexts/ToastContext";
 import { Calendar, Download, FileSpreadsheet, FileType, Store, CheckCircle, AlertTriangle, TrendingUp } from "lucide-react";
 
 interface CloseoutReport {
@@ -37,6 +38,7 @@ export function ExecutiveReports() {
   const [closeouts, setCloseouts] = useState<CloseoutReport[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
+  const { showToast } = useToast();
 
   const fetchReports = async () => {
     setIsLoading(true);
@@ -72,7 +74,7 @@ export function ExecutiveReports() {
       const res = await api.get(`/analytics/export/csv?reportType=${activeTab}`, { responseType: "blob" });
       downloadBlobResponse(res, `Ledgio_${activeTab}_report_${Date.now()}.csv`);
     } catch (err) {
-      alert("Failed to export CSV dataset.");
+      showToast("Failed to export CSV dataset.", "error");
     }
   };
 
@@ -82,7 +84,7 @@ export function ExecutiveReports() {
       const res = await api.get(`/analytics/export/${format}?reportType=${activeTab}`, { responseType: "blob" });
       downloadBlobResponse(res, `Ledgio_${activeTab}_report_${Date.now()}.${format}`);
     } catch (err) {
-      alert(`Failed to export ${format.toUpperCase()} report.`);
+      showToast(`Failed to export ${format.toUpperCase()} report.`, "error");
     } finally {
       setIsExporting(null);
     }

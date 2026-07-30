@@ -2,6 +2,7 @@ import { useState, useMemo } from "react";
 import { Plus, Search, FileSpreadsheet, Ban, ArrowRightLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useJournals } from "../../hooks/useJournals";
+import { useToast } from "../../contexts/ToastContext";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Badge } from "../../components/ui/Badge";
@@ -19,6 +20,7 @@ export function JournalList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const handleVoid = async (id: string, entryLabel: string) => {
     if (!window.confirm(`Void journal entry ${entryLabel}? This cannot be undone.`)) return;
@@ -26,7 +28,7 @@ export function JournalList() {
     try {
       await voidJournal(id);
     } catch (err: any) {
-      alert(typeof err === "string" ? err : "Failed to void journal entry.");
+      showToast(typeof err === "string" ? err : "Failed to void journal entry.", "error");
     } finally {
       setVoidingId(null);
     }
