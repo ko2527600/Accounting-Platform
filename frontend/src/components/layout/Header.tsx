@@ -115,7 +115,7 @@ export function Header() {
           <Input
             type="text"
             readOnly
-            placeholder="Search accounts, entries, reports... (Cmd+K)"
+            placeholder="Quick navigation... (Cmd+K)"
             className="pl-9 bg-secondary-50 dark:bg-secondary-800/50 border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-secondary-900 transition-all shadow-none cursor-pointer"
           />
         </div>

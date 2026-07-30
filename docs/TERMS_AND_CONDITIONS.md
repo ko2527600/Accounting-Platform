@@ -58,3 +58,7 @@ These Terms and Conditions shall be governed by and construed in accordance with
 ## 12. Changes to Terms
 
 We reserve the right to modify these Terms and Conditions at any time. We will provide notice of significant changes through the Service or via email. Your continued use of the Service following such notice constitutes your acceptance of the revised terms.
+
+## 13. No Guarantee of Tax Compliance
+
+The Service helps you organize your business's financial records, transactions, documents, and reports. It does not guarantee compliance with any tax law or regulation (including Ghana Revenue Authority requirements), does not replace the advice of a qualified accountant or tax adviser, and does not remove your obligation to review and verify all financial information entered into the Service for accuracy. You (or your accountant or tax adviser) remain solely responsible for confirming the correct tax treatment for your business and for the accuracy of any tax filings made using data from the Service.

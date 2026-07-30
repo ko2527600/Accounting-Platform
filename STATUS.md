@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-29] - Ghana Market Research Follow-Through: Tax-Compliance Disclaimer + Honest Search-Bar Copy
+
+**What:** First two items off `docs/GHANA_MARKET_RESEARCH_AND_ROADMAP.md`'s Candidate System Features list (#8 and #13) - both flagged there as "low-effort, do independently of the rest of the list," since they're copy-only fixes with no schema/API work and no dependency on the still-pending GRA E-VAT/MoMo API research.
+1. **No tax-compliance guarantee disclaimer** - the research found this platform makes no such disclaimer anywhere, unlike every competitor reviewed (Finza's exact language: "helps organize business records... does not guarantee tax compliance, replace your accountant..."). Real legal exposure given there's still no GRA E-VAT integration. Added `docs/TERMS_AND_CONDITIONS.md` §13 "No Guarantee of Tax Compliance," adapting that pattern to explicitly name Ghana Revenue Authority and place responsibility for tax-treatment accuracy on the business/its accountant.
+2. **Header search bar over-promised what it does** - confirmed via code read that `Header.tsx`'s placeholder ("Search accounts, entries, reports... (Cmd+K)") and `CommandMenu.tsx`'s ("Type a command or search...") both imply real full-text search across financial data. The actual `CommandMenu.tsx` is a static list of 8 navigation shortcuts (Dashboard/Chart of Accounts/Journal Entries/General Ledger/Profit & Loss/Preferences/Light/Dark Mode) with no data-search logic at all - `cmdk`'s built-in filtering only matches against those 8 static labels. Changed both placeholders to honestly describe quick navigation ("Quick navigation... (Cmd+K)" / "Jump to a page or setting...") rather than building real cross-app search right now (a separate, much larger feature, still on the roadmap list as its own item).
+
+**Verification:** `tsc -b` (frontend) clean. Full backend suite (`npm test`) run twice in a row: 311/311 passing both times, including `legalAndEnforcement.test.ts`'s existing Terms-and-Conditions-fetch assertions (unaffected - no test asserts on exact Terms content). **Live manual verification**: started both dev servers, logged in as a real onboarded admin account, confirmed both new placeholder strings render correctly in the actual header search input and the Cmd+K command palette.
+**Files Affected:** `docs/TERMS_AND_CONDITIONS.md`, `frontend/src/components/layout/Header.tsx`, `frontend/src/components/ui/CommandMenu.tsx`.
+
 ## [Date: 2026-07-29] - Turn Features, How It Works, and the Legal Trust Center into Standalone Pages
 
 **What:** Continuing the same pattern just applied to the legal documents, the user asked for the landing page's remaining nav-bar anchor sections - "Features," "How It Works," and "Terms & SLA" - to become real standalone pages too, rather than same-page scroll anchors (`#features`/`#onboarding`/`#legal`).
