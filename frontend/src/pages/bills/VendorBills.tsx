@@ -5,6 +5,7 @@ import { Input } from "../../components/ui/Input";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
 import { Plus, CheckCircle, Building2, CreditCard, AlertCircle } from "lucide-react";
 
 interface Vendor {
@@ -26,6 +27,7 @@ interface VendorBill {
 }
 
 export function VendorBills() {
+  const { showToast } = useToast();
   const [bills, setBills] = useState<VendorBill[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -76,14 +78,14 @@ export function VendorBills() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to add vendor.");
+      showToast(err.response?.data?.error || "Failed to add vendor.", "error");
     }
   };
 
   const handleCreateBill = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedVendor) {
-      alert("Please select a vendor.");
+      showToast("Please select a vendor.", "error");
       return;
     }
     setIsSubmitting(true);
@@ -99,7 +101,7 @@ export function VendorBills() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to create vendor bill.");
+      showToast(err.response?.data?.error || "Failed to create vendor bill.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -112,7 +114,7 @@ export function VendorBills() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Payment recording failed.");
+      showToast(err.response?.data?.error || "Payment recording failed.", "error");
     }
   };
 

@@ -7,6 +7,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
+import { useToast } from "../../contexts/ToastContext";
 import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download, SlidersHorizontal, History, Printer, ClipboardCheck } from "lucide-react";
 
 interface StockAdjustment {
@@ -87,6 +88,7 @@ interface WarehouseData {
 }
 
 export function WarehouseManagement() {
+  const { showToast } = useToast();
   const [warehouses, setWarehouses] = useState<WarehouseData[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -196,7 +198,7 @@ export function WarehouseManagement() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to add warehouse.");
+      showToast(err.response?.data?.error || "Failed to add warehouse.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -224,7 +226,7 @@ export function WarehouseManagement() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to create item.");
+      showToast(err.response?.data?.error || "Failed to create item.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -233,7 +235,7 @@ export function WarehouseManagement() {
   const handleTransferStock = async (e: React.FormEvent) => {
     e.preventDefault();
     if (fromWarehouseId === toWarehouseId) {
-      alert("Source and destination warehouses must be different.");
+      showToast("Source and destination warehouses must be different.", "error");
       return;
     }
     setIsSubmitting(true);
@@ -251,7 +253,7 @@ export function WarehouseManagement() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Transfer failed.");
+      showToast(err.response?.data?.error || "Transfer failed.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -278,11 +280,11 @@ export function WarehouseManagement() {
   const handleAdjustSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!adjustItemId || !adjustWarehouseId) {
-      alert("Select both a product and a warehouse.");
+      showToast("Select both a product and a warehouse.", "error");
       return;
     }
     if (!adjustReason.trim()) {
-      alert("A reason is required for every stock adjustment.");
+      showToast("A reason is required for every stock adjustment.", "error");
       return;
     }
     setIsAdjusting(true);
@@ -300,7 +302,7 @@ export function WarehouseManagement() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to adjust stock.");
+      showToast(err.response?.data?.error || "Failed to adjust stock.", "error");
     } finally {
       setIsAdjusting(false);
     }
@@ -334,7 +336,7 @@ export function WarehouseManagement() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to generate stock sheet PDF:", err);
-      alert("Failed to generate stock sheet PDF.");
+      showToast("Failed to generate stock sheet PDF.", "error");
     } finally {
       setPrintingStockSheetId(null);
     }
@@ -399,14 +401,14 @@ export function WarehouseManagement() {
         });
 
         if (countsBySku.size === 0) {
-          alert("No valid rows found in that CSV. Make sure it has a header row with sku and countedQty columns.");
+          showToast("No valid rows found in that CSV. Make sure it has a header row with sku and countedQty columns.", "error");
           return;
         }
 
         setStockTakeRows((rows) => rows.map((r) => (countsBySku.has(r.sku) ? { ...r, countedQty: countsBySku.get(r.sku)! } : r)));
       },
       error: (err) => {
-        alert(`Failed to parse CSV: ${err.message}`);
+        showToast(`Failed to parse CSV: ${err.message}`, "error");
       },
     });
 
@@ -416,12 +418,12 @@ export function WarehouseManagement() {
   const proceedToStockTakePreview = () => {
     const missing = stockTakeRows.filter((r) => r.countedQty.trim() === "");
     if (missing.length > 0) {
-      alert(`Enter a counted quantity for every item before continuing (${missing.length} missing).`);
+      showToast(`Enter a counted quantity for every item before continuing (${missing.length} missing).`, "error");
       return;
     }
     const invalid = stockTakeRows.filter((r) => !Number.isInteger(Number(r.countedQty)) || Number(r.countedQty) < 0);
     if (invalid.length > 0) {
-      alert("Counted quantities must be whole numbers, zero or greater.");
+      showToast("Counted quantities must be whole numbers, zero or greater.", "error");
       return;
     }
     setStockTakeStep("preview");
@@ -444,7 +446,7 @@ export function WarehouseManagement() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to reconcile stock take.");
+      showToast(err.response?.data?.error || "Failed to reconcile stock take.", "error");
     } finally {
       setIsStockTakeSubmitting(false);
     }
@@ -500,7 +502,7 @@ export function WarehouseManagement() {
           }));
 
         if (parsedRows.length === 0) {
-          alert("No valid rows found in that CSV. Make sure it has a header row and at least one product name.");
+          showToast("No valid rows found in that CSV. Make sure it has a header row and at least one product name.", "error");
           return;
         }
 
@@ -508,7 +510,7 @@ export function WarehouseManagement() {
         setBulkResult(null);
       },
       error: (err) => {
-        alert(`Failed to parse CSV: ${err.message}`);
+        showToast(`Failed to parse CSV: ${err.message}`, "error");
       },
     });
 
@@ -525,7 +527,7 @@ export function WarehouseManagement() {
   const handleBulkSubmit = async () => {
     const rowsToSubmit = bulkRows.filter((row) => row.name.trim());
     if (rowsToSubmit.length === 0) {
-      alert("Add at least one product with a name before submitting.");
+      showToast("Add at least one product with a name before submitting.", "error");
       return;
     }
 
@@ -559,7 +561,7 @@ export function WarehouseManagement() {
         }
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Bulk import failed.");
+      showToast(err.response?.data?.error || "Bulk import failed.", "error");
     } finally {
       setIsBulkSubmitting(false);
     }

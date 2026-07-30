@@ -4,6 +4,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
 import { ShieldCheck, History, RefreshCw, Download, X } from "lucide-react";
 
 interface AuditLogItem {
@@ -49,6 +50,7 @@ function ChangesCell({ changes }: { changes?: Record<string, { from: unknown; to
 }
 
 export function AuditLogs() {
+  const { showToast } = useToast();
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
@@ -122,7 +124,7 @@ export function AuditLogs() {
       URL.revokeObjectURL(url);
     } catch (err) {
       console.error("Failed to export audit logs:", err);
-      alert("Failed to export audit logs.");
+      showToast("Failed to export audit logs.", "error");
     } finally {
       setIsExporting(false);
     }

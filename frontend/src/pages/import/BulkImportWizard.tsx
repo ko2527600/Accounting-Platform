@@ -4,10 +4,12 @@ import { Button } from "../../components/ui/Button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 import { useNavigate } from "react-router-dom";
+import { useToast } from "../../contexts/ToastContext";
 import { CheckCircle, AlertTriangle, ArrowRight, ArrowLeft } from "lucide-react";
 
 export function BulkImportWizard() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [importType] = useState<"accounts">("accounts");
 
@@ -25,7 +27,7 @@ export function BulkImportWizard() {
   const handleParseCsv = () => {
     const lines = rawCsv.split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length <= 1) {
-      alert("Please enter a header row and at least 1 data row.");
+      showToast("Please enter a header row and at least 1 data row.", "error");
       return;
     }
 
@@ -62,7 +64,7 @@ export function BulkImportWizard() {
         }
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Import execution failed.");
+      showToast(err.response?.data?.error || "Import execution failed.", "error");
     } finally {
       setIsSubmitting(false);
     }

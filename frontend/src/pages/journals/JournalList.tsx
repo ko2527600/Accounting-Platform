@@ -1,7 +1,8 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileSpreadsheet, Ban } from "lucide-react";
+import { Plus, Search, FileSpreadsheet, Ban, ArrowRightLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useJournals } from "../../hooks/useJournals";
+import { useToast } from "../../contexts/ToastContext";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Badge } from "../../components/ui/Badge";
@@ -19,6 +20,7 @@ export function JournalList() {
   const [searchTerm, setSearchTerm] = useState("");
   const [voidingId, setVoidingId] = useState<string | null>(null);
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   const handleVoid = async (id: string, entryLabel: string) => {
     if (!window.confirm(`Void journal entry ${entryLabel}? This cannot be undone.`)) return;
@@ -26,7 +28,7 @@ export function JournalList() {
     try {
       await voidJournal(id);
     } catch (err: any) {
-      alert(typeof err === "string" ? err : "Failed to void journal entry.");
+      showToast(typeof err === "string" ? err : "Failed to void journal entry.", "error");
     } finally {
       setVoidingId(null);
     }
@@ -35,7 +37,8 @@ export function JournalList() {
   const filteredJournals = useMemo(() => {
     return journals.filter((journal) =>
       journal.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      journal.id.includes(searchTerm)
+      journal.id.includes(searchTerm) ||
+      (journal.entryNumber || "").toLowerCase().includes(searchTerm.toLowerCase())
     );
   }, [journals, searchTerm]);
 
@@ -57,10 +60,16 @@ export function JournalList() {
             View and manage double-entry accounting records.
           </p>
         </div>
-        <Button onClick={() => navigate("/journals/new")}>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Entry
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => navigate("/journals/contra")}>
+            <ArrowRightLeft className="mr-2 h-4 w-4" />
+            Transfer Funds
+          </Button>
+          <Button onClick={() => navigate("/journals/new")}>
+            <Plus className="mr-2 h-4 w-4" />
+            Create Entry
+          </Button>
+        </div>
       </div>
 
       <div className="flex items-center">
@@ -104,7 +113,7 @@ export function JournalList() {
                     {journal.date}
                   </TableCell>
                   <TableCell className="font-medium text-secondary-900 dark:text-secondary-100">
-                    {journal.id}
+                    {journal.entryNumber || journal.id}
                   </TableCell>
                   <TableCell>
                     <span className="font-medium text-secondary-900 dark:text-secondary-50">

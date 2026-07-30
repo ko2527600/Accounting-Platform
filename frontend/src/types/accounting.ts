@@ -29,6 +29,7 @@ export interface JournalLine {
 
 export interface JournalEntry {
   id: string;
+  entryNumber?: string;
   date: string;
   description: string;
   status: JournalStatus;

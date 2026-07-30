@@ -5,6 +5,7 @@ import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
+import { useToast } from "../../contexts/ToastContext";
 import { ShoppingCart, Lock, Unlock, Receipt, AlertTriangle, CheckCircle2, XCircle, Search, Plus, Minus, Trash2 } from "lucide-react";
 
 interface WarehouseOption {
@@ -70,6 +71,7 @@ interface LastReceipt {
 }
 
 export function PointOfSale() {
+  const { showToast } = useToast();
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [till, setTill] = useState<CashTill | null>(null);
@@ -167,7 +169,7 @@ export function PointOfSale() {
         fetchTillAndItems();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to open till.");
+      showToast(err.response?.data?.error || "Failed to open till.", "error");
     } finally {
       setIsOpeningTill(false);
     }
@@ -278,7 +280,7 @@ export function PointOfSale() {
         setTill(null);
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to close till.");
+      showToast(err.response?.data?.error || "Failed to close till.", "error");
     } finally {
       setIsClosing(false);
     }

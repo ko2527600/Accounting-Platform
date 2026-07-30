@@ -42,7 +42,7 @@ export function CommandMenu() {
         <Search className="mr-2 h-4 w-4 shrink-0 text-secondary-500" />
         <Command.Input
           className="flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-secondary-400 disabled:cursor-not-allowed disabled:opacity-50 text-secondary-900 dark:text-secondary-50"
-          placeholder="Type a command or search..."
+          placeholder="Jump to a page or setting..."
         />
       </div>
       

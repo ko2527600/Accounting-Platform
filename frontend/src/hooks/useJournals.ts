@@ -18,6 +18,7 @@ export function useJournals() {
           
           return {
             id: je.id,
+            entryNumber: je.entryNumber,
             date: new Date(je.entryDate).toISOString().split('T')[0],
             description: je.description || '',
             status: je.status.charAt(0).toUpperCase() + je.status.slice(1).toLowerCase(), // 'POSTED' -> 'Posted'
@@ -78,6 +79,35 @@ export function useJournals() {
     }
   }, [fetchJournals]);
 
+  const createContraVoucher = useCallback(async (data: {
+    entryDate: string;
+    fromAccountId: string;
+    toAccountId: string;
+    amount: number;
+    description?: string;
+  }) => {
+    setIsLoading(true);
+    try {
+      const payload = {
+        entryDate: new Date(data.entryDate).toISOString(),
+        fromAccountId: data.fromAccountId,
+        toAccountId: data.toAccountId,
+        amount: Number(data.amount),
+        description: data.description,
+      };
+      const response = await api.post('/journal-entries/contra', payload);
+      if (response.data.success) {
+        await fetchJournals();
+        return response.data.data.journalEntry;
+      }
+    } catch (error: any) {
+      console.error('Failed to record Contra Voucher:', error);
+      throw error.response?.data?.error || error.message || 'Failed to record Contra Voucher';
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchJournals]);
+
   const voidJournal = useCallback(async (id: string) => {
     setIsLoading(true);
     try {
@@ -103,6 +133,7 @@ export function useJournals() {
     isLoading,
     fetchJournals,
     postJournal,
+    createContraVoucher,
     voidJournal
   };
 }

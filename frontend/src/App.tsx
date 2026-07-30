@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
+import { ToastProvider } from "./contexts/ToastContext";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
@@ -10,6 +11,10 @@ import { Register } from "./pages/auth/Register";
 import { AcceptInvitation } from "./pages/auth/AcceptInvitation";
 import { Verification } from "./pages/auth/Verification";
 import { LandingPage } from "./pages/landing/LandingPage";
+import { FeaturesPage } from "./pages/landing/FeaturesPage";
+import { HowItWorksPage } from "./pages/landing/HowItWorksPage";
+import { LegalHubPage } from "./pages/legal/LegalHubPage";
+import { LegalDocumentPage } from "./pages/legal/LegalDocumentPage";
 import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
 import { Settings } from "./pages/settings/Settings";
@@ -30,8 +35,10 @@ import { InventoryIntelligence } from "./pages/analytics/InventoryIntelligence";
 import { ExecutiveReports } from "./pages/reports/ExecutiveReports";
 import { JournalList } from "./pages/journals/JournalList";
 import { JournalBuilder } from "./components/journals/JournalBuilder";
+import { ContraVoucher } from "./pages/journals/ContraVoucher";
 import { GeneralLedger } from "./pages/reports/GeneralLedger";
 import { ProfitAndLoss } from "./pages/reports/ProfitAndLoss";
+import { BalanceSheet } from "./pages/reports/BalanceSheet";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 import { useTenantSettings } from "./hooks/useTenantSettings";
@@ -106,23 +113,37 @@ const Dashboard = () => {
   );
 };
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { token, isLoading } = useAuth();
-  
+// Roles that are NOT allowed into raw Settings screens (Workspace Settings,
+// Tax Rates, Fiscal Periods, Recurring Transactions) even by typing the URL
+// directly - the Sidebar already hides the link for these roles, but that's
+// just UX; this is the actual access-control gate. Backend already rejects
+// the underlying writes (`requireRole('Admin')` on `PUT /tenants/current`,
+// etc.), but a Shop Manager/Cashier/HR/Auditor shouldn't be able to browse
+// into the settings UI at all, per the "only the boss changes settings" rule.
+const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "auditor"]);
+
+function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode; blockedRoles?: Set<string> }) {
+  const { token, isLoading, user } = useAuth();
+
   if (isLoading) {
     return <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900">Loading...</div>;
   }
-  
+
   if (!token) {
     return <Navigate to="/login" replace />;
   }
-  
+
+  if (blockedRoles && blockedRoles.has((user?.role || "").toLowerCase().trim())) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
   return <>{children}</>;
 }
 
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
+      <ToastProvider>
       <AuthProvider>
         <BrowserRouter>
           <CommandMenu />
@@ -132,15 +153,19 @@ function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/accept-invite" element={<AcceptInvitation />} />
             <Route path="/verify-account" element={<Verification />} />
+            <Route path="/features" element={<FeaturesPage />} />
+            <Route path="/how-it-works" element={<HowItWorksPage />} />
+            <Route path="/legal" element={<LegalHubPage />} />
+            <Route path="/legal/:policyName" element={<LegalDocumentPage />} />
             <Route path="/admin/core-engine" element={<AdminCoreEngine />} />
             
             {/* Protected Routes */}
             <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/tax-rates" element={<ProtectedRoute><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/fiscal-periods" element={<ProtectedRoute><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/recurring-transactions" element={<ProtectedRoute><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/tax-rates" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
@@ -155,14 +180,17 @@ function App() {
             <Route path="/reports/executive" element={<ProtectedRoute><MainLayout><ExecutiveReports /></MainLayout></ProtectedRoute>} />
             <Route path="/journals" element={<ProtectedRoute><MainLayout><JournalList /></MainLayout></ProtectedRoute>} />
             <Route path="/journals/new" element={<ProtectedRoute><MainLayout><JournalBuilder /></MainLayout></ProtectedRoute>} />
+            <Route path="/journals/contra" element={<ProtectedRoute><MainLayout><ContraVoucher /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/ledger" element={<ProtectedRoute><MainLayout><GeneralLedger /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
       </AuthProvider>
+      </ToastProvider>
     </ThemeProvider>
   );
 }

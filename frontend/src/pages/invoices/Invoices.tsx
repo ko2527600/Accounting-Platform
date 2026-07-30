@@ -5,6 +5,7 @@ import { Input } from "../../components/ui/Input";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
 import { Plus, CheckCircle, UserPlus, DollarSign, Clock } from "lucide-react";
 
 interface Customer {
@@ -42,6 +43,7 @@ interface Invoice {
 }
 
 export function Invoices() {
+  const { showToast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
@@ -98,14 +100,14 @@ export function Invoices() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to add customer.");
+      showToast(err.response?.data?.error || "Failed to add customer.", "error");
     }
   };
 
   const handleCreateInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!selectedCustomer) {
-      alert("Please select or add a customer first.");
+      showToast("Please select or add a customer first.", "error");
       return;
     }
     setIsSubmitting(true);
@@ -122,7 +124,7 @@ export function Invoices() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Failed to create invoice.");
+      showToast(err.response?.data?.error || "Failed to create invoice.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -135,7 +137,7 @@ export function Invoices() {
         fetchData();
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Payment recording failed.");
+      showToast(err.response?.data?.error || "Payment recording failed.", "error");
     }
   };
 

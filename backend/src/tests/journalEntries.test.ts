@@ -562,4 +562,100 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(getT2IdFromT1.status).toBe(404);
     });
   });
+
+  describe('8. Contra Voucher (internal transfer between own cash/bank accounts)', () => {
+    let bankAccountId1: string;
+
+    beforeAll(async () => {
+      const bankAcc = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ code: '1020', name: 'Bank', type: 'ASSET' });
+      bankAccountId1 = bankAcc.body.data.account.id;
+    });
+
+    it('records a contra voucher as a balanced, immediately-posted, CV-numbered journal entry', async () => {
+      const res = await request(app)
+        .post('/api/v1/journal-entries/contra')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          entryDate: '2026-01-15',
+          fromAccountId: cashAccountId1,
+          toAccountId: bankAccountId1,
+          amount: 500,
+          description: 'Weekly till deposit',
+        });
+
+      expect(res.status).toBe(201);
+      const entry = res.body.data.journalEntry;
+      expect(entry.entryNumber).toMatch(/^CV-/);
+      expect(entry.status).toBe('POSTED');
+      expect(entry.description).toContain('Contra Voucher');
+      expect(entry.description).toContain('Weekly till deposit');
+      expect(entry.lines).toHaveLength(2);
+
+      const toLine = entry.lines.find((l: any) => l.accountId === bankAccountId1);
+      const fromLine = entry.lines.find((l: any) => l.accountId === cashAccountId1);
+      expect(Number(toLine.debit)).toBe(500);
+      expect(Number(toLine.credit)).toBe(0);
+      expect(Number(fromLine.debit)).toBe(0);
+      expect(Number(fromLine.credit)).toBe(500);
+    });
+
+    it('rejects a transfer where the source and destination account are the same', async () => {
+      const res = await request(app)
+        .post('/api/v1/journal-entries/contra')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ fromAccountId: cashAccountId1, toAccountId: cashAccountId1, amount: 100 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/must be different/i);
+    });
+
+    it('rejects a non-positive transfer amount', async () => {
+      const res = await request(app)
+        .post('/api/v1/journal-entries/contra')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ fromAccountId: cashAccountId1, toAccountId: bankAccountId1, amount: 0 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/positive number/i);
+    });
+
+    it('rejects a transfer involving a non-Asset account (e.g. Revenue)', async () => {
+      const res = await request(app)
+        .post('/api/v1/journal-entries/contra')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ fromAccountId: cashAccountId1, toAccountId: revenueAccountId1, amount: 100 });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toMatch(/Asset accounts/i);
+    });
+
+    it('blocks a Viewer from recording a Contra Voucher (Accountant role required)', async () => {
+      const res = await request(app)
+        .post('/api/v1/journal-entries/contra')
+        .set('Authorization', `Bearer ${viewerToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ fromAccountId: cashAccountId1, toAccountId: bankAccountId1, amount: 100 });
+
+      expect(res.status).toBe(403);
+    });
+
+    it('surfaces the Contra Voucher in the regular journal entries list, distinguishable by its CV- entry number', async () => {
+      const listRes = await request(app)
+        .get('/api/v1/journal-entries')
+        .set('Authorization', `Bearer ${adminToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      expect(listRes.status).toBe(200);
+      const contraEntries = listRes.body.data.journalEntries.filter((e: any) => e.entryNumber.startsWith('CV-'));
+      expect(contraEntries.length).toBeGreaterThanOrEqual(1);
+    });
+  });
 });
