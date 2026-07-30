@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-30] - Add Balance Sheet Frontend Page (Item #5 on the Ghana Market Research Roadmap)
+
+**What:** Third item off the roadmap doc's quick-win list. `getBalanceSheet` (`reportingService.ts`) and its route (`GET /api/v1/reports/balance-sheet`) already existed and were fully correct - confirmed by direct API testing (returns real `assets`/`liabilities`/`equity` breakdowns, `retainedEarnings`, and an `isBalanced` check) - but no frontend page ever consumed it, so a real, working report was invisible to actual users.
+
+**Fix:** New `frontend/src/hooks/useBalanceSheet.ts` (mirrors `useProfitAndLoss.ts`'s exact pattern) and `frontend/src/pages/reports/BalanceSheet.tsx` (mirrors `ProfitAndLoss.tsx`'s exact layout/styling - report header, per-section account lists with totals, Print/Export PDF/Export CSV actions) at new route `/reports/balance-sheet`. Added to `Sidebar.tsx`'s "REPORTS & ANALYTICS" group and to the Auditor role's restricted nav allow-list (added earlier this session) since Balance Sheet is core financial-review content Auditors need. The final section shows Total Liabilities & Equity alongside a live balanced/unbalanced indicator driven by the backend's own `isBalanced` check, rather than trusting the numbers to visually match up.
+
+**Verification:** `tsc -b` clean. **Live manual verification**: started both dev servers, onboarded a real tenant, created and posted a real journal entry (Cash debit / Owner Equity credit, GH 5,000), confirmed the API returns correctly balanced data, then loaded the actual `/reports/balance-sheet` page in a real browser and confirmed it renders the real Cash/Owner Equity amounts, correct totals, and the "Assets = Liabilities + Equity (balanced)" indicator - not a mocked/placeholder screenshot.
+**Files Affected:** `frontend/src/hooks/useBalanceSheet.ts` (new), `frontend/src/pages/reports/BalanceSheet.tsx` (new), `frontend/src/App.tsx`, `frontend/src/components/layout/Sidebar.tsx`.
+
 ## [Date: 2026-07-29] - Ghana Market Research Follow-Through: Tax-Compliance Disclaimer + Honest Search-Bar Copy
 
 **What:** First two items off `docs/GHANA_MARKET_RESEARCH_AND_ROADMAP.md`'s Candidate System Features list (#8 and #13) - both flagged there as "low-effort, do independently of the rest of the list," since they're copy-only fixes with no schema/API work and no dependency on the still-pending GRA E-VAT/MoMo API research.

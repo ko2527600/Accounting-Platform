@@ -36,6 +36,7 @@ import { JournalList } from "./pages/journals/JournalList";
 import { JournalBuilder } from "./components/journals/JournalBuilder";
 import { GeneralLedger } from "./pages/reports/GeneralLedger";
 import { ProfitAndLoss } from "./pages/reports/ProfitAndLoss";
+import { BalanceSheet } from "./pages/reports/BalanceSheet";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 import { useTenantSettings } from "./hooks/useTenantSettings";
@@ -178,6 +179,7 @@ function App() {
             <Route path="/journals/new" element={<ProtectedRoute><MainLayout><JournalBuilder /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/ledger" element={<ProtectedRoute><MainLayout><GeneralLedger /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

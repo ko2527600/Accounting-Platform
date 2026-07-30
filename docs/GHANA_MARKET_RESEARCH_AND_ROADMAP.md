@@ -200,7 +200,7 @@ In rough order of how compliance-critical they appear from research so far - **t
 2. Layered Ghana tax levy breakdown (NHIL/GETFund/COVID or WHT/VAT) on invoices - moved up in confidence (not necessarily urgency) since a real competitor (Finza) already ships this.
 3. Mobile Money account type + reconciliation (MTN MoMo, Vodafone Cash, AT Money) - need to research whether these have a programmatic API (like Mono for banks) or require a different integration approach.
 4. Cash Flow Statement report (frontend + likely backend service function, mirroring how `getBalanceSheet`/`getProfitAndLoss` are already structured).
-5. Balance Sheet frontend page (backend already exists - this is a smaller, frontend-only gap).
+5. **[DONE 2026-07-30]** ~~Balance Sheet frontend page (backend already exists - this is a smaller, frontend-only gap)~~ - built `BalanceSheet.tsx`/`useBalanceSheet.ts`, mirroring `ProfitAndLoss.tsx`'s pattern, at `/reports/balance-sheet`. See STATUS.md.
 6. Credit Note / Debit Note entity + correction flow - confirmed as a real gap (not just theorized), independently useful even before E-VAT work lands (general invoice correction/refund need, not solely a compliance feature).
 6b. Contra Voucher (internal transfer between the business's own cash/bank/till accounts) - confirmed real gap; likely a small, self-contained feature (a constrained two-account journal entry with its own UI/numbering) - possibly worth doing early as a quick win relative to the bigger items on this list.
 7. Real billing/plan enforcement tied to `tenant.tier` - separate track (see pricing-strategy discussion), not part of the Ghana-compliance research thread, but noted here since it came up in the same conversation.

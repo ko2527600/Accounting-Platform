@@ -21,6 +21,7 @@ import {
   Target,
   Repeat,
   ShoppingCart,
+  Scale,
 } from "lucide-react";
 
 interface NavGroup {
@@ -71,6 +72,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Executive Reports", href: "/reports/executive", icon: BarChart3 },
       { name: "General Ledger", href: "/reports/ledger", icon: BookOpen },
       { name: "Profit & Loss", href: "/reports/pnl", icon: PieChart },
+      { name: "Balance Sheet", href: "/reports/balance-sheet", icon: Scale },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
@@ -109,6 +111,7 @@ const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/executive",
     "/reports/ledger",
     "/reports/pnl",
+    "/reports/balance-sheet",
     "/reports/budgets",
     "/audit-logs",
   ],
