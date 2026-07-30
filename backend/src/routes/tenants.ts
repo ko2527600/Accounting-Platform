@@ -383,6 +383,70 @@ router.put('/members/:id/warehouse-access', authenticateJwt, tenantContextMiddle
 });
 
 /**
+ * PUT /api/v1/tenants/members/:id/role (Admin only)
+ * Changes an existing team member's role. Role is otherwise only ever set
+ * once, at invite time - this is the first way to change it afterward.
+ * Note: role is baked into the member's JWT at login, so this takes effect
+ * the next time they log in, not on their currently active session.
+ */
+router.put('/members/:id/role', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    const { id } = req.params;
+    const { role } = req.body;
+
+    if (typeof role !== 'string' || !CLOSED_ROLES.includes(role as any)) {
+      return res.status(400).json({
+        success: false,
+        error: `Role must be one of: ${CLOSED_ROLES.join(', ')}.`,
+      });
+    }
+
+    const member = await prisma.user.findFirst({ where: { id, tenantId } });
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Team member not found.' });
+    }
+
+    if (member.role === role) {
+      return res.status(200).json({ success: true, message: 'Member already has this role.', data: { role } });
+    }
+
+    // Never allow a tenant to lock itself out by demoting its last Admin.
+    if (member.role === 'Admin' && role !== 'Admin') {
+      const otherAdmins = await prisma.user.count({ where: { tenantId, role: 'Admin', isActive: true, id: { not: id } } });
+      if (otherAdmins === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot change this role - they are the only Admin on this workspace. Promote another member to Admin first.',
+        });
+      }
+    }
+
+    const previousRole = member.role;
+    const updated = await prisma.user.update({ where: { id }, data: { role } });
+
+    await recordAuditLog({
+      action: 'TEAM_MEMBER.ROLE_CHANGED',
+      entity: 'User',
+      entityId: id,
+      tenantId,
+      actor: actorFromRequest(req),
+      changes: { role: { from: previousRole, to: role } },
+      details: `Role changed for team member ${member.email} (${previousRole} -> ${role}).`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Role updated. This takes effect the next time the member logs in.',
+      data: { id: updated.id, role: updated.role },
+    });
+  } catch (error: any) {
+    console.error('[TenantMembers] Error updating member role:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update team member role.' });
+  }
+});
+
+/**
  * GET /api/v1/tenants/invitations (Admin / Accountant)
  * Returns all pending invitations for the current tenant.
  */

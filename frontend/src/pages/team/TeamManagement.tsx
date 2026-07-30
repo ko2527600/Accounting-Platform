@@ -7,7 +7,7 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
-import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2 } from "lucide-react";
+import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2, UserCog } from "lucide-react";
 
 const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier", "HR"] as const;
 const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier"]);
@@ -62,6 +62,11 @@ export function TeamManagement() {
   const [accessModalMember, setAccessModalMember] = useState<Member | null>(null);
   const [accessWarehouseIds, setAccessWarehouseIds] = useState<string[]>([]);
   const [isSavingAccess, setIsSavingAccess] = useState(false);
+
+  // Change Role Modal State
+  const [roleModalMember, setRoleModalMember] = useState<Member | null>(null);
+  const [newRole, setNewRole] = useState<string>("");
+  const [isSavingRole, setIsSavingRole] = useState(false);
 
   const fetchTeamData = useCallback(async () => {
     setIsLoading(true);
@@ -185,6 +190,28 @@ export function TeamManagement() {
     }
   };
 
+  const openRoleModal = (member: Member) => {
+    setRoleModalMember(member);
+    setNewRole(member.role);
+  };
+
+  const handleSaveRole = async () => {
+    if (!roleModalMember || !newRole) return;
+    setIsSavingRole(true);
+    try {
+      const res = await api.put(`/tenants/members/${roleModalMember.id}/role`, { role: newRole });
+      if (res.data.success) {
+        setRoleModalMember(null);
+        showToast(`Role updated to ${newRole}. This takes effect the next time ${roleModalMember.name} logs in.`, "success");
+        fetchTeamData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to update role.", "error");
+    } finally {
+      setIsSavingRole(false);
+    }
+  };
+
   const isAdmin = user?.role === "Admin";
 
   return (
@@ -283,7 +310,11 @@ export function TeamManagement() {
                       </span>
                     </TableCell>
                     {isAdmin && (
-                      <TableCell className="text-right">
+                      <TableCell className="text-right space-x-2">
+                        <Button variant="outline" size="sm" onClick={() => openRoleModal(member)} className="inline-flex items-center text-xs">
+                          <UserCog className="mr-1.5 h-3.5 w-3.5" />
+                          Change Role
+                        </Button>
                         {isLocationScopedRole(member.role) && (
                           <Button variant="outline" size="sm" onClick={() => openAccessModal(member)} className="inline-flex items-center text-xs">
                             <Settings2 className="mr-1.5 h-3.5 w-3.5" />
@@ -473,6 +504,35 @@ export function TeamManagement() {
             <Button type="button" variant="outline" onClick={() => setAccessModalMember(null)}>Cancel</Button>
             <Button type="button" variant="primary" onClick={handleSaveAccess} disabled={isSavingAccess}>
               {isSavingAccess ? "Saving..." : "Save Access"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Change Role Modal */}
+      <Modal isOpen={!!roleModalMember} onClose={() => setRoleModalMember(null)} title={`Change Role${roleModalMember ? ` — ${roleModalMember.name}` : ""}`}>
+        <div className="space-y-4">
+          <p className="text-xs text-secondary-500">
+            Changing a role takes effect the next time {roleModalMember?.name} logs in - not on their currently active session.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+              New Role
+            </label>
+            <select
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+              value={newRole}
+              onChange={(e) => setNewRole(e.target.value)}
+            >
+              {CLOSED_ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setRoleModalMember(null)}>Cancel</Button>
+            <Button type="button" variant="primary" onClick={handleSaveRole} disabled={isSavingRole || newRole === roleModalMember?.role}>
+              {isSavingRole ? "Saving..." : "Save Role"}
             </Button>
           </div>
         </div>
