@@ -119,6 +119,44 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 });
 
 /**
+ * POST /api/v1/journal-entries/contra
+ * Description: Record a Contra Voucher - an internal fund transfer between
+ * two of the business's own cash/bank accounts (e.g. "till to bank").
+ * Posts immediately to the ledger (it records a transfer that already
+ * happened, not a draft to review later).
+ * Access: Accountant role or higher
+ */
+router.post('/contra', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { entryDate, fromAccountId, toAccountId, amount, description } = req.body;
+    const journalEntry = await journalEntryService.createContraVoucher(
+      { entryDate, fromAccountId, toAccountId, amount, description },
+      actorFromRequest(req)
+    );
+    res.status(201).json({
+      success: true,
+      message: 'Contra Voucher recorded successfully',
+      data: {
+        journalEntry,
+      },
+    });
+  } catch (error: any) {
+    if (error instanceof JournalEntryServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    console.error('CREATE CONTRA VOUCHER 500 ERROR:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while creating Contra Voucher.',
+    });
+  }
+});
+
+/**
  * POST /api/v1/journal-entries/:id/post
  * Description: Post a draft journal entry to the general ledger.
  * Access: Accountant role or higher

@@ -34,6 +34,7 @@ import { InventoryIntelligence } from "./pages/analytics/InventoryIntelligence";
 import { ExecutiveReports } from "./pages/reports/ExecutiveReports";
 import { JournalList } from "./pages/journals/JournalList";
 import { JournalBuilder } from "./components/journals/JournalBuilder";
+import { ContraVoucher } from "./pages/journals/ContraVoucher";
 import { GeneralLedger } from "./pages/reports/GeneralLedger";
 import { ProfitAndLoss } from "./pages/reports/ProfitAndLoss";
 import { BalanceSheet } from "./pages/reports/BalanceSheet";
@@ -177,6 +178,7 @@ function App() {
             <Route path="/reports/executive" element={<ProtectedRoute><MainLayout><ExecutiveReports /></MainLayout></ProtectedRoute>} />
             <Route path="/journals" element={<ProtectedRoute><MainLayout><JournalList /></MainLayout></ProtectedRoute>} />
             <Route path="/journals/new" element={<ProtectedRoute><MainLayout><JournalBuilder /></MainLayout></ProtectedRoute>} />
+            <Route path="/journals/contra" element={<ProtectedRoute><MainLayout><ContraVoucher /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/ledger" element={<ProtectedRoute><MainLayout><GeneralLedger /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />

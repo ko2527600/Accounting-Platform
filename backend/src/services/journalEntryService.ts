@@ -185,6 +185,77 @@ export async function createJournalEntry(data: CreateJournalEntryInput, actor?: 
   return entry;
 }
 
+export interface CreateContraVoucherInput {
+  entryDate?: string | Date;
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+  description?: string;
+}
+
+/**
+ * A Contra Voucher is an internal fund transfer between two of the
+ * business's own cash/bank accounts (e.g. "till to bank"). It's a
+ * constrained, exactly-two-line journal entry: destination account is
+ * debited, source account is credited, both for the same amount. Uses a
+ * distinct `CV-` entryNumber prefix (vs. the generic `JE-`) as the
+ * discriminator between contra vouchers and regular journal entries -
+ * no separate schema column needed since createJournalEntry already
+ * accepts a caller-supplied entryNumber.
+ */
+export async function createContraVoucher(data: CreateContraVoucherInput, actor?: AuditActor): Promise<JournalEntryRecord> {
+  if (!data.fromAccountId || typeof data.fromAccountId !== 'string') {
+    throw new JournalEntryServiceError('A source ("from") account is required.', 400);
+  }
+  if (!data.toAccountId || typeof data.toAccountId !== 'string') {
+    throw new JournalEntryServiceError('A destination ("to") account is required.', 400);
+  }
+  if (data.fromAccountId === data.toAccountId) {
+    throw new JournalEntryServiceError('The source and destination accounts must be different.', 400);
+  }
+  const amount = Number(data.amount);
+  if (isNaN(amount) || amount <= 0) {
+    throw new JournalEntryServiceError('Transfer amount must be a positive number.', 400);
+  }
+
+  const { fromAccount, toAccount } = await withCurrentTenantDb(prisma, async (client) => {
+    const fromAccount = await accountRepository.getAccountById(client, data.fromAccountId);
+    if (!fromAccount) {
+      throw new JournalEntryServiceError(`Source account with ID "${data.fromAccountId}" does not exist.`, 400);
+    }
+    const toAccount = await accountRepository.getAccountById(client, data.toAccountId);
+    if (!toAccount) {
+      throw new JournalEntryServiceError(`Destination account with ID "${data.toAccountId}" does not exist.`, 400);
+    }
+    if (fromAccount.type !== 'ASSET' || toAccount.type !== 'ASSET') {
+      throw new JournalEntryServiceError(
+        'Contra Vouchers can only transfer funds between Asset accounts (cash/bank/till).',
+        400
+      );
+    }
+    return { fromAccount, toAccount };
+  });
+
+  const entryNumber = `CV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const description = data.description?.trim()
+    ? `Contra Voucher: ${fromAccount.name} → ${toAccount.name} - ${data.description.trim()}`
+    : `Contra Voucher: ${fromAccount.name} → ${toAccount.name}`;
+
+  return createJournalEntry(
+    {
+      entryNumber,
+      entryDate: data.entryDate,
+      description,
+      status: 'POSTED',
+      lines: [
+        { accountId: data.toAccountId, debit: amount, credit: 0 },
+        { accountId: data.fromAccountId, debit: 0, credit: amount },
+      ],
+    },
+    actor
+  );
+}
+
 export async function listJournalEntries(
   filter?: ListJournalEntriesFilter
 ): Promise<JournalEntryRecord[]> {
