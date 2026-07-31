@@ -308,6 +308,7 @@ model Invoice {
   customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
   taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
   items         InvoiceItem[]
+  creditNotes   CreditNote[]
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
@@ -315,6 +316,40 @@ model Invoice {
   @@index([status])
   @@index([taxRateId])
   @@map("invoices")
+}
+
+// A correction/refund against an already-issued Invoice (returned goods,
+// overcharge, negotiated discount, etc.). Because this platform only
+// recognizes revenue at payment time (see invoices.ts's `/pay` handler -
+// there is no separate Accounts Receivable posting at invoice creation),
+// the correct accounting treatment genuinely differs by whether the invoice
+// has been paid yet, and `method` records which path was taken rather than
+// leaving it to be inferred later from whether `journalId` happens to be set:
+//  - INVOICE_REDUCTION (invoice still unpaid): nothing has been posted to
+//    the ledger yet, so the credit note simply reduces what the invoice will
+//    charge on payment - no journal entry.
+//  - JOURNAL_REVERSAL (invoice already paid): revenue and cash were already
+//    recognized at the original total, so the credit note posts a real
+//    reversing entry (Debit Revenue, Credit Cash) and leaves the invoice's
+//    own total/status untouched as the historical record of what was paid.
+model CreditNote {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  creditNoteNumber String   @map("credit_note_number")
+  invoiceId        String   @map("invoice_id")
+  amount           Decimal  @db.Decimal(15, 2)
+  reason           String
+  method           String
+  journalId        String?  @map("journal_id")
+  issueDate        DateTime @default(now()) @map("issue_date")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  invoice          Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, creditNoteNumber])
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("credit_notes")
 }
 
 model InvoiceItem {
@@ -375,6 +410,7 @@ model VendorBill {
   vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   warehouse  Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
   lines      VendorBillLine[]
+  debitNotes DebitNote[]
 
   landedCostForBill VendorBill?  @relation("LandedCostLink", fields: [landedCostForBillId], references: [id], onDelete: SetNull)
   landedCostBills   VendorBill[] @relation("LandedCostLink")
@@ -386,6 +422,34 @@ model VendorBill {
   @@index([warehouseId])
   @@index([landedCostForBillId])
   @@map("vendor_bills")
+}
+
+// Mirror of CreditNote for the AP side: a correction/refund against an
+// already-issued VendorBill. Same reasoning as CreditNote applies since
+// bills.ts's `/pay` handler recognizes the expense only at payment time:
+//  - BILL_REDUCTION (bill still unpaid): reduces what the bill will charge
+//    on payment, no journal entry since nothing was posted yet.
+//  - JOURNAL_REVERSAL (bill already paid): posts a real reversing entry
+//    (Debit Cash, Credit Expense - money refunded by the vendor) and leaves
+//    the bill's own amount/status untouched as the historical payment record.
+model DebitNote {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  debitNoteNumber String   @map("debit_note_number")
+  billId          String   @map("bill_id")
+  amount          Decimal  @db.Decimal(15, 2)
+  reason          String
+  method          String
+  journalId       String?  @map("journal_id")
+  issueDate       DateTime @default(now()) @map("issue_date")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  bill            VendorBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, debitNoteNumber])
+  @@index([tenantId])
+  @@index([billId])
+  @@map("debit_notes")
 }
 
 model VendorBillLine {

@@ -14,6 +14,9 @@ import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowServic
 import * as fxRateService from '../services/fxRateService';
 import { FxRateServiceError } from '../services/fxRateService';
 import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
+import * as creditDebitNoteService from '../services/creditDebitNoteService';
+import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService';
+import { JournalEntryServiceError } from '../services/journalEntryService';
 
 const router = Router();
 
@@ -287,6 +290,40 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to record invoice payment.' });
+  }
+});
+
+/**
+ * GET /api/v1/invoices/:id/credit-notes
+ * Lists all credit notes issued against an invoice.
+ */
+router.get('/:id/credit-notes', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const notes = await creditDebitNoteService.listCreditNotesForInvoice(req.params.id);
+    res.status(200).json({ success: true, data: { creditNotes: notes } });
+  } catch (error: any) {
+    console.error('[Invoices] Error listing credit notes:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve credit notes.' });
+  }
+});
+
+/**
+ * POST /api/v1/invoices/:id/credit-notes
+ * Issues a Credit Note against an invoice (returned goods, overcharge, discount).
+ * Reduces the invoice's total if unpaid; posts a reversing journal entry if already paid.
+ */
+router.post('/:id/credit-notes', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const note = await creditDebitNoteService.createCreditNote(req.params.id, req.body, actor);
+    res.status(201).json({ success: true, message: 'Credit note issued successfully.', data: { creditNote: note } });
+  } catch (error: any) {
+    if (error instanceof CreditDebitNoteServiceError || error instanceof JournalEntryServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Invoices] Error issuing credit note:', error);
+    res.status(500).json({ success: false, error: 'Failed to issue credit note.' });
   }
 });
 

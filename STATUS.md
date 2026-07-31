@@ -2,6 +2,22 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-31] - Credit Notes (AR) and Debit Notes (AP)
+
+**What:** Closes item 6 from `GHANA_MARKET_RESEARCH_AND_ROADMAP.md`'s Candidate System Features list - a confirmed real gap (general invoice/bill correction and refund flow, not just a compliance nicety). Investigation found this platform recognizes revenue/expense only at payment time (`invoices.ts`'s and `bills.ts`'s `/pay` handlers post directly to Cash+Revenue or Cash+Expense - there's no separate Accounts Receivable/Payable ledger posting at creation time), so the textbook "always debit AR, credit Revenue" treatment doesn't actually apply here. The correct treatment genuinely depends on whether the invoice/bill has already been paid:
+
+- **Unpaid invoice/bill**: nothing has been posted to the ledger yet, so the note simply reduces what will be charged on payment - no journal entry (`method: 'INVOICE_REDUCTION'` / `'BILL_REDUCTION'`).
+- **Paid invoice/bill**: revenue/expense and cash were already recognized at the original total, so the note posts a real reversing journal entry (Credit Note: Debit Revenue, Credit Cash - a refund out; Debit Note: Debit Cash, Credit Expense - a refund in) and leaves the invoice/bill's own total/status untouched as the historical record of what was actually paid (`method: 'JOURNAL_REVERSAL'`).
+
+New `CreditNote`/`DebitNote` models (public-schema, tenantId-filtered, unique note numbers `CN-`/`DN-`) record which path was taken explicitly - not left to be inferred later from whether `journalId` happens to be null. A cap check prevents over-crediting/over-debiting past the original amount, correctly accounting for the fact that `INVOICE_REDUCTION`/`BILL_REDUCTION` notes are already baked into the invoice/bill's live total while `JOURNAL_REVERSAL` notes are not.
+
+New `backend/src/services/creditDebitNoteService.ts` (shared logic for both sides, mirroring the symmetry between `invoices.ts` and `bills.ts`), wired as `POST/GET /invoices/:id/credit-notes` and `POST/GET /bills/:id/debit-notes`. Frontend: a "Credit Note"/"Debit Note" button per row on `Invoices.tsx`/`VendorBills.tsx` opening a modal (amount, reason, prior-notes history) with context-aware copy explaining which treatment will apply.
+
+**Scope note (documented, not silently omitted):** this is a financial correction only - it does not adjust inventory stock, even though a debit note commonly represents goods physically returned to a vendor. Tying stock reversal to a financial correction is a distinct concern from what this pass covers.
+
+**Verification:** `tsc --noEmit` (backend) and `tsc -b` (frontend) both clean. New `backend/src/tests/creditDebitNotes.test.ts` (11 tests): unpaid-path reduction verified against the invoice/bill list; paid-path reversal verified against real ledger balance changes (`GET /ledgers/summary`) before/after, not just journal existence; over-crediting/over-debiting rejected; missing reason/non-positive amount rejected; cross-tenant 404; history listing. Full backend suite run twice in a row: 378/378 passing both times. **Live verification** against real dev servers via Playwright: issued a credit note against an unpaid $1,000 invoice (reduced to $700, Total Outstanding AR dropped accordingly) and against an already-paid $800 invoice (total stayed $800, real reversal posted); issued a debit note against an already-paid $300 vendor bill (amount stayed $300, real reversal posted) - all confirmed via the actual running UI, not just tests.
+**Files Affected:** `backend/prisma/schema.prisma`, new migration `20260731142337_add_credit_debit_notes`, `backend/src/services/creditDebitNoteService.ts` (new), `backend/src/routes/invoices.ts`, `backend/src/routes/bills.ts`, `frontend/src/pages/invoices/Invoices.tsx`, `frontend/src/pages/bills/VendorBills.tsx`, `backend/src/tests/creditDebitNotes.test.ts` (new).
+
 ## [Date: 2026-07-31] - Cash Flow Statement (Indirect Method)
 
 **What:** Closes item 4 from `GHANA_MARKET_RESEARCH_AND_ROADMAP.md`'s Candidate System Features list. The platform had Trial Balance, Profit & Loss, and Balance Sheet reports but no Cash Flow Statement - businesses could see profit and net worth but not where their cash actually came from or went.

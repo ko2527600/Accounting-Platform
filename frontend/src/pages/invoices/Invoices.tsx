@@ -6,7 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2 } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -42,6 +42,15 @@ interface Invoice {
   status: string;
 }
 
+interface CreditNote {
+  id: string;
+  creditNoteNumber: string;
+  amount: number;
+  reason: string;
+  method: "INVOICE_REDUCTION" | "JOURNAL_REVERSAL";
+  issueDate: string;
+}
+
 export function Invoices() {
   const { showToast } = useToast();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -65,6 +74,13 @@ export function Invoices() {
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Credit Note modal
+  const [creditNoteInvoice, setCreditNoteInvoice] = useState<Invoice | null>(null);
+  const [creditNotesHistory, setCreditNotesHistory] = useState<CreditNote[]>([]);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditReason, setCreditReason] = useState("");
+  const [isIssuingCredit, setIsIssuingCredit] = useState(false);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -138,6 +154,40 @@ export function Invoices() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
+    }
+  };
+
+  const openCreditNoteModal = async (invoice: Invoice) => {
+    setCreditNoteInvoice(invoice);
+    setCreditAmount("");
+    setCreditReason("");
+    setCreditNotesHistory([]);
+    try {
+      const res = await api.get(`/invoices/${invoice.id}/credit-notes`);
+      if (res.data.success) setCreditNotesHistory(res.data.data.creditNotes);
+    } catch (err) {
+      console.error("Failed to load credit note history:", err);
+    }
+  };
+
+  const handleIssueCreditNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!creditNoteInvoice) return;
+    setIsIssuingCredit(true);
+    try {
+      const res = await api.post(`/invoices/${creditNoteInvoice.id}/credit-notes`, {
+        amount: Number(creditAmount),
+        reason: creditReason,
+      });
+      if (res.data.success) {
+        showToast(`Credit note ${res.data.data.creditNote.creditNoteNumber} issued.`, "success");
+        setCreditNoteInvoice(null);
+        fetchData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to issue credit note.", "error");
+    } finally {
+      setIsIssuingCredit(false);
     }
   };
 
@@ -257,10 +307,16 @@ export function Invoices() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-2">
                       {inv.status !== "PAID" && (
                         <Button variant="outline" size="sm" onClick={() => handlePayInvoice(inv.id)} className="text-xs">
                           Record Payment
+                        </Button>
+                      )}
+                      {inv.status !== "DRAFT" && (
+                        <Button variant="outline" size="sm" onClick={() => openCreditNoteModal(inv)} className="text-xs">
+                          <Undo2 className="mr-1 h-3 w-3" />
+                          Credit Note
                         </Button>
                       )}
                     </TableCell>
@@ -386,6 +442,69 @@ export function Invoices() {
             <Button type="button" variant="outline" onClick={() => setIsInvoiceOpen(false)}>Cancel</Button>
             <Button type="submit" variant="primary" disabled={isSubmitting}>
               {isSubmitting ? "Generating..." : "Issue Invoice"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Credit Note Modal */}
+      <Modal
+        isOpen={!!creditNoteInvoice}
+        onClose={() => setCreditNoteInvoice(null)}
+        title={`Issue Credit Note - ${creditNoteInvoice?.invoiceNumber ?? ""}`}
+        description={
+          creditNoteInvoice?.status === "PAID"
+            ? "This invoice is already paid, so the credit will post a real refund entry (Cash out, Revenue reversed)."
+            : "This invoice is unpaid, so the credit simply reduces the amount that will be charged on payment."
+        }
+      >
+        <form onSubmit={handleIssueCreditNote} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Amount ({creditNoteInvoice?.currency ?? "USD"})
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              placeholder="0.00"
+              value={creditAmount}
+              onChange={(e) => setCreditAmount(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Reason</label>
+            <Input
+              required
+              placeholder="e.g. Customer returned one unit"
+              value={creditReason}
+              onChange={(e) => setCreditReason(e.target.value)}
+            />
+          </div>
+
+          {creditNotesHistory.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Previously Issued</label>
+              <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                {creditNotesHistory.map((cn) => (
+                  <div key={cn.id} className="flex justify-between border-b border-secondary-100 dark:border-secondary-800 py-1">
+                    <span className="text-secondary-600 dark:text-secondary-400">
+                      {cn.creditNoteNumber} - {cn.reason}
+                    </span>
+                    <span className="font-medium text-secondary-900 dark:text-secondary-50">
+                      {formatCurrency(Number(cn.amount), creditNoteInvoice?.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setCreditNoteInvoice(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isIssuingCredit}>
+              {isIssuingCredit ? "Issuing..." : "Issue Credit Note"}
             </Button>
           </div>
         </form>

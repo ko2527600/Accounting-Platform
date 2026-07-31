@@ -14,6 +14,9 @@ import { FxRateServiceError } from '../services/fxRateService';
 import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
 import { assertWarehouseAccess, WarehouseAccessError } from '../services/warehouseAccessService';
 import { receiveInventoryForBill, allocateLandedCostToBill } from '../services/vendorBillReceivingService';
+import * as creditDebitNoteService from '../services/creditDebitNoteService';
+import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService';
+import { JournalEntryServiceError } from '../services/journalEntryService';
 
 const router = Router();
 
@@ -397,6 +400,40 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to record bill payment.' });
+  }
+});
+
+/**
+ * GET /api/v1/bills/:id/debit-notes
+ * Lists all debit notes issued against a vendor bill.
+ */
+router.get('/:id/debit-notes', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const notes = await creditDebitNoteService.listDebitNotesForBill(req.params.id);
+    res.status(200).json({ success: true, data: { debitNotes: notes } });
+  } catch (error: any) {
+    console.error('[Bills] Error listing debit notes:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve debit notes.' });
+  }
+});
+
+/**
+ * POST /api/v1/bills/:id/debit-notes
+ * Issues a Debit Note against a vendor bill (returned goods, overcharge, vendor credit).
+ * Reduces the bill's amount if unpaid; posts a reversing journal entry if already paid.
+ */
+router.post('/:id/debit-notes', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const note = await creditDebitNoteService.createDebitNote(req.params.id, req.body, actor);
+    res.status(201).json({ success: true, message: 'Debit note issued successfully.', data: { debitNote: note } });
+  } catch (error: any) {
+    if (error instanceof CreditDebitNoteServiceError || error instanceof JournalEntryServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Bills] Error issuing debit note:', error);
+    res.status(500).json({ success: false, error: 'Failed to issue debit note.' });
   }
 });
 

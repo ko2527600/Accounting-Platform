@@ -6,7 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
-import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2 } from "lucide-react";
+import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2 } from "lucide-react";
 
 interface Vendor {
   id: string;
@@ -57,6 +57,15 @@ interface PurchaseLine {
   unitCost: string;
 }
 
+interface DebitNote {
+  id: string;
+  debitNoteNumber: string;
+  amount: number;
+  reason: string;
+  method: "BILL_REDUCTION" | "JOURNAL_REVERSAL";
+  issueDate: string;
+}
+
 export function VendorBills() {
   const { showToast } = useToast();
   const [bills, setBills] = useState<VendorBill[]>([]);
@@ -90,6 +99,13 @@ export function VendorBills() {
   const [landedDescription, setLandedDescription] = useState("");
   const [isSubmittingLanded, setIsSubmittingLanded] = useState(false);
   const [landedResult, setLandedResult] = useState<any | null>(null);
+
+  // Debit Note modal
+  const [debitNoteForBill, setDebitNoteForBill] = useState<VendorBill | null>(null);
+  const [debitNotesHistory, setDebitNotesHistory] = useState<DebitNote[]>([]);
+  const [debitAmount, setDebitAmount] = useState("");
+  const [debitReason, setDebitReason] = useState("");
+  const [isIssuingDebit, setIsIssuingDebit] = useState(false);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -205,6 +221,40 @@ export function VendorBills() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
+    }
+  };
+
+  const openDebitNoteModal = async (bill: VendorBill) => {
+    setDebitNoteForBill(bill);
+    setDebitAmount("");
+    setDebitReason("");
+    setDebitNotesHistory([]);
+    try {
+      const res = await api.get(`/bills/${bill.id}/debit-notes`);
+      if (res.data.success) setDebitNotesHistory(res.data.data.debitNotes);
+    } catch (err) {
+      console.error("Failed to load debit note history:", err);
+    }
+  };
+
+  const handleIssueDebitNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!debitNoteForBill) return;
+    setIsIssuingDebit(true);
+    try {
+      const res = await api.post(`/bills/${debitNoteForBill.id}/debit-notes`, {
+        amount: Number(debitAmount),
+        reason: debitReason,
+      });
+      if (res.data.success) {
+        showToast(`Debit note ${res.data.data.debitNote.debitNoteNumber} issued.`, "success");
+        setDebitNoteForBill(null);
+        fetchData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to issue debit note.", "error");
+    } finally {
+      setIsIssuingDebit(false);
     }
   };
 
@@ -384,6 +434,10 @@ export function VendorBills() {
                           Pay Bill
                         </Button>
                       )}
+                      <Button variant="outline" size="sm" onClick={() => openDebitNoteModal(b)} className="text-xs">
+                        <Undo2 className="mr-1 h-3 w-3" />
+                        Debit Note
+                      </Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -632,6 +686,69 @@ export function VendorBills() {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* Debit Note Modal */}
+      <Modal
+        isOpen={!!debitNoteForBill}
+        onClose={() => setDebitNoteForBill(null)}
+        title={`Issue Debit Note - ${debitNoteForBill?.billNumber ?? ""}`}
+        description={
+          debitNoteForBill?.status === "PAID"
+            ? "This bill is already paid, so the debit will post a real refund entry (Cash in, Expense reversed)."
+            : "This bill is unpaid, so the debit simply reduces the amount that will be charged on payment."
+        }
+      >
+        <form onSubmit={handleIssueDebitNote} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Amount ({debitNoteForBill?.currency ?? "USD"})
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              placeholder="0.00"
+              value={debitAmount}
+              onChange={(e) => setDebitAmount(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Reason</label>
+            <Input
+              required
+              placeholder="e.g. Returned defective supplies"
+              value={debitReason}
+              onChange={(e) => setDebitReason(e.target.value)}
+            />
+          </div>
+
+          {debitNotesHistory.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Previously Issued</label>
+              <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                {debitNotesHistory.map((dn) => (
+                  <div key={dn.id} className="flex justify-between border-b border-secondary-100 dark:border-secondary-800 py-1">
+                    <span className="text-secondary-600 dark:text-secondary-400">
+                      {dn.debitNoteNumber} - {dn.reason}
+                    </span>
+                    <span className="font-medium text-secondary-900 dark:text-secondary-50">
+                      {formatCurrency(Number(dn.amount), debitNoteForBill?.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setDebitNoteForBill(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isIssuingDebit}>
+              {isIssuingDebit ? "Issuing..." : "Issue Debit Note"}
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );
