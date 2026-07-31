@@ -503,21 +503,34 @@ model CashTill {
   @@map("cash_tills")
 }
 
+enum CashSaleStatus {
+  COMPLETED
+  VOIDED
+}
+
 model CashSale {
-  id          String   @id @default(uuid())
-  tenantId    String   @map("tenant_id")
-  tillId      String   @map("till_id")
-  receiptNo   String   @map("receipt_no")
-  amount      Decimal  @db.Decimal(15, 2)
-  cashGiven   Decimal  @db.Decimal(15, 2) @map("cash_given")
-  changeGiven Decimal  @db.Decimal(15, 2) @map("change_given")
-  createdAt   DateTime @default(now()) @map("created_at")
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  tillId          String         @map("till_id")
+  receiptNo       String         @map("receipt_no")
+  amount          Decimal        @db.Decimal(15, 2)
+  cashGiven       Decimal        @db.Decimal(15, 2) @map("cash_given")
+  changeGiven     Decimal        @db.Decimal(15, 2) @map("change_given")
+  status          CashSaleStatus @default(COMPLETED)
+  createdByUserId String?        @map("created_by_user_id")
+  createdByName   String?        @map("created_by_name")
+  voidedAt        DateTime?      @map("voided_at")
+  voidedByUserId  String?        @map("voided_by_user_id")
+  voidedByName    String?        @map("voided_by_name")
+  voidReason      String?        @map("void_reason")
+  createdAt       DateTime       @default(now()) @map("created_at")
 
   till        CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
   lines       CashSaleLine[]
 
   @@unique([tenantId, receiptNo])
   @@index([tenantId])
+  @@index([tenantId, createdByUserId])
   @@map("cash_sales")
 }
 

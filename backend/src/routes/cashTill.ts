@@ -5,6 +5,12 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
+import { verifyPassword } from '../utils/password';
+import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
+
+// Roles that can authorize a void either by initiating it themselves or by
+// stepping up to approve a Cashier-initiated one.
+const VOID_AUTHORIZER_ROLES = ['Admin', 'Shop Manager', 'Accountant'];
 
 const router = Router();
 
@@ -212,6 +218,8 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
           amount: totalAmount,
           cashGiven: Number(cashGiven),
           changeGiven,
+          createdByUserId: req.user!.id,
+          createdByName: req.user!.name || req.user!.email,
         },
       });
 
@@ -249,6 +257,186 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
       return;
     }
     res.status(500).json({ success: false, error: error.message || 'Failed to record cash sale.' });
+  }
+});
+
+/**
+ * POST /api/v1/tills/sales/:id/void
+ * Voids a completed cash sale: restores the deducted stock, reverses the
+ * till's running cash total, and marks the sale VOIDED with a full audit
+ * trail. Any Admin/Shop Manager/Accountant can void their own sale directly;
+ * anyone else (e.g. a Cashier) must supply a manager's own credentials as a
+ * step-up confirmation - this is the actual safeguard against a cashier
+ * voiding a completed sale to quietly pocket the cash while stock and books
+ * appear to reconcile.
+ */
+router.post('/sales/:id/void', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+    const { reason, managerEmail, managerPassword } = req.body;
+
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      res.status(400).json({ success: false, error: 'A reason is required to void a sale.' });
+      return;
+    }
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const sale = await (client as any).cashSale.findFirst({
+        where: { id, tenantId },
+        include: { lines: true, till: { include: { warehouse: true } } },
+      });
+      if (!sale) throw new Error('Sale not found.');
+      if (sale.status === 'VOIDED') throw new Error('This sale has already been voided.');
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, sale.till.warehouseId);
+
+      if (sale.till.status !== 'OPEN') {
+        throw new Error(
+          'This sale belongs to a till that has already been closed and reconciled - it can no longer be voided. Use a stock adjustment to correct inventory instead.'
+        );
+      }
+
+      const actingRole = req.user!.role;
+      let authorizer: { id: string; name: string; role: string };
+
+      if (VOID_AUTHORIZER_ROLES.includes(actingRole)) {
+        // Self-authorizing manager/admin/accountant - no step-up needed.
+        authorizer = { id: req.user!.id, name: req.user!.name || req.user!.email, role: actingRole };
+      } else {
+        // Cashier (or any other non-authorizer role) must supply a manager's
+        // own credentials right here - the actual "manager PIN override"
+        // equivalent for a web app.
+        if (!managerEmail || !managerPassword) {
+          throw new Error('A manager must confirm this void with their email and password.');
+        }
+        const manager = await prisma.user.findFirst({
+          where: { email: String(managerEmail).trim().toLowerCase(), tenantId, isActive: true },
+        });
+        if (!manager || !verifyPassword(managerPassword, manager.password)) {
+          throw new Error('Manager credentials are incorrect.');
+        }
+        if (!VOID_AUTHORIZER_ROLES.includes(manager.role)) {
+          throw new Error('That account is not authorized to approve a void.');
+        }
+        authorizer = { id: manager.id, name: manager.name || manager.email, role: manager.role };
+      }
+
+      // Restore stock for every line.
+      for (const line of sale.lines) {
+        await (client as any).warehouseStock.updateMany({
+          where: { warehouseId: sale.till.warehouseId, itemId: line.itemId },
+          data: { quantityOnHand: { increment: line.quantity } },
+        });
+      }
+
+      // Reverse the till's running cash-sales total.
+      await (client as any).cashTill.update({
+        where: { id: sale.tillId },
+        data: { cashSalesTotal: { decrement: Number(sale.amount) } },
+      });
+
+      const voided = await (client as any).cashSale.update({
+        where: { id: sale.id },
+        data: {
+          status: 'VOIDED',
+          voidedAt: new Date(),
+          voidedByUserId: authorizer.id,
+          voidedByName: authorizer.name,
+          voidReason: reason.trim(),
+        },
+      });
+
+      return { voided, authorizer, originalAmount: Number(sale.amount) };
+    });
+
+    await recordAuditLog({
+      action: 'CASH_SALE.VOIDED',
+      entity: 'CashSale',
+      entityId: result.voided.id,
+      tenantId,
+      actor: actorFromRequest(req),
+      changes: { status: { from: 'COMPLETED', to: 'VOIDED' } },
+      details: `Sale ${result.voided.receiptNo} (GH₵ ${result.originalAmount.toFixed(2)}) voided by ${req.user!.name || req.user!.email}, authorized by ${result.authorizer.name} (${result.authorizer.role}). Reason: ${result.voided.voidReason}`,
+    });
+
+    res.status(200).json({ success: true, message: 'Sale voided and stock restored.', data: { sale: result.voided } });
+  } catch (error: any) {
+    console.error('[CashTill] Error voiding sale:', error);
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    const status = error.message?.includes('not found') ? 404 : 400;
+    res.status(status).json({ success: false, error: error.message || 'Failed to void sale.' });
+  }
+});
+
+/**
+ * GET /api/v1/tills/void-stats
+ * Per-cashier void-ratio report - surfaces potential fraud patterns
+ * (someone voiding an unusually high share of their own sales) for a
+ * manager/admin/accountant to review, rather than alerting on every void.
+ */
+router.get('/void-stats', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    if (!VOID_AUTHORIZER_ROLES.includes(req.user!.role)) {
+      res.status(403).json({ success: false, error: 'You do not have permission to view void statistics.' });
+      return;
+    }
+
+    const { from, to } = req.query;
+
+    const stats = await withCurrentTenantDb(prisma, async (client) => {
+      const accessibleIds = await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+
+      const where: any = { tenantId };
+      if (from || to) {
+        where.createdAt = {};
+        if (from) where.createdAt.gte = new Date(String(from));
+        if (to) where.createdAt.lte = new Date(String(to));
+      }
+      if (accessibleIds !== null) {
+        where.till = { warehouseId: { in: accessibleIds } };
+      }
+
+      const sales = await (client as any).cashSale.findMany({
+        where,
+        select: { createdByUserId: true, createdByName: true, status: true },
+      });
+
+      const byUser = new Map<string, { name: string; total: number; voided: number }>();
+      for (const s of sales) {
+        const key = s.createdByUserId || 'unknown';
+        const entry = byUser.get(key) || { name: s.createdByName || 'Unknown', total: 0, voided: 0 };
+        entry.total += 1;
+        if (s.status === 'VOIDED') entry.voided += 1;
+        byUser.set(key, entry);
+      }
+
+      const VOID_RATIO_ANOMALY_THRESHOLD = 0.15;
+      const MIN_SAMPLE_SIZE = 5;
+
+      return Array.from(byUser.entries())
+        .map(([userId, v]) => {
+          const ratio = v.total > 0 ? v.voided / v.total : 0;
+          return {
+            userId,
+            name: v.name,
+            totalSales: v.total,
+            voidedSales: v.voided,
+            voidRatio: Number(ratio.toFixed(4)),
+            anomaly: v.total >= MIN_SAMPLE_SIZE && ratio >= VOID_RATIO_ANOMALY_THRESHOLD,
+          };
+        })
+        .sort((a, b) => b.voidRatio - a.voidRatio);
+    });
+
+    res.status(200).json({ success: true, data: stats });
+  } catch (error: any) {
+    console.error('[CashTill] Error computing void stats:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to compute void statistics.' });
   }
 });
 
