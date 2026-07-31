@@ -7,7 +7,7 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
-import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2, UserCog } from "lucide-react";
+import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2, UserCog, UserMinus } from "lucide-react";
 
 const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier", "HR"] as const;
 const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier"]);
@@ -67,6 +67,8 @@ export function TeamManagement() {
   const [roleModalMember, setRoleModalMember] = useState<Member | null>(null);
   const [newRole, setNewRole] = useState<string>("");
   const [isSavingRole, setIsSavingRole] = useState(false);
+
+  const [removingId, setRemovingId] = useState<string | null>(null);
 
   const fetchTeamData = useCallback(async () => {
     setIsLoading(true);
@@ -212,6 +214,24 @@ export function TeamManagement() {
     }
   };
 
+  const handleRemoveMember = async (member: Member) => {
+    if (!window.confirm(`Remove ${member.name} (${member.email}) from this workspace? This frees up their email for reuse elsewhere and cannot be undone.`)) {
+      return;
+    }
+    setRemovingId(member.id);
+    try {
+      const res = await api.delete(`/tenants/members/${member.id}`);
+      if (res.data.success) {
+        showToast(`${member.name} was removed from the workspace.`, "success");
+        fetchTeamData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to remove team member.", "error");
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
   const isAdmin = user?.role === "Admin";
 
   return (
@@ -321,6 +341,16 @@ export function TeamManagement() {
                             Manage Access
                           </Button>
                         )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          disabled={removingId === member.id}
+                          onClick={() => handleRemoveMember(member)}
+                          className="inline-flex items-center text-xs text-red-600 hover:text-red-700"
+                        >
+                          <UserMinus className="mr-1.5 h-3.5 w-3.5" />
+                          {removingId === member.id ? "Removing..." : "Remove"}
+                        </Button>
                       </TableCell>
                     )}
                   </TableRow>

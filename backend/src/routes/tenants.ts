@@ -73,6 +73,57 @@ router.get('/', async (req: Request, res: Response) => {
 });
 
 /**
+ * POST /api/v1/tenants/admin-onboard
+ * Platform-operator onboarding for a contracted client - identical to the
+ * self-serve POST /onboard flow (same tenant/schema/migration provisioning),
+ * except the resulting Admin account is created pre-verified (isActive/
+ * isEmailVerified/isPhoneVerified all true immediately) instead of requiring
+ * the normal email/SMS verification round-trip. Appropriate only when the
+ * business has already been vetted directly (a signed contract, not a
+ * self-service signup) - gated by the same master broadcast passcode as
+ * every other platform-operator endpoint in this file, never a tenant JWT.
+ */
+router.post('/admin-onboard', async (req: Request, res: Response) => {
+  try {
+    const passcode = (req.body?.passcode as string) || (req.query.passcode as string) || req.headers['x-admin-passcode'];
+    if (!passcode || !BroadcastService.verifyPasscode(passcode as string)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: valid master passcode required.' });
+    }
+
+    const { passcode: _omit, ...dto } = req.body || {};
+    const result = await onboardTenant(prisma, {
+      ...dto,
+      termsAccepted: true,
+      acceptedTermsVersion: dto.acceptedTermsVersion || 'v1.0.0',
+    }, { skipVerification: true });
+
+    await recordAuditLog({
+      action: 'TENANT.ADMIN_ONBOARDED',
+      entity: 'Tenant',
+      entityId: result.tenant.id,
+      tenantId: result.tenant.id,
+      actor: { ipAddress: req.ip || req.socket?.remoteAddress || null },
+      details: `Contracted client "${result.tenant.name}" (${result.tenant.slug}) onboarded directly by platform admin, pre-verified. Admin: ${result.admin.email}.`,
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'Contracted client onboarded and pre-verified. They can log in immediately.',
+      data: result,
+    });
+  } catch (error: any) {
+    if (error instanceof TenantOnboardingError) {
+      return res.status(error.statusCode).json({ success: false, error: error.message });
+    }
+    console.error('[TenantAdminOnboard] Unexpected error:', error?.stack || error);
+    return res.status(500).json({
+      success: false,
+      error: error?.message || 'Internal server error during contracted-client onboarding',
+    });
+  }
+});
+
+/**
  * GET /api/v1/tenants/current
  * Returns active workspace profile settings.
  */
@@ -443,6 +494,60 @@ router.put('/members/:id/role', authenticateJwt, tenantContextMiddleware, requir
   } catch (error: any) {
     console.error('[TenantMembers] Error updating member role:', error);
     return res.status(500).json({ success: false, error: 'Failed to update team member role.' });
+  }
+});
+
+/**
+ * DELETE /api/v1/tenants/members/:id (Admin only)
+ * Permanently removes a team member from the workspace - there was
+ * previously no way to do this at all. Frees up their email (globally
+ * unique on User) for reuse elsewhere, e.g. registering their own separate
+ * tenant. WarehouseAccess rows cascade-delete via the schema's onDelete:
+ * Cascade FK; AuditLog/Notification rows referencing this userId are bare
+ * columns (no FK) by existing convention and are intentionally left intact
+ * as historical record.
+ */
+router.delete('/members/:id', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
+  try {
+    const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
+    const callerId = (req as any).user?.id;
+    const { id } = req.params;
+
+    if (id === callerId) {
+      return res.status(400).json({ success: false, error: 'You cannot remove your own account. Have another Admin do it.' });
+    }
+
+    const member = await prisma.user.findFirst({ where: { id, tenantId } });
+    if (!member) {
+      return res.status(404).json({ success: false, error: 'Team member not found.' });
+    }
+
+    // Never allow a tenant to lock itself out by removing its last Admin.
+    if (member.role === 'Admin') {
+      const otherAdmins = await prisma.user.count({ where: { tenantId, role: 'Admin', isActive: true, id: { not: id } } });
+      if (otherAdmins === 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot remove this member - they are the only Admin on this workspace. Promote another member to Admin first.',
+        });
+      }
+    }
+
+    await prisma.user.delete({ where: { id } });
+
+    await recordAuditLog({
+      action: 'TEAM_MEMBER.REMOVED',
+      entity: 'User',
+      entityId: id,
+      tenantId,
+      actor: actorFromRequest(req),
+      details: `Team member removed: ${member.name} (${member.email}), role ${member.role}.`,
+    });
+
+    return res.status(200).json({ success: true, message: 'Team member removed.' });
+  } catch (error: any) {
+    console.error('[TenantMembers] Error removing member:', error);
+    return res.status(500).json({ success: false, error: 'Failed to remove team member.' });
   }
 });
 
