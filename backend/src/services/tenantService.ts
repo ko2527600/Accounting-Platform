@@ -93,8 +93,14 @@ export function generateSlug(rawSlug?: string, companyName?: string): string {
  */
 export async function onboardTenant(
   prisma: PrismaClient,
-  dto: OnboardTenantDTO
+  dto: OnboardTenantDTO,
+  options: { skipVerification?: boolean } = {}
 ): Promise<OnboardTenantResult> {
+  // `skipVerification` is a server-side-only option, never read from `dto`
+  // (request body) - it can only be set by trusted internal callers (the
+  // passcode-gated admin-onboarding route), never by a self-serve signup
+  // request, however that request is shaped.
+  const skipVerification = options.skipVerification === true;
   // 1. Extract and validate fields
   const companyName = (dto.companyName || dto.tenantName || dto.name || '').trim();
   if (!companyName) {
@@ -209,24 +215,35 @@ export async function onboardTenant(
       phone,
       role: 'Admin',
       tenantId: tenantRecord.id,
-      isActive: false, // Inactive until verified
-      isEmailVerified: false,
-      isPhoneVerified: false,
-      emailVerificationToken,
-      smsVerificationCode,
+      isActive: skipVerification ? true : false, // Inactive until verified, unless pre-verified by platform admin
+      isEmailVerified: skipVerification ? true : false,
+      isPhoneVerified: skipVerification ? true : false,
+      emailVerificationToken: skipVerification ? null : emailVerificationToken,
+      smsVerificationCode: skipVerification ? null : smsVerificationCode,
     });
 
-    // Dispatch Verification Email & SMS
-    const { EmailService } = require('./EmailService');
-    const { SmsService } = require('./smsService');
+    if (skipVerification) {
+      // Pre-verified by the platform admin (a contracted client onboarded
+      // directly, not self-serve) - skip the verification email/SMS
+      // entirely and send the real welcome package immediately, matching
+      // what a self-serve signup gets once it completes /auth/verify.
+      const { EmailService } = require('./EmailService');
+      EmailService.sendWelcomePackage(adminEmail, adminName, companyName).catch((err: any) => {
+        console.error('[TenantService] Failed to send welcome package for pre-verified tenant:', err);
+      });
+    } else {
+      // Dispatch Verification Email & SMS
+      const { EmailService } = require('./EmailService');
+      const { SmsService } = require('./smsService');
 
-    EmailService.sendVerificationEmail(adminEmail, adminName, emailVerificationToken).catch((err: any) => {
-      console.error('[TenantService] Failed to send verification email:', err);
-    });
+      EmailService.sendVerificationEmail(adminEmail, adminName, emailVerificationToken).catch((err: any) => {
+        console.error('[TenantService] Failed to send verification email:', err);
+      });
 
-    SmsService.send(phone, `Ledgio Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
-      console.error('[TenantService] Failed to send verification SMS:', err);
-    });
+      SmsService.send(phone, `Ledgio Verification Code: ${smsVerificationCode}. Do not share this code.`).catch((err: any) => {
+        console.error('[TenantService] Failed to send verification SMS:', err);
+      });
+    }
   } catch (error) {
     // Cleanup tenant entry and schema on user creation failure
     await tenantRepository.deleteTenantBySlug(prisma, slug);

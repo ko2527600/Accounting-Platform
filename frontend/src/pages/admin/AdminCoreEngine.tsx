@@ -16,7 +16,8 @@ import {
   Server,
   Smartphone,
   Mail,
-  Users
+  Users,
+  Building2
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -38,7 +39,7 @@ export function AdminCoreEngine() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Hub Tab
-  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "schemas" | "audit">("broadcast");
+  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "schemas" | "audit" | "onboard">("broadcast");
 
   // Engine Diagnostics State
   const [healthData, setHealthData] = useState<{
@@ -93,6 +94,18 @@ export function AdminCoreEngine() {
   const [isSending, setIsSending] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<any>(null);
   const [confirmStep, setConfirmStep] = useState(false);
+
+  // Onboard Contracted Client state
+  const [onboardCompanyName, setOnboardCompanyName] = useState("");
+  const [onboardSlug, setOnboardSlug] = useState("");
+  const [onboardAdminName, setOnboardAdminName] = useState("");
+  const [onboardAdminEmail, setOnboardAdminEmail] = useState("");
+  const [onboardAdminPhone, setOnboardAdminPhone] = useState("");
+  const [onboardAdminPassword, setOnboardAdminPassword] = useState("");
+  const [onboardBaseCurrency, setOnboardBaseCurrency] = useState("GHS");
+  const [isOnboarding, setIsOnboarding] = useState(false);
+  const [onboardError, setOnboardError] = useState<string | null>(null);
+  const [onboardResult, setOnboardResult] = useState<{ tenant: { name: string; slug: string }; admin: { email: string } } | null>(null);
 
   // Auto-check if already unlocked in session
   useEffect(() => {
@@ -294,6 +307,39 @@ export function AdminCoreEngine() {
     }
   };
 
+  const handleOnboardClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOnboardError(null);
+    setOnboardResult(null);
+    setIsOnboarding(true);
+    try {
+      const res = await api.post("/tenants/admin-onboard", {
+        passcode,
+        companyName: onboardCompanyName,
+        slug: onboardSlug,
+        adminName: onboardAdminName,
+        adminEmail: onboardAdminEmail,
+        adminPassword: onboardAdminPassword,
+        phone: onboardAdminPhone || undefined,
+        baseCurrency: onboardBaseCurrency,
+      });
+      if (res.data.success) {
+        setOnboardResult(res.data.data);
+        setOnboardCompanyName("");
+        setOnboardSlug("");
+        setOnboardAdminName("");
+        setOnboardAdminEmail("");
+        setOnboardAdminPhone("");
+        setOnboardAdminPassword("");
+        showToast(`${res.data.data.tenant.name} onboarded and pre-verified.`, "success");
+      }
+    } catch (err: any) {
+      setOnboardError(err.response?.data?.error || "Failed to onboard contracted client.");
+    } finally {
+      setIsOnboarding(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-secondary-950 text-white font-sans selection:bg-amber-500 selection:text-secondary-950">
       {/* Top Engine Navigation Header */}
@@ -490,6 +536,15 @@ export function AdminCoreEngine() {
               >
                 <History className="h-4 w-4" />
                 <span>System Audit Logs</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("onboard")}
+                className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
+                  activeTab === "onboard" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
+                }`}
+              >
+                <Building2 className="h-4 w-4" />
+                <span>Onboard Client</span>
               </button>
             </div>
 
@@ -946,6 +1001,128 @@ export function AdminCoreEngine() {
                       )}
                     </div>
                   )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tab 5: Onboard Contracted Client */}
+            {activeTab === "onboard" && (
+              <Card className="bg-secondary-900 border-secondary-800 text-white">
+                <CardHeader>
+                  <CardTitle className="text-xl font-bold flex items-center">
+                    <Building2 className="h-5 w-5 mr-2 text-amber-400" />
+                    Onboard a Contracted Client
+                  </CardTitle>
+                  <CardDescription className="text-secondary-400 text-xs">
+                    Directly provisions a new tenant with its account pre-verified (no email/SMS verification round-trip) - use this only for a business you've already vetted directly (a signed contract), not a self-service signup. They can log in immediately with the credentials below.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <form onSubmit={handleOnboardClient} className="space-y-4">
+                    {onboardError && (
+                      <div className="p-3 text-xs bg-rose-950/40 text-rose-300 rounded-md border border-rose-900">
+                        {onboardError}
+                      </div>
+                    )}
+                    {onboardResult && (
+                      <div className="p-4 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center font-bold text-emerald-400 text-sm">
+                          <CheckCircle2 className="h-5 w-5 mr-2" />
+                          Client Onboarded & Pre-Verified
+                        </div>
+                        <div>Workspace: <strong>{onboardResult.tenant.name}</strong> ({onboardResult.tenant.slug})</div>
+                        <div>Admin login: <strong>{onboardResult.admin.email}</strong></div>
+                        <div className="text-emerald-300/80">They can log in right now with the password you set - no verification step needed.</div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Company Name</label>
+                        <Input
+                          required
+                          value={onboardCompanyName}
+                          onChange={(e) => setOnboardCompanyName(e.target.value)}
+                          placeholder="Acme Retail Ltd"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Workspace Slug (optional)</label>
+                        <Input
+                          value={onboardSlug}
+                          onChange={(e) => setOnboardSlug(e.target.value)}
+                          placeholder="Auto-generated from company name if left blank"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Name</label>
+                        <Input
+                          required
+                          value={onboardAdminName}
+                          onChange={(e) => setOnboardAdminName(e.target.value)}
+                          placeholder="Jane Doe"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Email</label>
+                        <Input
+                          required
+                          type="email"
+                          value={onboardAdminEmail}
+                          onChange={(e) => setOnboardAdminEmail(e.target.value)}
+                          placeholder="jane@acme.com"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Phone (optional)</label>
+                        <Input
+                          value={onboardAdminPhone}
+                          onChange={(e) => setOnboardAdminPhone(e.target.value)}
+                          placeholder="+233201234567"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Password</label>
+                        <Input
+                          required
+                          type="password"
+                          value={onboardAdminPassword}
+                          onChange={(e) => setOnboardAdminPassword(e.target.value)}
+                          placeholder="Set a password they'll change later"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Base Currency</label>
+                        <select
+                          value={onboardBaseCurrency}
+                          onChange={(e) => setOnboardBaseCurrency(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs"
+                        >
+                          <option value="GHS">GHS - Ghanaian Cedi</option>
+                          <option value="USD">USD - US Dollar</option>
+                          <option value="NGN">NGN - Nigerian Naira</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2 border-t border-secondary-800">
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        className="bg-amber-600 hover:bg-amber-500 text-white text-xs flex items-center py-2.5 px-5"
+                        disabled={isOnboarding}
+                      >
+                        {isOnboarding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Building2 className="mr-2 h-4 w-4" />}
+                        {isOnboarding ? "Onboarding..." : "Onboard Pre-Verified Client"}
+                      </Button>
+                    </div>
+                  </form>
                 </CardContent>
               </Card>
             )}
