@@ -153,6 +153,100 @@ on Invoice, `billNumber` on VendorBill - each `@unique` per tenant). Conclusion:
 - Nigeria: Sage Business Cloud ~₦3,190/mo entry; other local tools $17-30/mo.
 - Global players (QuickBooks $20-275/mo, Xero $25-90/mo, Sage ~$10-62/mo, Zoho Books free-$275/mo, TallyPrime one-time ~$630-1890 + annual renewal) - not directly comparable, priced for Western markets.
 
+### 2026-07-31 - Deep research report: "Market Dynamics and Software Vulnerabilities in West African SME Financial Platforms" (user-supplied, AI deep-research output)
+Source: user-supplied deep-research report (AI-generated synthesis of market data, regulatory frameworks, developer API documentation, and user sentiment across the open web/forums/social media/app store reviews) - reproduced here verbatim as raw research input for future scoping, not yet cross-verified against primary sources or built into the product. Treat every specific claim below (pricing figures, statutory thresholds, API requirements) as **unverified until independently confirmed** - this is a synthesis of secondary/tertiary sources, not a primary-source citation.
+
+#### Executive framing
+
+The digital transformation of financial management across West Africa is being forced by regulatory mandates, macroeconomic pressure, and internal cash leakage - not just a desire for efficiency. International market leaders (QuickBooks Online, Xero, Wave, Odoo) treat Ghana/Nigeria as secondary expansion markets, offering superficial localization (currency symbol swaps) while ignoring systemic infrastructural deficits: predatory USD-denominated pricing, architectures that fail during routine internet outages, and no native integration with Ghana's E-VAT digital tax framework.
+
+#### Part 1 - Cross-cutting vulnerabilities (apply across all segments below)
+
+- **Predatory SaaS pricing / currency exposure**: USD-pegged subscription hikes are a severe, unpredictable cost for businesses in volatile-local-currency environments. Cited figures (unverified): QBO Plus $99→$140/mo, Advanced to $340/mo; QuickBooks Desktop users forced from ~$200/3yr into >$1,000/yr subscriptions; Wave narrowing its free tier; Xero raising prices globally while having unstable bank feeds; Zoho Books ~$35/mo but with a steep learning curve and weak support. Framed as vendors leveraging high data-migration switching costs to trap customers into continuous payment.
+- **Regulatory: Ghana E-VAT / Act 1151 (unverified, needs primary-source confirmation against GRA's own site)**: claims the VAT Flat Rate Scheme (3%) was abolished in favor of a unified 20% effective rate (15% VAT + 2.5% NHIL + 2.5% GETFund), with NHIL/GETFund now claimable as deductible input tax. Claims a mandatory Continuous Transaction Control (CTC) model: VAT-registered businesses (threshold cited as GHS 750,000 for goods, no threshold for services) must issue e-invoices via a Certified Invoicing System (CIS), integrating in real time with GRA's Virtual Sales Data Controller (VSDC) over JSON/XML, receiving a digital signature + Invoice Reference Number (IRN) + QR code per invoice. Claims a required 24-hour offline queuing capability for when connectivity fails, batch-transmitting on reconnect. **This directly extends/partially conflicts with the existing 2026-07-28 Webhuk-sourced research above** (which named NHIL/GETFund/COVID Levy, not this VAT-Flat-Rate-abolition framing) - the two sources should be reconciled against GRA's primary site before either is trusted for implementation (see Open Questions below, this was already flagged as unresolved).
+- **Telecom infrastructure / payment rails**: pure cloud POS systems described as unacceptable when they freeze checkout during connectivity drops - hybrid-offline architecture (local caching for sale completion, receipt printing, cash drawer, async sync) framed as mandatory, not optional. Mobile Money (MTN MoMo, Telecel) framed as the dominant retail payment medium; lack of native USSD/QR MoMo integration forces manual dual-device reconciliation.
+- **Internal shrinkage / forensic security**: the specific documented fraud pattern is a cashier voiding a completed sale on the POS after collecting cash, using a "No Sale" to open the drawer, and pocketing the difference - end-of-day reconciliation matches the system exactly while physical inventory shrinks. Framed as requiring forensic-level RBAC (PIN-gated voids), immutable audit logs, and anomaly detection on cashier void ratios.
+
+#### Part 2 - Segment-specific ranked pain points
+
+**Segment 1: Independent retail shop owners / market traders (single location)**
+
+| Rank | Category | Pain Point | Representative Quote | Recommended Feature |
+|---|---|---|---|---|
+| 1 | Internal Shrinkage | Unrestricted POS void/cancellation enables untraceable cash skimming | "Employee scans the item... immediately voids the transaction. Opens register using 'No Sale'... customer leaves with product, employee pocketed money. Cash matches POS, inventory docked." | Management-PIN-gated overrides for all voids/no-sales, plus anomaly alerts for high void ratios per cashier |
+| 2 | Connectivity | Pure cloud POS freezes during local internet/power disruptions | "I detest the fact that their point of sale system only works with wi-fi..." | Hybrid-offline architecture: local processing + async sync on reconnect |
+| 3 | Payment Rails | Manual MoMo reconciliation slows checkout, creates accounting errors | "A retail shop owner needed to accept MoMo payments without a POS machine... she shared a USSD code at checkout..." | Native MoMo USSD/QR integration directly at POS checkout |
+| 4 | Pricing | High monthly SaaS fees burden low-margin retail | "They're charging an arm and a leg... hours of training shouldn't be necessary." | Flat-rate local-currency pricing; avoid per-user scaling for frontline staff |
+| 5 | Hardware | Prohibitive upfront capital cost for legacy desktop POS/servers (cited GHS 5,000-50,000+) | "Traditional POS... typically require dedicated hardware... expensive and often overkill for small businesses." | Device-agnostic web app on standard Android tablets/phones + low-cost Bluetooth thermal printers |
+
+**Segment 2: Multi-branch small businesses (supermarkets, pharmacies, boutiques)**
+
+| Rank | Category | Pain Point | Representative Quote | Recommended Feature |
+|---|---|---|---|---|
+| 1 | Internal Shrinkage | No centralized real-time visibility across branches - silent inventory/transit loss | "Owners cannot see the real picture daily... Stock disappears quietly." | Centralized dashboard with live inventory depletion mapping + tracked inter-branch transfers |
+| 2 | Inventory Limitations | Generic cloud accounting lacks depth for multi-location physical stock | "QBO is genuinely overbuilt for most service businesses... standard inventory add-ons... aren't built for live truck stock." | Native deep multi-warehouse functionality, in-transit asset segregation |
+| 3 | Regulatory Compliance | Meeting E-VAT API requirements across distributed, network-unstable branches | "Managing a shop in East Legon and a warehouse in Tema?...consolidates all sales data into one GRA-ready report." | Branch-level offline invoice queuing with 24h batch reporting to VSDC |
+| 4 | Operational Bottlenecks | Slow cloud latency causes checkout queues at high-volume branches | "Queues damage customer experience... limits how much a team can sell during peak periods." | Edge-computing optimization for sub-second local receipt/barcode ops |
+| 5 | Data Centralization | Can't aggregate fragmented branch data into one P&L | "I have 5 LLCs... I need to allow my accountant to access at the end of the year..." | One-click consolidated reporting across linked branches |
+
+**Segment 3: Wholesalers, distributors, importers**
+
+| Rank | Category | Pain Point | Representative Quote | Recommended Feature |
+|---|---|---|---|---|
+| 1 | Core Accounting | Capitalizing freight/demurrage/tariff costs into accurate per-unit landed cost | "Shipping is a landed cost that can be capitalized into value of inventory..." | Automated landed-cost allocation engine spreading secondary invoices across a shipment's SKUs |
+| 2 | Core Accounting | Multi-currency conversion without manual spreadsheet workarounds | "multi-currency invoices for overseas clients without any workarounds..." | Real-time FX rate integration + automated unrealized gain/loss tracking (**note: multi-currency at transaction time is already `[ALREADY BUILT]` here, Phase 5** - see item below) |
+| 3 | Supply Chain | Can't quickly bulk-adjust pricing when tariffs/COGS spike | "The time waste is real - we've spent countless hours trying to figure out how to adjust prices..." | Bulk percentage-based pricing tools tied to COGS changes |
+| 4 | Logistics Tracking | Revenue recognition ambiguity during shipping/port delays (FOB shipping point vs. destination) | "Fob destination ownership doesn't transfer until it reaches customer..." | Inventory-in-transit workflow stage, separated on the balance sheet |
+| 5 | Regulatory Compliance | Complex VAT input deductions after flat-rate-scheme changes | "The VAT flat rate scheme is abolished..." | Automated flat-rate → standard-rate transition mapping, NHIL/GETFund as creditable input tax |
+
+**Segment 4: Accounting firms and freelance bookkeepers**
+
+| Rank | Category | Pain Point | Representative Quote | Recommended Feature |
+|---|---|---|---|---|
+| 1 | Pricing | Unpredictable SaaS price hikes erode firm margins/client trust | "I have over 75 monthly clients on QBO... changed the monthly billing twice... it is gauging." | Accountant-edition portal with grandfathered wholesale pricing + multi-tenant bulk billing |
+| 2 | Internal Shrinkage | Inadequate org-wide audit trails slow forensic error/fraud tracking | "When it's a Xero client I end up clicking through History and Notes one document at a time..." | Comprehensive immutable global audit log (**note: real audit-trail coverage with actor identity + structured diffs is `[ALREADY BUILT]` here, 2026-07-27/28** - worth comparing our existing implementation against this specific complaint) |
+| 3 | Core Accounting | Untrained owners wreck the ledger via bad automated bank-feed matching | "Intuits code can't get it right half the time... easy to make a complete mess of the file." | Accountant-lockable historical periods + restricted chart-of-accounts editing for clients |
+| 4 | Customer Support | Degraded vendor support, unresolved glitches | "95% of the support reps have no idea what they're doing." | Localized support team with real Ghana tax-law fluency |
+| 5 | Operational Bottlenecks | High cost/complexity of migrating firm's clients off incumbent platforms | "switch to something else' is a multi-month migration project most firms can't absorb..." | AI-assisted CSV import/mapping from QBO/Xero exports |
+
+**Segment 5: NGOs, schools, churches, cooperatives**
+
+| Rank | Category | Pain Point | Representative Quote | Recommended Feature |
+|---|---|---|---|---|
+| 1 | Core Accounting | Can't separate restricted donor grants from unrestricted funds ("fund accounting") | "we do not track restricted funds... it keeps us from potentially double-dipping funds." | Native fund-accounting module: multi-dimensional tagging, independent balance sheets per fund |
+| 2 | Operational Bottlenecks | Manually matching payment-processor deposits to donor intent doesn't scale | "automation helps with the clean 80%, but the messy 20%... still requires judgment." | Pattern-matching reconciliation of gateway deposits to restricted account codes |
+| 3 | Data Centralization | Donor CRM and general ledger are disconnected | "nothing is really integrated... just downloading Excels." | Lightweight CRM/member-management bridged directly to receipting + GL |
+| 4 | Core Accounting | Bespoke government/grant-auditor reporting requirements | "Mix in government grants and their compliance requirements and the problem compounds..." | Pre-built NGO/government audit report templates |
+| 5 | Pricing | Constrained budgets can't afford enterprise-tier ERP functionality | "We spend a lot of money on data management yet I still run a team of 3 to deal solely with exceptions." | NGO-specific discounted pricing tier |
+
+**Segment 6: Mid-market companies evaluating full ERPs**
+
+| Rank | Category | Pain Point | Representative Quote | Recommended Feature |
+|---|---|---|---|---|
+| 1 | Operational Bottlenecks | Costly, poorly-scoped ERP implementations stall the business | "We got a 100 hour package with the odoo implementation team... first consultant was so bad..." | "Done-with-you" implementation mapping local workflows before full deployment |
+| 2 | Regulatory Compliance | Global ERPs lack native, maintained links to GRA/VSDC | "Odoo does not include GRA E-VAT compliance natively..." | Platform-maintained native statutory API links, not bespoke local middleware |
+| 3 | Pricing | Punitive per-user/per-module pricing discourages adoption | "pay per user, including accountant unless owner and accountant share credentials." | Predictable value-based pricing that doesn't penalize headcount growth |
+| 4 | Core Accounting | Feature bloat creates a steep, intimidating learning curve | "when a small niche business... might be better served by a lighter combo." | Admin-configurable UI that hides irrelevant modules per role |
+| 5 | Connectivity | Centralized cloud ERP is a single point of failure during outages | "Some key functionality is missing from the mobile app." | Resilient mobile/tablet access + edge-caching for field/warehouse ops |
+
+#### Strategic implications (as stated in the source report)
+
+1. **Compliance as a native feature, not an afterthought** - the report frames GRA E-VAT/Act 1151 as an existential requirement, not a minor update, needing VSDC JSON/XML integration, correct composite-rate calculation, and 24h offline queuing built in from the start.
+2. **Architecture engineered to anticipate fraud** - hard-coded void restrictions, anomaly alerting, MoMo-at-checkout to reduce manual cash handling, immutable org-wide audit trails.
+3. **Pricing sovereignty + infrastructure resilience** - transparent local-currency pricing as a competitive wedge against incumbents' USD hikes, paired with mandatory hybrid-offline capability.
+
+#### Cross-check against what's already built in this codebase (quick pass, not exhaustive - needs its own dedicated gap-analysis session against Section 2 below)
+
+- Multi-currency (transaction-time conversion) - `[ALREADY BUILT]`, Phase 5 (2026-07-25).
+- Real audit trail with actor identity + structured diffs - `[ALREADY BUILT]`, 2026-07-27/28.
+- Multi-warehouse inventory + stock transfers - `[ALREADY BUILT]` (pre-existing + Warehouse Access permissions work).
+- Approval Workflows engine exists - `[ALREADY BUILT]`, Phase 4 - could potentially be reused for the "accountant-lockable periods" idea above rather than building a separate permission mechanism (needs its own look).
+- GRA E-VAT/VSDC integration - **not built**, still the single largest flagged gap, now reinforced from two independent research passes (this one and the 2026-07-28 Webhuk entry above). The two sources disagree on exact levy names/thresholds - needs primary-source (GRA site) verification before scoping.
+- MoMo reconciliation / native checkout integration - **not built** - same open question as 2026-07-28 (does MTN MoMo/Telecel expose a real merchant API, or does this need manual CSV/SMS-based ingestion?).
+- POS void/no-sale PIN-gating + anomaly detection on void ratios - **not built**. `PointOfSale.tsx`/`cashTill.ts` were investigated earlier this session for the multi-item cart rework (2026-07-30) but a manager-PIN-gated void override with void-ratio anomaly alerting was not part of that work - worth a dedicated look given how specific and repeatedly-cited this fraud pattern is across the research.
+- Fund accounting (restricted vs. unrestricted funds) for the NGO/institution segment - **not built**, a new segment/use-case not previously covered in this doc's research (prior entries focused on retail/SME, not non-profits) - would need its own schema-level design (e.g. a `fund` dimension on transactions) before scoping.
+- Hybrid-offline POS (local-first sale processing, async sync) - **not built** - `PointOfSale.tsx` today requires a live API call per sale; this is a materially different architecture (local queue + background sync), flagged consistently across nearly every segment above, so probably the single highest-leverage infrastructure investment if this research holds up.
+
 ---
 
 ## 2. Gap Analysis: What This Platform Has vs. What the Ghana Market Expects
@@ -211,6 +305,9 @@ In rough order of how compliance-critical they appear from research so far - **t
 12. 180-day cash flow forecast - forward-looking projection, distinct from item 4 (historical Cash Flow Statement); needs its own design thinking on what "forecast" actually means here (trend-based? recurring-transaction-aware, since those are already scheduled and predictable?).
 13. **[DONE 2026-07-29]** ~~Low-effort, do independently, same category as item 8: fix the header search bar's placeholder copy so it stops implying real data search~~ - `Header.tsx`/`CommandMenu.tsx` placeholders now describe quick navigation honestly. Real cross-app data search (the "spec for a real search feature later" this item flagged) remains unbuilt and is a real, separate feature if ever prioritized.
 14. Payroll module - large feature (employee records, pay runs, statutory deductions specific to Ghana), likely a big dedicated phase; several competitors treat it as standard.
+15. POS void/no-sale PIN-gating + anomaly detection on cashier void ratios - newly surfaced 2026-07-31 (deep-research entry above); this specific fraud pattern (void a completed sale, pocket the cash, "No Sale" to open the drawer) is described as the single most-cited shrinkage vector in the research. `cashTill.ts`/`PointOfSale.tsx` don't currently have any void-specific guard beyond normal role checks.
+16. Hybrid-offline POS architecture (local-first sale processing with async background sync, vs. today's live-API-per-sale model) - newly surfaced 2026-07-31; flagged as a cross-cutting blocker across nearly every segment in that research, likely the single highest-leverage infrastructure change if the research holds up under primary-source verification. Materially larger than most items on this list - needs its own architecture spike before scoping.
+17. Fund accounting (restricted vs. unrestricted fund tracking, e.g. for NGOs/schools/churches/cooperatives) - a new segment not previously covered in this doc; would need a `fund`/restriction dimension on transactions and independent per-fund balance sheets. Not yet validated against a real prospective customer in this segment - the 2026-07-25 target-market discussion this session focused on retail/SME, not non-profits, so worth confirming this is actually a market we want before scoping.
 
 ---
 
@@ -223,6 +320,10 @@ In rough order of how compliance-critical they appear from research so far - **t
 - Confirm the authoritative Ghana levy list directly from GRA's own site - Webhuk's article named NHIL/GETFund/COVID Levy/VAT, Finza's page named VAT/NHIL/GETFund/WHT (Withholding Tax) instead of COVID Levy. These may both be accurate for different transaction types, or one source may be outdated - needs a primary-source check before scoping item 2.
 - Does Finza (or any Ghana competitor) actually claim GRA E-VAT/SDC certification specifically, or only general "tax support"? Their features page didn't mention E-VAT explicitly - worth checking their dedicated pricing/GRA-compliance pages if they have one.
 - Sage Business Cloud Accounting pricing page (TrustRadius) returned HTTP 403 on fetch attempt - if Sage pricing detail is needed, try sage.com directly or a different source next time.
+- **Reconcile the two conflicting E-VAT levy accounts** (added 2026-07-31): the 2026-07-28 Webhuk entry names NHIL/GETFund/COVID Levy + VAT; the 2026-07-31 deep-research entry claims the flat-rate scheme was abolished entirely in favor of a unified 20% rate (15% VAT + 2.5% NHIL + 2.5% GETFund, no COVID Levy mentioned) under "Act 1151." Neither has been checked against GRA's own official site yet - this needs to happen before any E-VAT/tax-levy feature is scoped, since the two sources materially disagree on the actual rate structure.
+- Does the 2026-07-31 report's claimed statutory VAT-registration threshold (GHS 750,000 for goods, no threshold for services) match GRA's actual current published threshold? Not yet verified against a primary source.
+- Independently verify the 2026-07-31 report's specific pricing figures (QBO $99→$140/mo etc.) before using them in any competitive-pricing pitch externally - they were not sourced with citations in what was supplied.
+- Does MTN MoMo or Telecel Cash expose any real merchant/developer transaction API (same open question as 2026-07-28, restated because the 2026-07-31 research treats MoMo-at-checkout as a near-mandatory feature without addressing technical feasibility)?
 
 ---
 
