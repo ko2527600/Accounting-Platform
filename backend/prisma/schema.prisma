@@ -361,13 +361,50 @@ model VendorBill {
   journalId  String?  @map("journal_id")
   createdAt  DateTime @default(now()) @map("created_at")
 
+  // Itemized purchase / goods-receipt fields - all optional/backward-compatible
+  // with the original lump-sum bill shape. `warehouseId` + `lines` are set
+  // together when a bill represents real inventory received, not a generic
+  // expense. `billType`/`landedCostForBillId` distinguish a normal purchase
+  // bill from a secondary freight/customs/duty bill whose cost gets spread
+  // across a linked primary bill's line items (landed cost allocation).
+  warehouseId         String?  @map("warehouse_id")
+  billType            String   @default("STANDARD") @map("bill_type")
+  landedCostForBillId String?  @map("landed_cost_for_bill_id")
+  landedCostAppliedAt DateTime? @map("landed_cost_applied_at")
+
   vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  warehouse  Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines      VendorBillLine[]
+
+  landedCostForBill VendorBill?  @relation("LandedCostLink", fields: [landedCostForBillId], references: [id], onDelete: SetNull)
+  landedCostBills   VendorBill[] @relation("LandedCostLink")
 
   @@unique([tenantId, billNumber])
   @@index([tenantId])
   @@index([vendorId])
   @@index([status])
+  @@index([warehouseId])
+  @@index([landedCostForBillId])
   @@map("vendor_bills")
+}
+
+model VendorBillLine {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  billId    String   @map("bill_id")
+  itemId    String   @map("item_id")
+  quantity  Int
+  unitCost  Decimal  @db.Decimal(15, 2) @map("unit_cost")
+  lineTotal Decimal  @db.Decimal(15, 2) @map("line_total")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  bill      VendorBill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([billId])
+  @@index([itemId])
+  @@map("vendor_bill_lines")
 }
 
 model Warehouse {
@@ -387,6 +424,7 @@ model Warehouse {
   closeouts     DailyCloseoutReport[]
   adjustments   StockAdjustment[]
   userAccess    WarehouseAccess[]
+  vendorBills   VendorBill[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -407,6 +445,7 @@ model InventoryItem {
 
   warehouseStocks WarehouseStock[]
   adjustments     StockAdjustment[]
+  vendorBillLines VendorBillLine[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
