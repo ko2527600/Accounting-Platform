@@ -5,6 +5,7 @@ import {
   TrialBalanceResult,
   ProfitLossResult,
   BalanceSheetResult,
+  CashFlowResult,
 } from '../repository/reportRepository';
 
 export class ReportingServiceError extends Error {
@@ -66,5 +67,17 @@ export async function getBalanceSheet(
 
   return withCurrentTenantDb(prisma, async (client) => {
     return reportRepository.getBalanceSheet(client, asOfDate, endDate);
+  });
+}
+
+export async function getCashFlowStatement(
+  startDate?: string,
+  endDate?: string
+): Promise<CashFlowResult> {
+  if (startDate) validateDateFormat(startDate, 'startDate');
+  if (endDate) validateDateFormat(endDate, 'endDate');
+
+  return withCurrentTenantDb(prisma, async (client) => {
+    return reportRepository.getCashFlowStatement(client, startDate, endDate);
   });
 }

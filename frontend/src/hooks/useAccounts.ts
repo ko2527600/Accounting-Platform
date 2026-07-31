@@ -44,13 +44,14 @@ export function useAccounts() {
     setIsLoading(true);
     try {
       // Map frontend DTO to backend Prisma payload
-      const payload = {
+      const payload: any = {
         code: data.code,
         name: data.name,
         type: data.type.toUpperCase(), // "Asset" -> "ASSET"
         currency: "USD",
         isActive: true,
       };
+      if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
       
       const response = await api.post('/accounts', payload);
       if (response.data.success) {
@@ -73,6 +74,7 @@ export function useAccounts() {
       if (data.code) payload.code = data.code;
       if (data.type) payload.type = data.type.toUpperCase();
       if (data.status) payload.isActive = data.status === 'Active';
+      if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
       
       const response = await api.put(`/accounts/${id}`, payload);
       if (response.data.success) {

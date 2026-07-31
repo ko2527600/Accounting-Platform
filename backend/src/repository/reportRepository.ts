@@ -243,6 +243,183 @@ export async function getProfitAndLoss(
   };
 }
 
+export interface CashFlowLineItem {
+  id: string;
+  code: string;
+  name: string;
+  change: number; // signed impact on cash: positive = source of cash, negative = use of cash
+}
+
+export interface CashFlowResult {
+  startDate: string | null;
+  endDate: string | null;
+  netIncome: number;
+  operatingAdjustments: CashFlowLineItem[];
+  netCashFromOperating: number;
+  financingAdjustments: CashFlowLineItem[];
+  netCashFromFinancing: number;
+  netChangeInCash: number;
+  beginningCash: number;
+  endingCash: number;
+  cashTies: boolean;
+  cashAccounts: { id: string; code: string; name: string; balance: number }[];
+}
+
+/**
+ * Indirect-method Cash Flow Statement, computed straight from ledger balances
+ * (no separate cash-flow ledger). Accounts are grouped into three buckets:
+ *  - ASSET accounts flagged is_cash_equivalent are "cash itself" (excluded
+ *    from the adjustments and used only for the beginning/ending cash lines).
+ *  - All other non-cash ASSET/LIABILITY accounts feed "Operating Activities"
+ *    (their balance changes are standard indirect-method working-capital
+ *    adjustments to Net Income).
+ *  - EQUITY account changes (owner contributions/drawings) feed "Financing
+ *    Activities".
+ * There is no Investing section: this schema has no fixed-asset/loan account
+ * classification to separate capex or long-term debt from ordinary working
+ * capital, so - consistent with what small-business bookkeeping realistically
+ * supports today - those changes are treated as operating. This is a known,
+ * documented simplification (see STATUS.md), not an omission.
+ * Because double-entry bookkeeping guarantees Assets = Liabilities + Equity
+ * at every point in time, netCashFromOperating + netCashFromFinancing must
+ * always equal the actual change in the cash-equivalent accounts - `cashTies`
+ * surfaces that as a trust signal, mirroring `isBalanced` on the Balance Sheet.
+ */
+export async function getCashFlowStatement(
+  prisma: PrismaClient,
+  startDate?: string,
+  endDate?: string
+): Promise<CashFlowResult> {
+  const params: any[] = [];
+  let startParamIdx: number | null = null;
+  let endParamIdx: number | null = null;
+
+  if (startDate) {
+    params.push(startDate);
+    startParamIdx = params.length;
+  }
+  if (endDate) {
+    params.push(endDate);
+    endParamIdx = params.length;
+  }
+
+  // No startDate means "since inception" - beginning balances are definitionally zero.
+  const beginExpr = startParamIdx ? `l.transaction_date < $${startParamIdx}::date` : 'FALSE';
+  const endExpr = endParamIdx ? `l.transaction_date <= $${endParamIdx}::date` : 'TRUE';
+  const periodExpr = [
+    startParamIdx ? `l.transaction_date >= $${startParamIdx}::date` : null,
+    endParamIdx ? `l.transaction_date <= $${endParamIdx}::date` : null,
+  ]
+    .filter(Boolean)
+    .join(' AND ') || 'TRUE';
+
+  const sql = `
+    SELECT
+      a.id,
+      a.code,
+      a.name,
+      a.type,
+      a.is_cash_equivalent,
+      COALESCE(SUM(CASE WHEN ${beginExpr} THEN l.debit ELSE 0 END), 0) as begin_debit,
+      COALESCE(SUM(CASE WHEN ${beginExpr} THEN l.credit ELSE 0 END), 0) as begin_credit,
+      COALESCE(SUM(CASE WHEN ${endExpr} THEN l.debit ELSE 0 END), 0) as end_debit,
+      COALESCE(SUM(CASE WHEN ${endExpr} THEN l.credit ELSE 0 END), 0) as end_credit,
+      COALESCE(SUM(CASE WHEN ${periodExpr} THEN l.debit ELSE 0 END), 0) as period_debit,
+      COALESCE(SUM(CASE WHEN ${periodExpr} THEN l.credit ELSE 0 END), 0) as period_credit
+    FROM accounts a
+    LEFT JOIN ledgers l ON a.id = l.account_id
+    GROUP BY a.id, a.code, a.name, a.type, a.is_cash_equivalent
+    ORDER BY a.code ASC
+  `;
+
+  const rows: any[] = await prisma.$queryRawUnsafe(sql, ...params);
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  let beginningCash = 0;
+  let endingCash = 0;
+  const cashAccounts: { id: string; code: string; name: string; balance: number }[] = [];
+
+  const operatingAdjustments: CashFlowLineItem[] = [];
+  let netCashFromOperating = 0;
+
+  const financingAdjustments: CashFlowLineItem[] = [];
+  let netCashFromFinancing = 0;
+
+  let totalRevenue = 0;
+  let totalExpenses = 0;
+
+  for (const r of rows) {
+    const beginDebit = parseFloat(r.begin_debit);
+    const beginCredit = parseFloat(r.begin_credit);
+    const endDebit = parseFloat(r.end_debit);
+    const endCredit = parseFloat(r.end_credit);
+    const periodDebit = parseFloat(r.period_debit);
+    const periodCredit = parseFloat(r.period_credit);
+    const isCashEquivalent = Boolean(r.is_cash_equivalent);
+
+    if (r.type === 'ASSET' && isCashEquivalent) {
+      const begin = beginDebit - beginCredit;
+      const end = endDebit - endCredit;
+      beginningCash += begin;
+      endingCash += end;
+      cashAccounts.push({ id: r.id, code: r.code, name: r.name, balance: round2(end) });
+    } else if (r.type === 'ASSET') {
+      // Asset increase uses cash, so its cash impact is the negative of its change.
+      const change = (endDebit - endCredit) - (beginDebit - beginCredit);
+      const cashImpact = round2(-change);
+      if (cashImpact !== 0) {
+        operatingAdjustments.push({ id: r.id, code: r.code, name: r.name, change: cashImpact });
+      }
+      netCashFromOperating += cashImpact;
+    } else if (r.type === 'LIABILITY') {
+      // Liability increase provides cash.
+      const change = (endCredit - endDebit) - (beginCredit - beginDebit);
+      const cashImpact = round2(change);
+      if (cashImpact !== 0) {
+        operatingAdjustments.push({ id: r.id, code: r.code, name: r.name, change: cashImpact });
+      }
+      netCashFromOperating += cashImpact;
+    } else if (r.type === 'EQUITY') {
+      // Equity increase (owner contribution) provides cash; decrease (drawings) uses it.
+      const change = (endCredit - endDebit) - (beginCredit - beginDebit);
+      const cashImpact = round2(change);
+      if (cashImpact !== 0) {
+        financingAdjustments.push({ id: r.id, code: r.code, name: r.name, change: cashImpact });
+      }
+      netCashFromFinancing += cashImpact;
+    } else if (r.type === 'REVENUE') {
+      totalRevenue += periodCredit - periodDebit;
+    } else if (r.type === 'EXPENSE') {
+      totalExpenses += periodDebit - periodCredit;
+    }
+  }
+
+  const netIncome = round2(totalRevenue - totalExpenses);
+  netCashFromOperating = round2(netIncome + netCashFromOperating);
+  netCashFromFinancing = round2(netCashFromFinancing);
+  const netChangeInCash = round2(netCashFromOperating + netCashFromFinancing);
+
+  beginningCash = round2(beginningCash);
+  endingCash = round2(endingCash); // actual, straight from the cash-equivalent accounts - the ground truth
+  const cashTies = Math.abs(round2(beginningCash + netChangeInCash) - endingCash) < 0.01;
+
+  return {
+    startDate: startDate || null,
+    endDate: endDate || null,
+    netIncome,
+    operatingAdjustments,
+    netCashFromOperating,
+    financingAdjustments,
+    netCashFromFinancing,
+    netChangeInCash,
+    beginningCash,
+    endingCash,
+    cashTies,
+    cashAccounts,
+  };
+}
+
 export async function getBalanceSheet(
   prisma: PrismaClient,
   asOfDate?: string,

@@ -143,6 +143,56 @@ export function generateProfitAndLossDocx(
   ]);
 }
 
+export interface CashFlowLineItem {
+  code: string;
+  name: string;
+  change: number;
+}
+
+export interface CashFlowDocxData {
+  netIncome: number;
+  operatingAdjustments: CashFlowLineItem[];
+  netCashFromOperating: number;
+  financingAdjustments: CashFlowLineItem[];
+  netCashFromFinancing: number;
+  netChangeInCash: number;
+  beginningCash: number;
+  endingCash: number;
+  cashTies: boolean;
+}
+
+export function generateCashFlowDocx(
+  tenantName: string,
+  currency: string,
+  periodLabel: string,
+  data: CashFlowDocxData
+): Promise<Buffer> {
+  return buildDocument([
+    ...titleParagraph(tenantName, 'Cash Flow Statement', `${periodLabel} — all figures in ${currency}`),
+    headingParagraph('Operating Activities'),
+    new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `Net Income: ${formatMoney(data.netIncome, currency)}` })] }),
+    buildSimpleDocxTable(['Code', 'Account', 'Change in Cash'], data.operatingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)])),
+    new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: `Net Cash from Operating Activities: ${formatMoney(data.netCashFromOperating, currency)}`, bold: true })] }),
+    headingParagraph('Financing Activities'),
+    buildSimpleDocxTable(['Code', 'Account', 'Change in Cash'], data.financingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)])),
+    new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: `Net Cash from Financing Activities: ${formatMoney(data.netCashFromFinancing, currency)}`, bold: true })] }),
+    new Paragraph({ spacing: { before: 240 }, children: [new TextRun({ text: `Net Change in Cash: ${formatMoney(data.netChangeInCash, currency)}`, bold: true })] }),
+    new Paragraph({ children: [new TextRun({ text: `Cash at Beginning of Period: ${formatMoney(data.beginningCash, currency)}` })] }),
+    new Paragraph({ children: [new TextRun({ text: `Cash at End of Period: ${formatMoney(data.endingCash, currency)}`, bold: true, size: 26, color: '059669' })] }),
+    new Paragraph({
+      spacing: { before: 200 },
+      children: [
+        new TextRun({
+          text: data.cashTies
+            ? 'Reconciles with actual cash account balances.'
+            : 'Does not reconcile with actual cash account balances - check ledger entries.',
+          color: data.cashTies ? '059669' : 'DC2626',
+        }),
+      ],
+    }),
+  ]);
+}
+
 export interface ExecutiveReportCloseoutRow {
   closedAt: string;
   warehouseName: string;
