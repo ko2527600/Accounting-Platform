@@ -2,6 +2,26 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-07-31] - KPI & Financial Ratio Dashboard
+
+**What:** Closes item 11 from `GHANA_MARKET_RESEARCH_AND_ROADMAP.md`'s Candidate System Features list. A new `/reports/kpis` page giving a business owner a quick-glance read on profitability and financial health, computed entirely from data already posted to the ledger - no new data entry required.
+
+**Scope decision (deliberate, documented on the page itself, not just here):** two Explore passes confirmed this schema genuinely cannot compute a few textbook ratios honestly today:
+- **No Gross Margin / Inventory Turnover** - POS sales (`cashTill.ts`) never post a Cost of Goods Sold journal entry at all; there is no COGS anywhere in the ledger to divide by.
+- **No Current Ratio / Quick Ratio** - accounts have no current-vs-non-current classification (the same gap the Cash Flow Statement's missing Investing section already documented two days ago).
+
+Rather than fabricate an approximation using the wrong denominator, the dashboard ships only ratios this data genuinely supports:
+- **Net Profit Margin %** = Net Income / Revenue (period-scoped)
+- **Return on Assets %** = Net Income / Total Assets
+- **Equity Ratio %** = Total Equity / Total Assets
+- **Debt-to-Equity Ratio** = Total Liabilities / Total Equity (flags negative equity explicitly rather than showing a confusing negative number silently)
+- **Cash Ratio** = Cash & Cash Equivalents / Total Liabilities - reuses the `isCashEquivalent` flag built for the Cash Flow Statement
+
+New `GET /api/v1/reports/kpis` (optional `startDate`/`endDate` - the period governs Net Income/margin, while Balance Sheet totals are always as of `endDate`, mirroring how the Balance Sheet and P&L reports already split "point in time" from "over a period"). No PDF/Word export was added for this one (unlike Balance Sheet/P&L/Cash Flow) - a deliberate scope call, since a ratio dashboard is read in-app or exported to CSV for further analysis, not typically submitted as a formal document the way a statement is; Print + CSV cover the real use case.
+
+**Verification:** `tsc --noEmit` (backend) and `tsc -b` (frontend) both clean. New `backend/src/tests/kpiDashboard.test.ts` (4 tests): all 5 ratios verified by hand against a realistic 4-entry dataset (capital injection, cash sale, credit expense, partial payable payment); a second test confirms the period-vs-point-in-time date handling is correct (net income scoped to a date range while Balance Sheet totals stay pinned to `endDate`) - the trickiest part of this feature, verified with its own hand-checked numbers. Full backend suite run twice in a row: 382/382 passing both times. **Live verification** against real dev servers via Playwright: seeded a real tenant (owner capital $10,000, $4,000 cash sale, $1,500 credit expense) and confirmed all 5 cards on the real running dashboard (62.5% margin, 17.9% ROA, 89.3% equity ratio, 0.12 D/E, 9.33 cash ratio) match hand-calculated values exactly.
+**Files Affected:** `backend/src/repository/reportRepository.ts`, `backend/src/services/reportingService.ts`, `backend/src/routes/reports.ts`, `frontend/src/hooks/useKpiDashboard.ts` (new), `frontend/src/pages/reports/KpiDashboard.tsx` (new), `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/App.tsx`, `backend/src/tests/kpiDashboard.test.ts` (new).
+
 ## [Date: 2026-07-31] - Credit Notes (AR) and Debit Notes (AP)
 
 **What:** Closes item 6 from `GHANA_MARKET_RESEARCH_AND_ROADMAP.md`'s Candidate System Features list - a confirmed real gap (general invoice/bill correction and refund flow, not just a compliance nicety). Investigation found this platform recognizes revenue/expense only at payment time (`invoices.ts`'s and `bills.ts`'s `/pay` handlers post directly to Cash+Revenue or Cash+Expense - there's no separate Accounts Receivable/Payable ledger posting at creation time), so the textbook "always debit AR, credit Revenue" treatment doesn't actually apply here. The correct treatment genuinely depends on whether the invoice/bill has already been paid:

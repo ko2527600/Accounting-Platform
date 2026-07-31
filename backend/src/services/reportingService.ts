@@ -6,6 +6,7 @@ import {
   ProfitLossResult,
   BalanceSheetResult,
   CashFlowResult,
+  KpiDashboardResult,
 } from '../repository/reportRepository';
 
 export class ReportingServiceError extends Error {
@@ -79,5 +80,17 @@ export async function getCashFlowStatement(
 
   return withCurrentTenantDb(prisma, async (client) => {
     return reportRepository.getCashFlowStatement(client, startDate, endDate);
+  });
+}
+
+export async function getKpiDashboard(
+  startDate?: string,
+  endDate?: string
+): Promise<KpiDashboardResult> {
+  if (startDate) validateDateFormat(startDate, 'startDate');
+  if (endDate) validateDateFormat(endDate, 'endDate');
+
+  return withCurrentTenantDb(prisma, async (client) => {
+    return reportRepository.getKpiDashboard(client, startDate, endDate);
   });
 }

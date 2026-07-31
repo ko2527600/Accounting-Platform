@@ -40,6 +40,7 @@ import { GeneralLedger } from "./pages/reports/GeneralLedger";
 import { ProfitAndLoss } from "./pages/reports/ProfitAndLoss";
 import { BalanceSheet } from "./pages/reports/BalanceSheet";
 import { CashFlowStatement } from "./pages/reports/CashFlowStatement";
+import { KpiDashboard } from "./pages/reports/KpiDashboard";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 import { useTenantSettings } from "./hooks/useTenantSettings";
@@ -186,6 +187,7 @@ function App() {
             <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/cash-flow" element={<ProtectedRoute><MainLayout><CashFlowStatement /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/kpis" element={<ProtectedRoute><MainLayout><KpiDashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

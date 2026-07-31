@@ -420,6 +420,141 @@ export async function getCashFlowStatement(
   };
 }
 
+export interface KpiDashboardResult {
+  startDate: string | null;
+  endDate: string | null;
+  netIncome: number;
+  totalRevenue: number;
+  totalExpenses: number;
+  totalAssets: number;
+  totalLiabilities: number;
+  totalEquity: number;
+  totalCashEquivalents: number;
+  netProfitMarginPct: number | null;
+  returnOnAssetsPct: number | null;
+  debtToEquityRatio: number | null;
+  cashRatio: number | null;
+  equityRatioPct: number | null;
+}
+
+/**
+ * A lightweight set of financial ratios computed entirely from Balance Sheet
+ * + Profit & Loss totals - no new data entry required. Deliberately limited
+ * to ratios this schema can compute honestly:
+ *  - No Gross Margin / Inventory Turnover: POS sales (cashTill.ts) never post
+ *    a Cost of Goods Sold journal entry - there is no COGS anywhere in the
+ *    ledger to divide by, so a "Gross Margin" here would be fabricated.
+ *  - No Current Ratio / Quick Ratio: accounts have no current-vs-non-current
+ *    classification (same gap the Cash Flow Statement's missing Investing
+ *    section documents), so "current assets" isn't a real, distinct number.
+ * Uses totalEquity + retainedEarnings the same way getBalanceSheet does
+ * (cumulative revenue/expense since inception, independent of startDate),
+ * while netIncome/margins use the requested period - mirroring how the
+ * Balance Sheet and Profit & Loss reports already split "point in time" from
+ * "over a period" today.
+ */
+export async function getKpiDashboard(
+  prisma: PrismaClient,
+  startDate?: string,
+  endDate?: string
+): Promise<KpiDashboardResult> {
+  const params: any[] = [];
+  let startParamIdx: number | null = null;
+  let endParamIdx: number | null = null;
+
+  if (startDate) {
+    params.push(startDate);
+    startParamIdx = params.length;
+  }
+  if (endDate) {
+    params.push(endDate);
+    endParamIdx = params.length;
+  }
+
+  const endExpr = endParamIdx ? `l.transaction_date <= $${endParamIdx}::date` : 'TRUE';
+  const periodExpr = [
+    startParamIdx ? `l.transaction_date >= $${startParamIdx}::date` : null,
+    endParamIdx ? `l.transaction_date <= $${endParamIdx}::date` : null,
+  ]
+    .filter(Boolean)
+    .join(' AND ') || 'TRUE';
+
+  const sql = `
+    SELECT
+      a.type,
+      a.is_cash_equivalent,
+      COALESCE(SUM(CASE WHEN ${endExpr} THEN l.debit ELSE 0 END), 0) as end_debit,
+      COALESCE(SUM(CASE WHEN ${endExpr} THEN l.credit ELSE 0 END), 0) as end_credit,
+      COALESCE(SUM(CASE WHEN ${periodExpr} THEN l.debit ELSE 0 END), 0) as period_debit,
+      COALESCE(SUM(CASE WHEN ${periodExpr} THEN l.credit ELSE 0 END), 0) as period_credit
+    FROM accounts a
+    LEFT JOIN ledgers l ON a.id = l.account_id
+    GROUP BY a.type, a.is_cash_equivalent
+  `;
+
+  const rows: any[] = await prisma.$queryRawUnsafe(sql, ...params);
+
+  const round2 = (n: number) => Math.round(n * 100) / 100;
+
+  let totalAssets = 0;
+  let totalCashEquivalents = 0;
+  let totalLiabilities = 0;
+  let equityAccountsTotal = 0;
+  let cumulativeRevenue = 0;
+  let cumulativeExpenses = 0;
+  let periodRevenue = 0;
+  let periodExpenses = 0;
+
+  for (const r of rows) {
+    const endDebit = parseFloat(r.end_debit);
+    const endCredit = parseFloat(r.end_credit);
+    const periodDebit = parseFloat(r.period_debit);
+    const periodCredit = parseFloat(r.period_credit);
+
+    if (r.type === 'ASSET') {
+      const balance = endDebit - endCredit;
+      totalAssets += balance;
+      if (r.is_cash_equivalent) totalCashEquivalents += balance;
+    } else if (r.type === 'LIABILITY') {
+      totalLiabilities += endCredit - endDebit;
+    } else if (r.type === 'EQUITY') {
+      equityAccountsTotal += endCredit - endDebit;
+    } else if (r.type === 'REVENUE') {
+      cumulativeRevenue += endCredit - endDebit;
+      periodRevenue += periodCredit - periodDebit;
+    } else if (r.type === 'EXPENSE') {
+      cumulativeExpenses += endDebit - endCredit;
+      periodExpenses += periodDebit - periodCredit;
+    }
+  }
+
+  const retainedEarnings = cumulativeRevenue - cumulativeExpenses;
+  const totalEquity = round2(equityAccountsTotal + retainedEarnings);
+  totalAssets = round2(totalAssets);
+  totalCashEquivalents = round2(totalCashEquivalents);
+  totalLiabilities = round2(totalLiabilities);
+  const totalRevenue = round2(periodRevenue);
+  const totalExpenses = round2(periodExpenses);
+  const netIncome = round2(totalRevenue - totalExpenses);
+
+  return {
+    startDate: startDate || null,
+    endDate: endDate || null,
+    netIncome,
+    totalRevenue,
+    totalExpenses,
+    totalAssets,
+    totalLiabilities,
+    totalEquity,
+    totalCashEquivalents,
+    netProfitMarginPct: totalRevenue > 0 ? round2((netIncome / totalRevenue) * 100) : null,
+    returnOnAssetsPct: totalAssets > 0 ? round2((netIncome / totalAssets) * 100) : null,
+    debtToEquityRatio: totalEquity !== 0 ? round2(totalLiabilities / totalEquity) : null,
+    cashRatio: totalLiabilities > 0 ? round2(totalCashEquivalents / totalLiabilities) : null,
+    equityRatioPct: totalAssets > 0 ? round2((totalEquity / totalAssets) * 100) : null,
+  };
+}
+
 export async function getBalanceSheet(
   prisma: PrismaClient,
   asOfDate?: string,

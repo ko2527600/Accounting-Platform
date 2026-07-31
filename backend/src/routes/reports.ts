@@ -298,4 +298,38 @@ router.get('/cash-flow/export', requireRole('Viewer'), async (req: Request, res:
   }
 });
 
+/**
+ * GET /api/v1/reports/kpis
+ * Description: A lightweight financial ratio dashboard (Net Profit Margin, Return on
+ * Assets, Debt-to-Equity, Cash Ratio, Equity Ratio) computed from Balance Sheet + P&L
+ * totals. Omit startDate/endDate for since-inception. No Gross Margin/Current Ratio -
+ * this schema has no COGS or current-vs-non-current classification to compute those honestly.
+ * Access: Viewer role or higher
+ */
+router.get('/kpis', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getKpiDashboard(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+    res.status(200).json({
+      success: true,
+      data: report,
+    });
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating KPI dashboard.',
+    });
+  }
+});
+
 export default router;

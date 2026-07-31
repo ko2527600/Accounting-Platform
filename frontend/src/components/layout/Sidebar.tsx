@@ -23,6 +23,7 @@ import {
   ShoppingCart,
   Scale,
   Waves,
+  Gauge,
 } from "lucide-react";
 
 interface NavGroup {
@@ -75,6 +76,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Profit & Loss", href: "/reports/pnl", icon: PieChart },
       { name: "Balance Sheet", href: "/reports/balance-sheet", icon: Scale },
       { name: "Cash Flow Statement", href: "/reports/cash-flow", icon: Waves },
+      { name: "KPI Dashboard", href: "/reports/kpis", icon: Gauge },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
@@ -115,6 +117,7 @@ const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/pnl",
     "/reports/balance-sheet",
     "/reports/cash-flow",
+    "/reports/kpis",
     "/reports/budgets",
     "/audit-logs",
   ],
