@@ -43,6 +43,7 @@ import budgetsRouter from './routes/budgets';
 import recurringTransactionsRouter from './routes/recurringTransactions';
 import approvalWorkflowsRouter from './routes/approvalWorkflows';
 import adminAuditLogsRouter from './routes/adminAuditLogs';
+import momoRouter from './routes/momo';
 
 dotenv.config();
 
@@ -186,6 +187,9 @@ app.use('/api/v1/budgets', budgetsRouter);
 app.use('/api/v1/recurring-transactions', recurringTransactionsRouter);
 app.use('/api/v1/approval-workflows', approvalWorkflowsRouter);
 app.use('/api/v1/admin/audit-logs', adminAuditLogsRouter);
+
+// MTN Mobile Money (Collections API) invoice payment collection endpoints
+app.use('/api/v1/momo', momoRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.

@@ -5,18 +5,18 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
-import * as journalService from '../services/journalEntryService';
-import * as accountRepository from '../repository/accountRepository';
 import * as taxRateService from '../services/taxRateService';
 import { TaxRateServiceError } from '../services/taxRateService';
 import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
 import * as fxRateService from '../services/fxRateService';
 import { FxRateServiceError } from '../services/fxRateService';
-import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
+import { actorFromRequest } from '../services/auditLogService';
 import * as creditDebitNoteService from '../services/creditDebitNoteService';
 import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService';
 import { JournalEntryServiceError } from '../services/journalEntryService';
+import * as invoicePaymentService from '../services/invoicePaymentService';
+import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
 
 const router = Router();
 
@@ -224,76 +224,8 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
  */
 router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { tenantId } = requireTenantContext();
-    const { id } = req.params;
-
-    const invoice = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).invoice.findFirst({
-        where: { id, tenantId },
-        include: { customer: true },
-      });
-    });
-
-    if (!invoice) {
-      res.status(404).json({ success: false, error: 'Invoice not found.' });
-      return;
-    }
-
-    if (invoice.status === 'PAID') {
-      res.status(400).json({ success: false, error: 'Invoice is already paid.' });
-      return;
-    }
-
-    // Opt-in approval gate: only blocks if approval was actually requested for this invoice.
-    await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'Invoice', id);
-
-    // Find accounts for AR Posting (1010 Cash/Bank, 4010 Revenue or Accounts Receivable).
-    // Accounts live in the tenant's own Postgres schema, not `public`, so this must go
-    // through accountRepository's raw SQL (which respects the SET LOCAL search_path set
-    // by withCurrentTenantDb) rather than a Prisma-typed `client.account.findMany()` call,
-    // which always schema-qualifies to `public.accounts` (permanently empty) and silently
-    // caused every invoice payment to skip journal posting.
-    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-    const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
-    const revenueAcc = accounts.find((a: any) => a.code === '4010') || accounts[1] || accounts[0];
-
-    // Post the tenant-base-currency equivalent, not the raw native-currency
-    // total - the ledger is implicitly single-currency. Falls back to the raw
-    // total for invoices created before this field existed (same currency
-    // as base in the overwhelming majority of cases anyway).
-    const postingAmount = invoice.baseCurrencyAmount != null ? Number(invoice.baseCurrencyAmount) : Number(invoice.total);
-
     const actor = actorFromRequest(req);
-
-    let journalId = null;
-    if (cashAcc && revenueAcc) {
-      const journal = await journalService.createJournalEntry({
-        description: `Payment Received for Invoice ${invoice.invoiceNumber} (${invoice.customer.name})`,
-        entryDate: new Date().toISOString().split('T')[0],
-        status: 'POSTED',
-        lines: [
-          { accountId: cashAcc.id, debit: postingAmount, credit: 0, description: `Cash Received - ${invoice.invoiceNumber}` },
-          { accountId: revenueAcc.id, debit: 0, credit: postingAmount, description: `Revenue - ${invoice.invoiceNumber}` },
-        ],
-      }, actor);
-      journalId = journal.id;
-    }
-
-    const updated = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).invoice.update({
-        where: { id },
-        data: { status: 'PAID', journalId },
-      });
-    });
-
-    await recordAuditLog({
-      action: 'INVOICE.PAID',
-      entity: 'Invoice',
-      entityId: id,
-      actor,
-      changes: diffFields(invoice, updated, ['status', 'journalId']),
-      details: `Invoice ${invoice.invoiceNumber} marked PAID (${postingAmount}).`,
-    });
+    const updated = await invoicePaymentService.markInvoicePaid(req.params.id, actor);
 
     res.status(200).json({
       success: true,
@@ -301,11 +233,11 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
       data: { invoice: updated },
     });
   } catch (error: any) {
-    console.error('[Invoices] Error paying invoice:', error);
-    if (error instanceof ApprovalWorkflowServiceError) {
+    if (error instanceof InvoicePaymentServiceError || error instanceof ApprovalWorkflowServiceError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
+    console.error('[Invoices] Error paying invoice:', error);
     res.status(500).json({ success: false, error: 'Failed to record invoice payment.' });
   }
 });
