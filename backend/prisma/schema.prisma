@@ -1005,3 +1005,37 @@ model ApprovalStep {
   @@index([status])
   @@map("approval_steps")
 }
+
+// An employee's out-of-pocket expense claim, distinct from a VendorBill
+// (which represents money owed to an external vendor, not a reimbursement
+// owed to a staff member). Approval reuses the existing ApprovalWorkflow
+// engine (entityType 'ExpenseClaim') rather than a bespoke chain -
+// expenseAccountId is a bare id (not a Prisma relation) because Account
+// lives in the tenant's own per-tenant Postgres schema, not `public`, the
+// same cross-schema-boundary reason TaxRate/Invoice never relate directly
+// to Account either.
+model ExpenseClaim {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  claimNumber        String    @map("claim_number")
+  submittedBy        String    @map("submitted_by")
+  submittedByName    String    @map("submitted_by_name")
+  category           String
+  description        String
+  amount             Decimal   @db.Decimal(15, 2)
+  currency           String    @default("USD")
+  expenseDate        DateTime  @map("expense_date")
+  expenseAccountId   String?   @map("expense_account_id")
+  status             String    @default("PENDING_APPROVAL")
+  approvalWorkflowId String?   @map("approval_workflow_id")
+  journalId          String?   @map("journal_id")
+  reimbursedAt       DateTime? @map("reimbursed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, claimNumber])
+  @@index([tenantId])
+  @@index([status])
+  @@index([submittedBy])
+  @@map("expense_claims")
+}

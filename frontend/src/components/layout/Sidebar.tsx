@@ -24,6 +24,7 @@ import {
   Scale,
   Waves,
   Gauge,
+  Wallet,
 } from "lucide-react";
 
 interface NavGroup {
@@ -55,6 +56,7 @@ const navigationGroups: NavGroup[] = [
       { name: "Point of Sale", href: "/pos", icon: ShoppingCart },
       { name: "Invoices (AR)", href: "/invoices", icon: FileText },
       { name: "Vendor Bills (AP)", href: "/bills", icon: Receipt },
+      { name: "Expense Claims", href: "/expenses", icon: Wallet },
     ],
   },
   {
@@ -102,9 +104,9 @@ const navigationGroups: NavGroup[] = [
 // review set with no operational entry points (POS, Inventory writes,
 // Settings, Team Management).
 const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
-  "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos"],
-  cashier: ["/dashboard", "/inventory", "/pos"],
-  hr: ["/dashboard", "/team"],
+  "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/expenses"],
+  cashier: ["/dashboard", "/inventory", "/pos", "/expenses"],
+  hr: ["/dashboard", "/team", "/expenses"],
   auditor: [
     "/dashboard",
     "/accounts",
@@ -112,6 +114,7 @@ const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/banking",
     "/invoices",
     "/bills",
+    "/expenses",
     "/reports/executive",
     "/reports/ledger",
     "/reports/pnl",

@@ -22,6 +22,7 @@ import { TaxRates } from "./pages/settings/TaxRates";
 import { FiscalPeriods } from "./pages/settings/FiscalPeriods";
 import { RecurringTransactions } from "./pages/settings/RecurringTransactions";
 import { Approvals } from "./pages/approvals/Approvals";
+import { ExpenseClaims } from "./pages/expenses/ExpenseClaims";
 import { Budgets } from "./pages/reports/Budgets";
 import { TeamManagement } from "./pages/team/TeamManagement";
 import { AuditLogs } from "./pages/audit/AuditLogs";
@@ -169,6 +170,7 @@ function App() {
             <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
+            <Route path="/expenses" element={<ProtectedRoute><MainLayout><ExpenseClaims /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
             <Route path="/audit-logs" element={<ProtectedRoute><MainLayout><AuditLogs /></MainLayout></ProtectedRoute>} />
