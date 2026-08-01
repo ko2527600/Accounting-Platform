@@ -130,6 +130,20 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     // or the tenant's single active default for this date. No hardcoded percentage.
     let resolvedTaxRateId: string | null = null;
     let tax = 0;
+    // Snapshot of each named levy's own amount at issue time (e.g. Ghana's
+    // VAT/NHIL/GETFund) - null when the rate has no layered breakdown, so
+    // existing simple tax rates are entirely unaffected.
+    let taxBreakdown: { name: string; rate: number; amount: number }[] | null = null;
+
+    function buildBreakdown(rateRecord: { components: any }, base: number) {
+      if (!rateRecord.components || !Array.isArray(rateRecord.components)) return null;
+      return rateRecord.components.map((c: { name: string; rate: number }) => ({
+        name: c.name,
+        rate: c.rate,
+        amount: Math.round(base * c.rate * 100) / 100,
+      }));
+    }
+
     if (taxRateId) {
       const explicitRate = await taxRateService.getTaxRateById(tenantId, taxRateId);
       if (!explicitRate) {
@@ -138,11 +152,13 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       }
       resolvedTaxRateId = explicitRate.id;
       tax = subtotal * Number(explicitRate.rate);
+      taxBreakdown = buildBreakdown(explicitRate, subtotal);
     } else {
       const defaultRate = await taxRateService.resolveDefaultTaxRate(tenantId, issueDate);
       if (defaultRate) {
         resolvedTaxRateId = defaultRate.id;
         tax = subtotal * Number(defaultRate.rate);
+        taxBreakdown = buildBreakdown(defaultRate, subtotal);
       }
       // No active tax rate configured for this tenant/date: tax stays 0
       // rather than silently guessing a percentage.
@@ -177,6 +193,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           subtotal,
           tax,
           taxRateId: resolvedTaxRateId,
+          taxBreakdown,
           total,
           baseCurrencyAmount,
           status: 'SENT',

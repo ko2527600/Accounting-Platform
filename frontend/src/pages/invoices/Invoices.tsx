@@ -29,6 +29,12 @@ interface InvoiceItem {
   amount: number;
 }
 
+interface TaxBreakdownLine {
+  name: string;
+  rate: number;
+  amount: number;
+}
+
 interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -38,6 +44,7 @@ interface Invoice {
   currency: string;
   subtotal: number;
   tax: number;
+  taxBreakdown: TaxBreakdownLine[] | null;
   total: number;
   status: string;
 }
@@ -275,6 +282,7 @@ export function Invoices() {
                   <TableHead>Invoice #</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Issue Date</TableHead>
+                  <TableHead>Tax</TableHead>
                   <TableHead>Total Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -292,6 +300,14 @@ export function Invoices() {
                     </TableCell>
                     <TableCell className="text-xs text-secondary-500">
                       {new Date(inv.issueDate).toLocaleDateString()}
+                    </TableCell>
+                    <TableCell>
+                      <div className="text-secondary-900 dark:text-secondary-50">{formatCurrency(Number(inv.tax), inv.currency)}</div>
+                      {inv.taxBreakdown && inv.taxBreakdown.length > 0 && (
+                        <div className="text-xs text-secondary-500 mt-0.5">
+                          {inv.taxBreakdown.map((c) => `${c.name} ${(c.rate * 100).toFixed(1)}%`).join(" + ")}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell className="font-bold text-secondary-900 dark:text-secondary-50">
                       {formatCurrency(Number(inv.total), inv.currency)}

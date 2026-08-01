@@ -299,6 +299,11 @@ model Invoice {
   subtotal      Decimal       @db.Decimal(15, 2)
   tax           Decimal       @default(0.00) @db.Decimal(15, 2)
   taxRateId     String?       @map("tax_rate_id")
+  // Snapshot of the tax rate's components at issue time (name/rate/amount per
+  // levy), so a later edit to the TaxRate's components never rewrites the
+  // history of what was actually charged on this invoice - same reasoning as
+  // `subtotal`/`tax`/`total` already being snapshotted rather than derived live.
+  taxBreakdown  Json?         @map("tax_breakdown")
   total         Decimal       @db.Decimal(15, 2)
   baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
   status        String        @default("DRAFT")
@@ -796,6 +801,11 @@ model TaxRate {
   isActive      Boolean   @default(true) @map("is_active")
   effectiveFrom DateTime  @map("effective_from")
   effectiveTo   DateTime? @map("effective_to")
+  // Optional layered breakdown of `rate` into named components (e.g. Ghana's
+  // VAT 15% + NHIL 2.5% + GETFund 2.5% = 20%) - an array of {name, rate}
+  // objects whose rates must sum to `rate`. Null/omitted means a simple,
+  // single-line tax rate - fully backward compatible with existing rates.
+  components    Json?
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 

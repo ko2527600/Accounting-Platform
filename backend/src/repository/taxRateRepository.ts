@@ -1,5 +1,10 @@
 import { PrismaClient } from '@prisma/client';
 
+export interface TaxRateComponent {
+  name: string;
+  rate: number;
+}
+
 export interface TaxRateRecord {
   id: string;
   tenantId: string;
@@ -11,6 +16,7 @@ export interface TaxRateRecord {
   isActive: boolean;
   effectiveFrom: Date;
   effectiveTo: Date | null;
+  components: TaxRateComponent[] | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -24,6 +30,7 @@ export interface CreateTaxRateData {
   isActive?: boolean;
   effectiveFrom: Date;
   effectiveTo?: Date | null;
+  components?: TaxRateComponent[] | null;
 }
 
 export async function listTaxRates(prisma: PrismaClient, tenantId: string): Promise<TaxRateRecord[]> {
@@ -76,6 +83,7 @@ export async function createTaxRate(
       isActive: data.isActive !== undefined ? data.isActive : true,
       effectiveFrom: data.effectiveFrom,
       effectiveTo: data.effectiveTo ?? null,
+      components: data.components ?? null,
     },
   });
 }
@@ -100,6 +108,7 @@ export async function updateTaxRate(
       ...(data.isActive !== undefined ? { isActive: data.isActive } : {}),
       ...(data.effectiveFrom !== undefined ? { effectiveFrom: data.effectiveFrom } : {}),
       ...(data.effectiveTo !== undefined ? { effectiveTo: data.effectiveTo } : {}),
+      ...(data.components !== undefined ? { components: data.components } : {}),
     },
   });
 }
