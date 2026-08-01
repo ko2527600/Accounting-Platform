@@ -8,6 +8,8 @@ import { requireTenantContext } from '../context/tenantContext';
 import { prisma } from '../config/db';
 import { generateBalanceSheetPdf, generateProfitAndLossPdf, generateCashFlowPdf } from '../services/pdfGenerationService';
 import { generateBalanceSheetDocx, generateProfitAndLossDocx, generateCashFlowDocx } from '../services/reportDocxService';
+import * as cashFlowForecastService from '../services/cashFlowForecastService';
+import { CashFlowForecastServiceError } from '../services/cashFlowForecastService';
 
 const router = Router();
 
@@ -328,6 +330,37 @@ router.get('/kpis', requireRole('Viewer'), async (req: Request, res: Response): 
     res.status(500).json({
       success: false,
       error: error.message || 'Internal Server Error while generating KPI dashboard.',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow-forecast?days=180
+ * A recurring-transaction-aware, event-grounded forward cash projection -
+ * NOT a trend-based extrapolation. Every dollar traces back to a real
+ * scheduled RecurringTransaction occurrence or a real outstanding
+ * Invoice/VendorBill due date, weekly-bucketed. No PDF/Word export (same
+ * scope call as /kpis - a forward projection is read in-app, not typically
+ * submitted as a formal document).
+ * Access: Viewer role or higher.
+ */
+router.get('/cash-flow-forecast', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const days = req.query.days ? Number(req.query.days) : 180;
+    const forecast = await cashFlowForecastService.getCashFlowForecast(days);
+    res.status(200).json({
+      success: true,
+      data: forecast,
+    });
+  } catch (error: any) {
+    if (error instanceof CashFlowForecastServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Cash Flow Forecast error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating Cash Flow Forecast.',
     });
   }
 });
