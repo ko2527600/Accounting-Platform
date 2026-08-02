@@ -5,7 +5,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as reportingService from '../services/reportingService';
-import { computeWeeklyReportData } from '../services/scheduledEmailService';
+import { computeWeeklyReportData, computeMonthlyReportData } from '../services/scheduledEmailService';
 
 const router = Router();
 
@@ -21,7 +21,7 @@ router.use(tenantContextMiddleware);
 router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { frequency, recipients, reportType, enabled } = req.body;
+    const { frequency, recipients, reportType, enabled, dayOfWeek, dayOfMonth, hourUtc } = req.body;
 
     if (!Array.isArray(recipients) || recipients.length === 0) {
       res.status(400).json({
@@ -31,12 +31,18 @@ router.post('/schedule', requireRole('Accountant'), async (req: Request, res: Re
       return;
     }
 
-    const data = {
+    // dayOfWeek/dayOfMonth/hourUtc are optional overrides - omit to keep the
+    // schema defaults (Monday 8am UTC for weekly, the 1st at 8am UTC for
+    // monthly) rather than forcing every caller to specify a schedule time.
+    const data: Record<string, unknown> = {
       frequency: frequency || 'Weekly',
       recipients,
       reportType: reportType || 'ProfitAndLoss',
       enabled: enabled !== undefined ? Boolean(enabled) : true,
     };
+    if (Number.isInteger(dayOfWeek)) data.dayOfWeek = dayOfWeek;
+    if (Number.isInteger(dayOfMonth)) data.dayOfMonth = dayOfMonth;
+    if (Number.isInteger(hourUtc)) data.hourUtc = hourUtc;
 
     const schedule = await (prisma as any).reportSchedule.upsert({
       where: { tenantId },
@@ -118,7 +124,8 @@ router.get('/export/pdf', async (req: Request, res: Response): Promise<void> => 
 
 /**
  * POST /api/v1/reports/schedule/test-email
- * Triggers an instant test executive email report via Nodemailer/Gmail SMTP.
+ * Triggers an instant test executive email report reflecting the tenant's
+ * saved frequency preference (Weekly vs Monthly), via SendGrid.
  */
 router.post('/schedule/test-email', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -128,11 +135,16 @@ router.post('/schedule/test-email', async (req: Request, res: Response): Promise
 
     const email = recipientEmail || (req as any).user?.email || 'owner@example.com';
 
-    // Pull the tenant's real closeout data from the last 7 days instead of
-    // sending hardcoded figures in every test email.
-    const reportData = await computeWeeklyReportData(tenantId);
+    const existing = await (prisma as any).reportSchedule.findUnique({ where: { tenantId } });
+    const isMonthly = existing?.frequency === 'Monthly';
 
-    const success = await EmailService.sendWeeklyExecutiveReport(email, tenantName || 'Ledgio Workspace', reportData);
+    const reportData = isMonthly
+      ? await computeMonthlyReportData(tenantId)
+      : await computeWeeklyReportData(tenantId);
+
+    const success = isMonthly
+      ? await EmailService.sendMonthlyExecutiveReport(email, tenantName || 'Ledgio Workspace', reportData)
+      : await EmailService.sendWeeklyExecutiveReport(email, tenantName || 'Ledgio Workspace', reportData);
 
     if (success) {
       res.status(200).json({ success: true, message: `Test executive email dispatched to ${email}.` });
