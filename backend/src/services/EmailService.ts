@@ -127,38 +127,109 @@ export class EmailService {
   }
 
   /**
+   * Renders a single "vs previous period" delta as a colored span, matching
+   * the red/green up-down indicators used by third-party monitoring digest
+   * emails (e.g. "-5.54%"). Null means there's no prior-period data to
+   * compare against (e.g. a brand-new tenant), so it renders as a neutral
+   * "New" badge instead of a misleading 0%/infinite change.
+   */
+  private static renderDelta(changePercent: number | null): string {
+    if (changePercent === null) {
+      return '<span style="color: #94a3b8;">New</span>';
+    }
+    const isPositive = changePercent >= 0;
+    const color = isPositive ? '#059669' : '#dc2626';
+    const arrow = isPositive ? '▲' : '▼';
+    return `<span style="color: ${color}; font-weight: 600;">${arrow} ${Math.abs(changePercent).toFixed(2)}%</span>`;
+  }
+
+  /**
+   * Builds the shared stat-grid body for period executive reports (weekly
+   * and monthly): a 2-column tile grid with each figure's delta vs the
+   * immediately preceding period of the same length.
+   */
+  private static buildPeriodReportHtml(
+    periodLabel: 'Week' | 'Month',
+    tenantName: string,
+    reportData: {
+      periodSales: number;
+      topShopName: string;
+      totalItemsSold: number;
+      salesChangePercent: number | null;
+      itemsChangePercent: number | null;
+    }
+  ): string {
+    const accent = periodLabel === 'Week' ? '#3b82f6' : '#7c3aed';
+    const tile = (label: string, value: string, delta?: string) => `
+      <td style="width: 50%; padding: 14px; background-color: #f8fafc; border-radius: 6px;">
+        <div style="font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em;">${label}</div>
+        <div style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 4px;">${value}</div>
+        ${delta ? `<div style="font-size: 12px; margin-top: 4px;">${delta} vs prior ${periodLabel.toLowerCase()}</div>` : ''}
+      </td>
+    `;
+
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid ${accent}; padding-bottom: 10px;">
+          ${periodLabel}ly Executive Performance Summary
+        </h2>
+        <p style="font-size: 14px; color: #475569;">
+          Here is your automated ${periodLabel.toLowerCase()}ly business breakdown for <strong>${escapeHtml(tenantName)}</strong>.
+        </p>
+
+        <table role="presentation" style="width: 100%; border-collapse: separate; border-spacing: 10px 10px; margin: 10px -10px;">
+          <tr>
+            ${tile('Total Cash Sales', `GH₵ ${reportData.periodSales.toFixed(2)}`, this.renderDelta(reportData.salesChangePercent))}
+            ${tile('Total Items Sold', `${reportData.totalItemsSold} pcs`, this.renderDelta(reportData.itemsChangePercent))}
+          </tr>
+          <tr>
+            ${tile('Top Performing Branch', escapeHtml(reportData.topShopName))}
+          </tr>
+        </table>
+
+        <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 15px;">
+          Generated automatically by <strong>Ledgio Multi-Tenant ERP</strong>. All shop closeouts and ledger records are reconciled.
+        </p>
+      </div>
+    `;
+  }
+
+  /**
    * Sends weekly executive Profit & Loss performance summary with HTML formatting.
    */
   public static async sendWeeklyExecutiveReport(
     to: string,
     tenantName: string,
-    reportData: { weeklySales: number; topShopName: string; totalItemsSold: number }
+    reportData: {
+      periodSales: number;
+      topShopName: string;
+      totalItemsSold: number;
+      salesChangePercent: number | null;
+      itemsChangePercent: number | null;
+    }
   ): Promise<boolean> {
     const subject = `📊 Ledgio Weekly Executive Performance - ${tenantName}`;
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded-lg: 8px;">
-        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">
-          Weekly Executive Performance Summary
-        </h2>
-        <p style="font-size: 14px; color: #475569;">
-          Here is your automated weekly business breakdown for <strong>${escapeHtml(tenantName)}</strong>.
-        </p>
+    const html = this.buildPeriodReportHtml('Week', tenantName, reportData);
+    return this.sendMail(to, subject, html);
+  }
 
-        <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #1e293b; font-size: 16px;">Week at a Glance</h3>
-          <ul style="font-size: 14px; color: #334155; line-height: 1.6;">
-            <li><strong>Total Weekly Cash Sales:</strong> GH₵ ${reportData.weeklySales.toFixed(2)}</li>
-            <li><strong>Top Performing Branch:</strong> ${escapeHtml(reportData.topShopName)}</li>
-            <li><strong>Total Items Sold:</strong> ${reportData.totalItemsSold} pcs</li>
-          </ul>
-        </div>
-
-        <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-          Generated automatically by <strong>Ledgio Multi-Tenant ERP</strong>. All shop closeouts and ledger records are reconciled.
-        </p>
-      </div>
-    `;
-
+  /**
+   * Sends monthly executive Profit & Loss performance summary, comparing
+   * the trailing 30 days against the preceding 30-day window.
+   */
+  public static async sendMonthlyExecutiveReport(
+    to: string,
+    tenantName: string,
+    reportData: {
+      periodSales: number;
+      topShopName: string;
+      totalItemsSold: number;
+      salesChangePercent: number | null;
+      itemsChangePercent: number | null;
+    }
+  ): Promise<boolean> {
+    const subject = `📈 Ledgio Monthly Executive Performance - ${tenantName}`;
+    const html = this.buildPeriodReportHtml('Month', tenantName, reportData);
     return this.sendMail(to, subject, html);
   }
 
