@@ -466,7 +466,7 @@ export function VendorBills() {
       </Modal>
 
       {/* Create Vendor Bill Modal */}
-      <Modal isOpen={isBillOpen} onClose={() => setIsBillOpen(false)} title="Record Vendor Bill">
+      <Modal isOpen={isBillOpen} onClose={() => setIsBillOpen(false)} title="Record Vendor Bill" className="max-w-2xl">
         <form onSubmit={handleCreateBill} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Select Vendor</label>

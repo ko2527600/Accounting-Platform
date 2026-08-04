@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-04] - Widen Cramped Data-Entry Modals
+
+**What:** User sent a photo of the "Add Product / Inventory Item" modal on their own screen, cramped into a small card, and asked to widen every modal that looks the same way, then use Bulk Add Products.
+
+**Root cause:** every modal in the app (`Modal.tsx`) defaults to `max-w-lg` (512px) regardless of content. That's fine for a single-field form (Add Vendor, Add Customer, Invite Staff) but genuinely cramped for the 6 modals that pack a multi-column grid or an embedded data table into that width: `WarehouseManagement.tsx`'s "Add Product / Inventory Item" (3-column grid), "Bulk Add Products" (8-column quick-add table), "Stock Adjustment History" (6-column table), "Stock Take" (4-column count/review tables); `VendorBills.tsx`'s "Record Vendor Bill" itemized line-row; `Invoices.tsx`'s "Create New Invoice" line-item row.
+
+**Fix:** widened each via the `Modal` component's existing `className` override (`twMerge` already resolves the conflicting `max-w-*` utility, so no change to `Modal.tsx` itself was needed) - `max-w-2xl` for the product/vendor-bill/invoice forms, `max-w-3xl` for the two history/stock-take tables, `max-w-5xl` for Bulk Add Products (the worst offender - a full 8-column editable table). Also widened the Bulk Add Products warehouse-select column (`w-32`→`w-40`) since shop names were truncating. Left the single-field modals (Add Vendor, Add Customer, Invite Staff, Change Role, Add Warehouse, Close Till, Void Sale, etc.) untouched - widening those would just add empty space, not fix a real cramped-field problem.
+
+**Verification:** `tsc --noEmit` clean on both frontend and backend, frontend production build clean. Live-verified in a browser (Playwright against the local dev stack): registered a real test tenant via the passcode-gated admin-onboard endpoint, logged in, screenshotted the widened "Add Product" and "Bulk Add Products" modals, then actually filled in and submitted 3 realistic test products (Samsung 24" Monitor, A4 Copy Paper, HP 63 Ink Cartridge) through the real Bulk Add Products flow end-to-end - "3 products created successfully", exercising the exact `/inventory/items/bulk` endpoint fixed for production timeouts earlier today. Backend suite unaffected (no backend files touched): 407/407 passing.
+**Files Affected:** `frontend/src/pages/inventory/WarehouseManagement.tsx`, `frontend/src/pages/bills/VendorBills.tsx`, `frontend/src/pages/invoices/Invoices.tsx`.
+
 ## [Date: 2026-08-02] - Fix Production 500s on `/notifications` and `/inventory/items/bulk` (Prisma Transaction Timeout)
 
 **What:** The user reported real production errors from `ledgio-backend.onrender.com` (browser console + server logs): `GET /api/v1/notifications` intermittently 500ing, and `POST /api/v1/inventory/items/bulk` 500ing consistently.

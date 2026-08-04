@@ -439,7 +439,7 @@ export function Invoices() {
       </Modal>
 
       {/* Create Invoice Modal */}
-      <Modal isOpen={isInvoiceOpen} onClose={() => setIsInvoiceOpen(false)} title="Create New Invoice">
+      <Modal isOpen={isInvoiceOpen} onClose={() => setIsInvoiceOpen(false)} title="Create New Invoice" className="max-w-2xl">
         <form onSubmit={handleCreateInvoice} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Select Customer</label>
