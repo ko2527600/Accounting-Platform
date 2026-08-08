@@ -664,11 +664,21 @@ model CashSale {
   voidedByName    String?        @map("voided_by_name")
   voidReason      String?        @map("void_reason")
   createdAt       DateTime       @default(now()) @map("created_at")
+  // Client-generated dedup key for offline-queued/retried sale submissions -
+  // lets POST /tills/sales safely replay-and-return-existing instead of
+  // double-processing (see @@unique below, enforced at the DB level since a
+  // pre-check alone isn't race-safe under Read Committed isolation).
+  clientTxnId String? @map("client_txn_id")
+  // When the sale actually happened on the device, distinct from createdAt
+  // (true row-insert time) - populated for offline-queued sales synced after
+  // the fact, so void-stats time-bucketing reflects the real shift.
+  clientOccurredAt DateTime? @map("client_occurred_at")
 
   till  CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
   lines CashSaleLine[]
 
   @@unique([tenantId, receiptNo])
+  @@unique([tenantId, clientTxnId])
   @@index([tenantId])
   @@index([tenantId, createdByUserId])
   @@map("cash_sales")

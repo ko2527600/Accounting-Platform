@@ -2,6 +2,23 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-08] - Hybrid-Offline POS, Phase 1: Backend Idempotency (`clientTxnId`)
+
+**What:** First phase of item 16 on the Ghana market research roadmap ("Hybrid-offline POS architecture") - user chose this from the remaining unblocked candidate features, then explicitly scoped this phase to sales-only (till open/close and voids stay online-only). This phase ships the backend groundwork alone, backward-compatible, before any frontend offline-queue work begins.
+
+**Root problem this unblocks:** to let a cashier queue sales locally while offline and replay them once connectivity returns, `POST /tills/sales` needed to become safely retry-idempotent - replaying the same queued sale twice (a real possibility: a flaky reconnect, a duplicate sync attempt) must never double-process it (double-deduct stock, double-charge the till).
+
+**Implementation:**
+- `CashSale` gained two nullable columns: `clientTxnId` (client-generated dedup key, `@@unique([tenantId, clientTxnId])`) and `clientOccurredAt` (when the sale actually happened on the device, distinct from `createdAt`'s true row-insert time). Both optional on the request - fully backward compatible.
+- `POST /tills/sales`: a `findFirst` fast-path check skips redundant stock-deduction work on a simple sequential retry, but **the real safety net is the DB unique constraint itself, not the pre-check** - two concurrent requests carrying the same `clientTxnId` can both pass a `findFirst` before either commits (Read Committed isolation). Postgres blocks the losing `INSERT` until the winner resolves; catching that `P2002` (inspecting `error.meta?.target` to distinguish it from the pre-existing, unrelated `receiptNo` collision risk) throws a sentinel so the whole transaction rolls back cleanly - including the loser's own already-applied stock decrement - then a fresh transaction re-fetches the now-guaranteed-committed winner and returns it (`200`, `replayed: true`, vs. `201` for a genuine first-time create). Getting the rollback ordering right here was the one real correctness bug caught during a design-review pass before implementation - swallowing the duplicate inside the original transaction and returning 200 from there would have let Prisma commit that request's stock decrement anyway, silently double-deducting stock with no duplicate row to show for it.
+- `GET /void-stats` now buckets its `from`/`to` filter by `clientOccurredAt` when present, falling back to `createdAt` otherwise - so a sale synced hours after it actually happened still attributes to the shift it occurred in, while every pre-existing sale (always `clientOccurredAt: null`) behaves identically to before.
+- New `POST /tills/sales/sync-failures`: records a sync-failure via the existing `recordAuditLog` (reusing the established non-throwing single-write-path, same one `ExpenseClaim` reuses the Approval Workflow engine for) rather than a new table. Deliberately best-effort/fire-and-forget from the frontend once its sync loop gives up on a sale - creates no `CashSale` row (correctly, since none was ever completed), but gives a manager on *any* device visibility into a failed sync, not just the terminal that queued it - closing a real cross-terminal gap that pure-client-side (IndexedDB-only) tracking would leave open for this app's existing multi-branch/`WarehouseAccess` model.
+- New `backend/src/tests/cashSaleIdempotency.test.ts`: concurrent same-`clientTxnId` dedup (exactly one `CashSale` row, one stock deduction, not two), sequential-retry replay, backward-compat path with no `clientTxnId`, `void-stats` `clientOccurredAt` bucketing, and the sync-failures audit-log write.
+
+**Verification:** `tsc --noEmit` clean. Full backend suite run twice in a row against real Postgres/Redis: 412/412 passing both times (was 407 before this phase's 5 new tests).
+**Files Affected:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260808172851_add_cash_sale_offline_sync_fields/`, `backend/src/routes/cashTill.ts`, `backend/src/tests/cashSaleIdempotency.test.ts`.
+**Next:** Phase 2 (frontend IndexedDB local queue + sync loop + `PointOfSale.tsx` integration) - not yet built.
+
 ## [Date: 2026-08-04] - Widen Cramped Data-Entry Modals
 
 **What:** User sent a photo of the "Add Product / Inventory Item" modal on their own screen, cramped into a small card, and asked to widen every modal that looks the same way, then use Bulk Add Products.
