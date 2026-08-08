@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-08] - "Go To" Quick Navigation: Expand Cmd+K to the Real Navigation Set
+
+**What:** TASKS.md's "Implement 'Go To' feature for enhanced navigation" - confirmed with the user this means expanding the existing Cmd+K menu (`CommandMenu.tsx`), not building real cross-app record search (a separate, materially larger feature - jumping to a specific Invoice/Journal Entry/etc. by name isn't possible today since no business record has a URL-addressable single-record view anywhere in the app, confirmed via investigation before scoping).
+
+**The actual gap:** `CommandMenu.tsx` had only 5 hardcoded navigation shortcuts (Dashboard, Chart of Accounts, Journal Entries, General Ledger, P&L) out of ~25 real protected routes - Invoices, Bills, Inventory, POS, Tax Rates, Fiscal Periods, Recurring Transactions, Approvals, Expense Claims, Team, Audit Trail, Bulk Import, Banking, Balance Sheet, Cash Flow Statement, Cash Flow Forecast, KPI Dashboard, Budgets, Stock Intelligence, and Executive Reports were all missing.
+
+**Fix:** rather than hand-copying a second, inevitably-drifting list into `CommandMenu.tsx`, extracted `Sidebar.tsx`'s existing `navigationGroups` (grouped, icon-labeled, already covers every real route) and its role-based `RESTRICTED_ROLE_NAV`/`getVisibleHrefs` filtering into a new shared `frontend/src/lib/navigation.ts` - `getVisibleNavGroups(role)` is now the single source of truth both `Sidebar.tsx` and `CommandMenu.tsx` render from. `CommandMenu.tsx` now renders one `Command.Group` per section, filtered by the current user's role exactly like the sidebar already is - a Cashier's Cmd+K never offers a page their own sidebar (and the backend) would block them from anyway. The "Preferences" settings shortcut is similarly hidden for the same 4 roles `/settings` itself is blocked for at the route level (`App.tsx`'s `SETTINGS_RESTRICTED_ROLES`), avoiding a dead-end navigation.
+
+**Verification:** `tsc -b` clean, production build succeeds (PWA manifest/service-worker unaffected). Live-verified against the real dev stack: confirmed the sidebar renders identically after the extraction (no regression), opened Cmd+K and confirmed all ~25 routes now appear grouped exactly as the sidebar groups them, typed a filter ("tax") and confirmed `cmdk`'s built-in search still narrows correctly across the full list, and confirmed selecting a result actually navigates (`/settings/tax-rates`).
+**Files Affected:** `frontend/src/lib/navigation.ts` (new), `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/components/ui/CommandMenu.tsx`.
+
 ## [Date: 2026-08-08] - Hybrid-Offline POS, Phase 2: Frontend Local Queue + Sync Loop
 
 **What:** Completes item 16 on the Ghana market research roadmap ("Hybrid-offline POS architecture") - the roadmap doc flagged this as the single highest-leverage infrastructure change surfaced by the market research (a pure cloud POS freezing checkout during Ghana's routine internet/power drops is a top-ranked pain point across nearly every retail segment researched). Builds on Phase 1's backend idempotency work (same day) to add the actual local-first queue and sync loop, so a cashier can keep ringing up sales during a real outage.
