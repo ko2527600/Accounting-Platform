@@ -7,11 +7,13 @@ export interface KpiDashboardReport {
   netIncome: number;
   totalRevenue: number;
   totalExpenses: number;
+  totalCostOfSales: number;
   totalAssets: number;
   totalLiabilities: number;
   totalEquity: number;
   totalCashEquivalents: number;
   netProfitMarginPct: number | null;
+  grossProfitMarginPct: number | null;
   returnOnAssetsPct: number | null;
   debtToEquityRatio: number | null;
   cashRatio: number | null;
@@ -26,11 +28,13 @@ export function useKpiDashboard(): KpiDashboardReport {
     netIncome: 0,
     totalRevenue: 0,
     totalExpenses: 0,
+    totalCostOfSales: 0,
     totalAssets: 0,
     totalLiabilities: 0,
     totalEquity: 0,
     totalCashEquivalents: 0,
     netProfitMarginPct: null,
+    grossProfitMarginPct: null,
     returnOnAssetsPct: null,
     debtToEquityRatio: null,
     cashRatio: null,

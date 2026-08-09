@@ -1,6 +1,6 @@
 import { PrismaClient } from '@prisma/client';
 
-export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE';
+export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENSE' | 'COST_OF_SALES';
 
 export interface AccountRecord {
   id: string;

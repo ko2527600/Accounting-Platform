@@ -73,7 +73,7 @@ const Dashboard = () => {
           </p>
         </div>
         <Button variant="primary" onClick={() => navigate("/journals/new")}>
-          Create Entry
+          New Voucher
         </Button>
       </div>
 

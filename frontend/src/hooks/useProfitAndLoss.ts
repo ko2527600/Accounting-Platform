@@ -9,8 +9,11 @@ export interface PnLAccountRow {
 
 export interface ProfitAndLossReport {
   revenueAccounts: PnLAccountRow[];
+  costOfSalesAccounts: PnLAccountRow[];
   expenseAccounts: PnLAccountRow[];
   totalRevenue: number;
+  totalCostOfSales: number;
+  grossProfit: number;
   totalExpense: number;
   netIncome: number;
   isLoading: boolean;
@@ -18,8 +21,11 @@ export interface ProfitAndLossReport {
 
 export function useProfitAndLoss(): ProfitAndLossReport {
   const [revenueAccounts, setRevenueAccounts] = useState<PnLAccountRow[]>([]);
+  const [costOfSalesAccounts, setCostOfSalesAccounts] = useState<PnLAccountRow[]>([]);
   const [expenseAccounts, setExpenseAccounts] = useState<PnLAccountRow[]>([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalCostOfSales, setTotalCostOfSales] = useState(0);
+  const [grossProfit, setGrossProfit] = useState(0);
   const [totalExpense, setTotalExpense] = useState(0);
   const [netIncome, setNetIncome] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
@@ -31,10 +37,15 @@ export function useProfitAndLoss(): ProfitAndLossReport {
         const response = await api.get('/reports/profit-loss');
         if (response.data.success) {
           const data = response.data.data;
-          
+
           setRevenueAccounts(data.revenues.map((r: any) => ({
             account: { id: r.id, code: r.code, name: r.name, type: 'Revenue' },
             balance: r.amount
+          })));
+
+          setCostOfSalesAccounts((data.costOfSales || []).map((c: any) => ({
+            account: { id: c.id, code: c.code, name: c.name, type: 'Cost of Sales' },
+            balance: c.amount
           })));
 
           setExpenseAccounts(data.expenses.map((e: any) => ({
@@ -43,6 +54,8 @@ export function useProfitAndLoss(): ProfitAndLossReport {
           })));
 
           setTotalRevenue(data.totalRevenue);
+          setTotalCostOfSales(data.totalCostOfSales || 0);
+          setGrossProfit(data.grossProfit ?? data.totalRevenue);
           setTotalExpense(data.totalExpenses);
           setNetIncome(data.netProfit);
         }
@@ -58,8 +71,11 @@ export function useProfitAndLoss(): ProfitAndLossReport {
 
   return {
     revenueAccounts,
+    costOfSalesAccounts,
     expenseAccounts,
     totalRevenue,
+    totalCostOfSales,
+    grossProfit,
     totalExpense,
     netIncome,
     isLoading

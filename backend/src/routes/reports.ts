@@ -189,11 +189,15 @@ router.get('/profit-loss/export', requireRole('Viewer'), async (req: Request, re
     const { name, currency } = await resolveTenantDisplayInfo(tenantId, tenantName);
     const asOfLabel = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
     const filenameBase = `Profit_And_Loss_${new Date().toISOString().split('T')[0]}`;
+    // The PDF/DOCX generators only know Revenue/Expenses/Net Profit - fold
+    // Cost of Sales into the expenses list for export so Total Revenue -
+    // Total Expenses still reconciles to Net Profit on the exported
+    // document, same as it does everywhere else this report is read.
     const exportData = {
       revenues: report.revenues.map(r => ({ code: r.code, name: r.name, balance: r.amount })),
       totalRevenue: report.totalRevenue,
-      expenses: report.expenses.map(e => ({ code: e.code, name: e.name, balance: e.amount })),
-      totalExpenses: report.totalExpenses,
+      expenses: [...report.costOfSales, ...report.expenses].map(e => ({ code: e.code, name: e.name, balance: e.amount })),
+      totalExpenses: report.totalCostOfSales + report.totalExpenses,
       netProfit: report.netProfit,
       isProfit: report.isProfit,
     };

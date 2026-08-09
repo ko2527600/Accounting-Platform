@@ -14,8 +14,11 @@ export function ProfitAndLoss() {
   const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
   const {
     revenueAccounts,
+    costOfSalesAccounts,
     expenseAccounts,
     totalRevenue,
+    totalCostOfSales,
+    grossProfit,
     totalExpense,
     netIncome
   } = useProfitAndLoss();
@@ -32,6 +35,8 @@ export function ProfitAndLoss() {
   const handleExport = () => {
     const exportData = [
       ...revenueAccounts.map(r => ({ Category: 'Income', Account: r.account.name, Balance: r.balance })),
+      ...costOfSalesAccounts.map(c => ({ Category: 'Cost of Sales', Account: c.account.name, Balance: c.balance })),
+      { Category: 'Total', Account: 'Gross Profit', Balance: grossProfit },
       ...expenseAccounts.map(e => ({ Category: 'Expense', Account: e.account.name, Balance: e.balance })),
       { Category: 'Total', Account: 'Net Income', Balance: netIncome }
     ];
@@ -125,6 +130,38 @@ export function ProfitAndLoss() {
               <span className="w-32 text-right tabular-nums">{formatCurrency(totalRevenue)}</span>
             </div>
           </section>
+
+          {/* Cost of Sales Section */}
+          {costOfSalesAccounts.length > 0 && (
+            <section>
+              <h3 className="font-bold text-lg text-secondary-900 dark:text-secondary-50 border-b border-secondary-200 dark:border-secondary-800 pb-2 mb-4">
+                Cost of Sales
+              </h3>
+              <div className="space-y-3 pl-4">
+                {costOfSalesAccounts.map((row) => (
+                  <div key={row.account.id} className="flex justify-between items-center text-secondary-700 dark:text-secondary-300">
+                    <span className="flex-1">{row.account.name}</span>
+                    <span className="w-32 text-right tabular-nums">{formatCurrency(row.balance)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-800 font-bold text-secondary-900 dark:text-secondary-50 pl-4">
+                <span className="flex-1 uppercase tracking-wider text-xs">Total Cost of Sales</span>
+                <span className="w-32 text-right tabular-nums">{formatCurrency(totalCostOfSales)}</span>
+              </div>
+            </section>
+          )}
+
+          {/* Gross Profit Subtotal - only shown once Cost of Sales is in use,
+              otherwise it would just duplicate Total Income and add noise. */}
+          {costOfSalesAccounts.length > 0 && (
+            <section className="pt-2">
+              <div className="flex justify-between items-center text-base font-bold text-secondary-900 dark:text-secondary-50 border-t-2 border-secondary-300 dark:border-secondary-700 pt-3">
+                <span className="flex-1 uppercase tracking-wider text-xs">Gross Profit</span>
+                <span className="w-32 text-right tabular-nums">{formatCurrency(grossProfit)}</span>
+              </div>
+            </section>
+          )}
 
           {/* Expenses Section */}
           <section>

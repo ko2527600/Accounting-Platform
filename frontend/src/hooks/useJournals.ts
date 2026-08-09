@@ -25,6 +25,8 @@ export function useJournals() {
             totalDebit,
             totalCredit,
             createdAt: je.createdAt,
+            reversalOfEntryId: je.reversalOfEntryId ?? null,
+            reversedByEntryId: je.reversedByEntryId ?? null,
             lines: je.lines.map((line: any) => ({
               id: line.id,
               accountId: line.accountId,
@@ -108,17 +110,36 @@ export function useJournals() {
     }
   }, [fetchJournals]);
 
-  const voidJournal = useCallback(async (id: string) => {
+  const voidJournal = useCallback(async (id: string, reason?: string) => {
     setIsLoading(true);
     try {
-      const response = await api.post(`/journal-entries/${id}/void`);
+      const response = await api.post(`/journal-entries/${id}/void`, { reason });
+      if (response.data.success) {
+        await fetchJournals();
+        return {
+          journalEntry: response.data.data.journalEntry,
+          reversalEntry: response.data.data.reversalEntry ?? null,
+        };
+      }
+    } catch (error: any) {
+      console.error('Failed to void journal entry:', error);
+      throw error.response?.data?.error || error.message || 'Failed to void journal entry';
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchJournals]);
+
+  const postExistingJournal = useCallback(async (id: string) => {
+    setIsLoading(true);
+    try {
+      const response = await api.post(`/journal-entries/${id}/post`);
       if (response.data.success) {
         await fetchJournals();
         return response.data.data.journalEntry;
       }
     } catch (error: any) {
-      console.error('Failed to void journal entry:', error);
-      throw error.response?.data?.error || error.message || 'Failed to void journal entry';
+      console.error('Failed to post journal entry:', error);
+      throw error.response?.data?.error || error.message || 'Failed to post journal entry';
     } finally {
       setIsLoading(false);
     }
@@ -134,6 +155,7 @@ export function useJournals() {
     fetchJournals,
     postJournal,
     createContraVoucher,
-    voidJournal
+    voidJournal,
+    postExistingJournal
   };
 }

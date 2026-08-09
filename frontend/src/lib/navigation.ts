@@ -64,7 +64,7 @@ export const navigationGroups: NavGroup[] = [
     sectionTitle: "FINANCE & BANKING",
     items: [
       { name: "Chart of Accounts", href: "/accounts", icon: BookOpen },
-      { name: "Journal Entries", href: "/journals", icon: FileSpreadsheet },
+      { name: "Journal Vouchers", href: "/journals", icon: FileSpreadsheet },
       { name: "Banking & Feeds", href: "/banking", icon: Landmark },
       { name: "Tax Rates", href: "/settings/tax-rates", icon: Percent },
       { name: "Fiscal Periods", href: "/settings/fiscal-periods", icon: CalendarClock },

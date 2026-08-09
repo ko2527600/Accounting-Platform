@@ -1,4 +1,4 @@
-export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense' | 'Cost of Sales';
 export type AccountStatus = 'Active' | 'Archived';
 
 export interface Account {
@@ -38,6 +38,8 @@ export interface JournalEntry {
   totalDebit: number;
   totalCredit: number;
   createdAt: string;
+  reversalOfEntryId?: string | null;
+  reversedByEntryId?: string | null;
 }
 
 export type CreateJournalEntryDTO = Omit<JournalEntry, 'id' | 'status' | 'totalDebit' | 'totalCredit' | 'createdAt'>;

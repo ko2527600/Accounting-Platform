@@ -488,6 +488,76 @@ describe('Financial Reporting API Integration Tests (BE-109)', () => {
       expect(t1PL.body.data.totalRevenue).toBe(3000.0);
     });
   });
+
+  describe('6. Cost of Sales - Gross Profit', () => {
+    it('should separate Cost of Sales from Operating Expenses on the P&L and compute a real Gross Profit', async () => {
+      // Baseline before this posting: totalRevenue=3000, totalExpenses=1200
+      // (fixture data set up in beforeAll, unaffected by this new posting).
+      const cogsAcc = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ code: '5500', name: 'Cost of Goods Sold', type: 'COST_OF_SALES' });
+      expect(cogsAcc.status).toBe(201);
+      const cogsAccountId = cogsAcc.body.data.account.id;
+
+      // Debit COGS 800, Credit Cash 800 - a real cost-of-sales posting.
+      const postCogs = await request(app)
+        .post('/api/v1/journal-entries')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          entryNumber: 'JE-RPT-COGS-001',
+          entryDate: '2026-07-20',
+          description: 'Cost of goods sold on consulting delivery',
+          status: 'POSTED',
+          lines: [
+            { accountId: cogsAccountId, debit: 800.0, credit: 0.0 },
+            { accountId: cashAccountId1, debit: 0.0, credit: 800.0 },
+          ],
+        });
+      expect(postCogs.status).toBe(201);
+
+      const pnl = await request(app)
+        .get('/api/v1/reports/profit-loss')
+        .set('Authorization', `Bearer ${viewerToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      expect(pnl.status).toBe(200);
+      const { totalRevenue, totalCostOfSales, grossProfit, totalExpenses, netProfit, costOfSales } = pnl.body.data;
+      expect(totalRevenue).toBe(3000.0);
+      expect(totalCostOfSales).toBe(800.0);
+      expect(costOfSales).toHaveLength(1);
+      expect(costOfSales[0].id).toBe(cogsAccountId);
+      expect(grossProfit).toBe(2200.0); // 3000 - 800
+      expect(totalExpenses).toBe(1200.0); // unaffected - COGS is tracked separately
+      expect(netProfit).toBe(1000.0); // 2200 - 1200
+
+      // Balance Sheet: retainedEarnings must fold Cost of Sales in like an
+      // Expense (debit-normal, reduces retained earnings), with no double
+      // counting against totalExpenses, and the accounting equation must
+      // still balance.
+      const bs = await request(app)
+        .get('/api/v1/reports/balance-sheet')
+        .set('Authorization', `Bearer ${viewerToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      expect(bs.status).toBe(200);
+      expect(bs.body.data.retainedEarnings).toBe(1000.0); // 3000 - 800 - 1200
+      expect(bs.body.data.totalAssets).toBe(6700.0); // Cash 7500 - 800 COGS payment
+      expect(bs.body.data.isBalanced).toBe(true);
+
+      // KPI Dashboard: Gross Profit Margin must now be a real, non-null number.
+      const kpi = await request(app)
+        .get('/api/v1/reports/kpis')
+        .set('Authorization', `Bearer ${viewerToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      expect(kpi.status).toBe(200);
+      expect(kpi.body.data.totalCostOfSales).toBe(800.0);
+      expect(kpi.body.data.grossProfitMarginPct).toBeCloseTo(((3000 - 800) / 3000) * 100, 1);
+    });
+  });
 });
 
 function TotalsSum(accounts: any[], field: 'debit' | 'credit'): number {

@@ -65,6 +65,7 @@ export function AccountForm({ initialData, onSubmit, onCancel }: AccountFormProp
             <option value="Liability">Liability</option>
             <option value="Equity">Equity</option>
             <option value="Revenue">Revenue</option>
+            <option value="Cost of Sales">Cost of Sales</option>
             <option value="Expense">Expense</option>
           </select>
         </div>

@@ -23,7 +23,7 @@ export interface ListAccountsResult {
   tree: AccountTreeNode[];
 }
 
-const VALID_ACCOUNT_TYPES: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE'];
+const VALID_ACCOUNT_TYPES: AccountType[] = ['ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE', 'COST_OF_SALES'];
 
 export function buildAccountTree(accounts: AccountRecord[]): AccountTreeNode[] {
   const map = new Map<string, AccountTreeNode>();

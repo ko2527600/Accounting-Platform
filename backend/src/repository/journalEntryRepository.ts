@@ -20,6 +20,8 @@ export interface JournalEntryRecord {
   status: JournalEntryStatus;
   createdAt: Date;
   updatedAt: Date;
+  reversalOfEntryId: string | null;
+  reversedByEntryId: string | null;
   lines?: JournalEntryLineRecord[];
 }
 
@@ -35,6 +37,7 @@ export interface CreateJournalEntryData {
   entryDate?: Date;
   description?: string;
   status?: JournalEntryStatus;
+  reversalOfEntryId?: string;
   lines: CreateJournalEntryLineData[];
 }
 
@@ -47,6 +50,8 @@ function mapJournalEntryRow(row: any, lines: JournalEntryLineRecord[] = []): Jou
     status: row.status as JournalEntryStatus,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
+    reversalOfEntryId: row.reversal_of_entry_id || null,
+    reversedByEntryId: row.reversed_by_entry_id || null,
     lines,
   };
 }
@@ -72,13 +77,14 @@ export async function createJournalEntry(
 
   // 1. Insert Header
   const headerRows: any[] = await prisma.$queryRawUnsafe(
-    `INSERT INTO journal_entries (entry_number, entry_date, description, status)
-     VALUES ($1, $2::date, $3, CAST($4 AS "JournalEntryStatus"))
-     RETURNING id, entry_number, entry_date, description, status, created_at, updated_at`,
+    `INSERT INTO journal_entries (entry_number, entry_date, description, status, reversal_of_entry_id)
+     VALUES ($1, $2::date, $3, CAST($4 AS "JournalEntryStatus"), $5::uuid)
+     RETURNING id, entry_number, entry_date, description, status, created_at, updated_at, reversal_of_entry_id, reversed_by_entry_id`,
     data.entryNumber,
     data.entryDate || new Date(),
     data.description || null,
-    data.status || 'DRAFT'
+    data.status || 'DRAFT',
+    data.reversalOfEntryId || null
   );
   const entryHeader = headerRows[0];
   const insertedLines: JournalEntryLineRecord[] = [];
@@ -107,7 +113,7 @@ export async function getJournalEntryById(
   id: string
 ): Promise<JournalEntryRecord | null> {
   const headerRows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, entry_number, entry_date, description, status, created_at, updated_at
+    `SELECT id, entry_number, entry_date, description, status, created_at, updated_at, reversal_of_entry_id, reversed_by_entry_id
      FROM journal_entries
      WHERE id = $1::uuid`,
     id
@@ -139,7 +145,7 @@ export async function getJournalEntryByEntryNumber(
   entryNumber: string
 ): Promise<JournalEntryRecord | null> {
   const headerRows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, entry_number, entry_date, description, status, created_at, updated_at
+    `SELECT id, entry_number, entry_date, description, status, created_at, updated_at, reversal_of_entry_id, reversed_by_entry_id
      FROM journal_entries
      WHERE entry_number = $1`,
     entryNumber.trim()
@@ -191,11 +197,11 @@ export async function listJournalEntries(
   // Single query with LEFT JOIN to fetch all journal entries and their lines at once
   // This eliminates the N+1 query problem (was: 1 + N queries, now: 1 query)
   const query = `
-    SELECT 
-      je.id, je.entry_number, je.entry_date, je.description, je.status, 
-      je.created_at, je.updated_at,
-      jel.id as line_id, jel.journal_entry_id, jel.account_id, 
-      jel.debit, jel.credit, jel.description as line_description, 
+    SELECT
+      je.id, je.entry_number, je.entry_date, je.description, je.status,
+      je.created_at, je.updated_at, je.reversal_of_entry_id, je.reversed_by_entry_id,
+      jel.id as line_id, jel.journal_entry_id, jel.account_id,
+      jel.debit, jel.credit, jel.description as line_description,
       jel.created_at as line_created_at
     FROM journal_entries je
     LEFT JOIN journal_entry_lines jel ON je.id = jel.journal_entry_id
@@ -219,6 +225,8 @@ export async function listJournalEntries(
           status: row.status,
           created_at: row.created_at,
           updated_at: row.updated_at,
+          reversal_of_entry_id: row.reversal_of_entry_id,
+          reversed_by_entry_id: row.reversed_by_entry_id,
         },
         lines: [],
       });
@@ -263,6 +271,29 @@ export async function updateJournalEntryStatus(
 
   if (!rows || rows.length === 0) return null;
   return getJournalEntryById(prisma, id);
+}
+
+/**
+ * Flips the original entry to VOID and records which reversal entry
+ * offsets it, in one statement. Used only when voiding a POSTED entry -
+ * a DRAFT void still goes through the plain updateJournalEntryStatus path.
+ */
+export async function setReversalLink(
+  prisma: PrismaClient,
+  originalEntryId: string,
+  reversalEntryId: string
+): Promise<JournalEntryRecord | null> {
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `UPDATE journal_entries
+     SET status = CAST('VOID' AS "JournalEntryStatus"), reversed_by_entry_id = $1::uuid, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $2::uuid
+     RETURNING id`,
+    reversalEntryId,
+    originalEntryId
+  );
+
+  if (!rows || rows.length === 0) return null;
+  return getJournalEntryById(prisma, originalEntryId);
 }
 
 export async function deleteJournalEntry(prisma: PrismaClient, id: string): Promise<boolean> {

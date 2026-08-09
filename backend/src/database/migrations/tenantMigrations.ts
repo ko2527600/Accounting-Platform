@@ -200,6 +200,44 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_accounts_is_cash_equivalent ON accounts(is_cash_equivalent);
     `
+  },
+  {
+    version: 5,
+    name: '005_add_journal_entry_reversal_linkage',
+    sql: `
+      -- Traceability for auto-generated reversing entries created when a
+      -- POSTED journal entry is voided. reversal_of_entry_id lives on the
+      -- NEW reversal, pointing back to the entry it corrects;
+      -- reversed_by_entry_id lives on the ORIGINAL, pointing forward to its
+      -- reversal. Both nullable - normal entries never set them. No new
+      -- status value: a reversed original still uses the existing VOID
+      -- status (see journalEntryService.voidJournalEntry).
+      ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reversal_of_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL;
+      ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reversed_by_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_reversal_not_self') THEN
+          ALTER TABLE journal_entries ADD CONSTRAINT chk_reversal_not_self CHECK (reversal_of_entry_id IS NULL OR reversal_of_entry_id <> id);
+        END IF;
+      END $$;
+
+      CREATE INDEX IF NOT EXISTS idx_journal_entries_reversal_of ON journal_entries(reversal_of_entry_id);
+    `
+  },
+  {
+    version: 6,
+    name: '006_add_cost_of_sales_account_type',
+    sql: `
+      -- Adds a real Cost of Sales account type so tenants can post COGS
+      -- and get a genuine Gross Profit line on the P&L (Revenue - Cost of
+      -- Sales), rather than Cost of Sales being silently indistinguishable
+      -- from ordinary Operating Expenses. accounts.type is a plain VARCHAR +
+      -- CHECK (not a global Postgres enum, unlike journal_entries.status),
+      -- so this is a simple additive constraint swap.
+      ALTER TABLE accounts DROP CONSTRAINT IF EXISTS chk_account_type;
+      ALTER TABLE accounts ADD CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE', 'COST_OF_SALES'));
+    `
   }
 ];
 
