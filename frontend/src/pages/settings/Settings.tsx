@@ -28,8 +28,12 @@ export function Settings() {
     gatewayStatus: "Active & Managed (Included in Subscription)",
   });
 
-  const [scheduleData, setScheduleData] = useState({
-    frequency: "Weekly (Every Monday at 8:00 AM)",
+  const [scheduleData, setScheduleData] = useState<{
+    frequency: "Weekly" | "Monthly";
+    recipients: string;
+    enabled: boolean;
+  }>({
+    frequency: "Weekly",
     recipients: user?.email || "",
     enabled: false
   });
@@ -71,6 +75,7 @@ export function Settings() {
             ...prev,
             enabled: Boolean(schedule.enabled),
             recipients: schedule.recipients?.[0] || prev.recipients,
+            frequency: schedule.frequency === "Monthly" ? "Monthly" : "Weekly",
           }));
         }
       })
@@ -119,16 +124,17 @@ export function Settings() {
     try {
       await api.put("/auth/profile", { email: scheduleData.recipients });
       const res = await api.post("/reports/schedule", {
-        frequency: "Weekly",
+        frequency: scheduleData.frequency,
         recipients: [scheduleData.recipients],
         reportType: "ProfitAndLoss",
         enabled: scheduleData.enabled,
       });
       if (res.data.success) {
+        const cadence = scheduleData.frequency === "Monthly" ? "monthly" : "weekly";
         setSaveSuccessMsg(
           scheduleData.enabled
-            ? "✅ Schedule saved - weekly executive reports are now enabled for this address."
-            : "✅ Schedule saved - weekly executive reports are disabled."
+            ? `✅ Schedule saved - ${cadence} executive reports are now enabled for this address.`
+            : `✅ Schedule saved - ${cadence} executive reports are disabled.`
         );
       }
     } catch (err: any) {
@@ -167,7 +173,7 @@ export function Settings() {
           Workspace Settings & Automation
         </h2>
         <p className="text-secondary-500 dark:text-secondary-400 mt-1">
-          Manage workspace profile, currency, Android SMS shortage alerts, and weekly automated email reports.
+          Manage workspace profile, currency, Android SMS shortage alerts, and automated weekly/monthly email reports.
         </p>
       </div>
 
@@ -206,7 +212,7 @@ export function Settings() {
           className={`pb-3 text-sm font-medium transition-colors border-b-2 flex items-center ${activeTab === "scheduled" ? "border-primary-600 text-primary-600" : "border-transparent text-secondary-500 hover:text-secondary-700"}`}
         >
           <Mail className="mr-2 h-4 w-4 text-blue-500" />
-          Weekly Email Reports
+          Email Reports
         </button>
       </div>
 
@@ -329,16 +335,16 @@ export function Settings() {
         </Card>
       )}
 
-      {/* Platform-Managed Weekly Email Reports Card */}
+      {/* Platform-Managed Weekly/Monthly Email Reports Card */}
       {activeTab === "scheduled" && (
         <Card className="border-blue-200 bg-blue-50/20 dark:bg-blue-950/10">
           <CardHeader>
             <CardTitle className="text-blue-900 dark:text-blue-300 flex items-center">
               <Mail className="mr-2 h-5 w-5 text-blue-600" />
-              Automated Weekly Email Report Service
+              Automated Email Report Service
             </CardTitle>
             <CardDescription>
-              Executive weekly Profit & Loss PDF performance statements can be sent automatically every Monday at 8:00 AM - enable below and save to start receiving them.
+              Executive Profit & Loss performance statements can be sent automatically on a weekly or monthly cadence - enable below and save to start receiving them.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
@@ -350,7 +356,7 @@ export function Settings() {
                 className="h-4 w-4"
               />
               <span className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
-                Enable automated weekly executive email reports
+                Enable automated executive email reports
               </span>
             </label>
 
@@ -363,14 +369,25 @@ export function Settings() {
               />
               <p className="text-[11px] text-secondary-500">
                 {scheduleData.enabled
-                  ? "Weekly PDF executive summaries will be delivered to this email address every Monday morning."
+                  ? `Executive summaries will be delivered to this email address ${
+                      scheduleData.frequency === "Monthly"
+                        ? "on the 1st of every month"
+                        : "every Monday morning"
+                    }.`
                   : "Reports are currently disabled - enable the checkbox above and save to start receiving them."}
               </p>
             </div>
 
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Automated Dispatch Schedule</label>
-              <Input value={scheduleData.frequency} disabled className="bg-secondary-100 dark:bg-secondary-800 opacity-70" />
+              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Report Frequency</label>
+              <select
+                value={scheduleData.frequency}
+                onChange={(e) => setScheduleData({ ...scheduleData, frequency: e.target.value as "Weekly" | "Monthly" })}
+                className="flex h-10 w-full rounded-md border border-secondary-300 bg-white px-3 py-2 text-sm text-secondary-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-secondary-700 dark:bg-secondary-900 dark:text-secondary-50"
+              >
+                <option value="Weekly">Weekly - every Monday at 8:00 AM UTC</option>
+                <option value="Monthly">Monthly - the 1st of the month at 8:00 AM UTC</option>
+              </select>
             </div>
 
             <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-blue-200 dark:border-blue-900/50 space-y-2 text-xs">

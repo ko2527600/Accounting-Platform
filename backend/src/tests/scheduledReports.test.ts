@@ -137,7 +137,7 @@ describe('Scheduled Reports API', () => {
     expect(sendSpy).toHaveBeenCalledTimes(1);
     const [, , reportData] = sendSpy.mock.calls[0];
     // Real recorded cash sale of 30, not the old hardcoded weeklySales: 3450.00.
-    expect(reportData.weeklySales).toBe(30);
+    expect(reportData.periodSales).toBe(30);
     expect(reportData.totalItemsSold).toBe(1); // itemsSold on the closeout counts sale transactions, not units
     expect(reportData.topShopName).toBe('Sched Test Shop');
 

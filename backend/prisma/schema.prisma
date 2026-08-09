@@ -220,6 +220,7 @@ model ReportSchedule {
   tenantId   String    @unique @map("tenant_id")
   frequency  String    @default("Weekly")
   dayOfWeek  Int       @default(1) @map("day_of_week")
+  dayOfMonth Int       @default(1) @map("day_of_month")
   hourUtc    Int       @default(8) @map("hour_utc")
   reportType String    @default("ProfitAndLoss") @map("report_type")
   recipients String[]
