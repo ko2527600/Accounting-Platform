@@ -1,4 +1,4 @@
-import { Download, Printer, TrendingUp, TrendingDown, Percent, Scale, Wallet, PieChart, AlertTriangle } from "lucide-react";
+import { Download, Printer, TrendingUp, TrendingDown, Percent, Scale, Wallet, PieChart, AlertTriangle, Layers } from "lucide-react";
 import { useKpiDashboard } from "../../hooks/useKpiDashboard";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
@@ -18,11 +18,13 @@ export function KpiDashboard() {
   const {
     netIncome,
     totalRevenue,
+    totalCostOfSales,
     totalAssets,
     totalLiabilities,
     totalEquity,
     totalCashEquivalents,
     netProfitMarginPct,
+    grossProfitMarginPct,
     returnOnAssetsPct,
     debtToEquityRatio,
     cashRatio,
@@ -39,6 +41,7 @@ export function KpiDashboard() {
   const handleExport = () => {
     exportToCsv(`kpi_dashboard_${new Date().toISOString().split('T')[0]}`, [
       { Metric: 'Net Profit Margin %', Value: netProfitMarginPct },
+      { Metric: 'Gross Profit Margin %', Value: grossProfitMarginPct },
       { Metric: 'Return on Assets %', Value: returnOnAssetsPct },
       { Metric: 'Debt-to-Equity Ratio', Value: debtToEquityRatio },
       { Metric: 'Cash Ratio', Value: cashRatio },
@@ -88,6 +91,23 @@ export function KpiDashboard() {
             <p className="text-xs text-secondary-500 mt-1">
               Net Income {formatCurrency(netIncome)} / Revenue {formatCurrency(totalRevenue)}
             </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm font-semibold text-secondary-600 dark:text-secondary-400">Gross Profit Margin</CardTitle>
+            <Layers className="h-5 w-5 text-primary-500" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold text-secondary-900 dark:text-secondary-50">{formatPct(grossProfitMarginPct)}</div>
+            {totalCostOfSales > 0 ? (
+              <p className="text-xs text-secondary-500 mt-1">
+                Revenue {formatCurrency(totalRevenue)} - Cost of Sales {formatCurrency(totalCostOfSales)}
+              </p>
+            ) : (
+              <p className="text-xs text-secondary-500 mt-1">Post to a "Cost of Sales" account to see a real margin here.</p>
+            )}
           </CardContent>
         </Card>
 
@@ -168,9 +188,11 @@ export function KpiDashboard() {
             numbers behind your Balance Sheet and Profit &amp; Loss reports.
           </p>
           <p>
-            Gross Margin, Inventory Turnover, and Current/Quick Ratio aren't shown here because they need data this
-            platform doesn't track yet (Cost of Goods Sold, and a current-vs-long-term split on accounts). Adding real
-            numbers for those is a bigger, separate piece of work rather than an approximation risking a misleading figure.
+            Gross Profit Margin uses whatever you've posted to a "Cost of Sales" account - it reads "N/A" until you
+            post something there, since Point of Sale checkouts don't automatically record a Cost of Goods Sold entry
+            yet (that needs real inventory costing, a bigger separate piece of work). Inventory Turnover and
+            Current/Quick Ratio still aren't shown because they need data this platform doesn't track at all yet (a
+            current-vs-long-term split on accounts) - an approximation there would risk a misleading figure.
           </p>
         </CardContent>
       </Card>

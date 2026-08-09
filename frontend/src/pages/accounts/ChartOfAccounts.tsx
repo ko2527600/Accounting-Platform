@@ -21,21 +21,26 @@ const TYPE_COLORS: Record<AccountType, 'success' | 'warning' | 'danger' | 'defau
   Liability: 'danger',
   Equity: 'warning',
   Revenue: 'default',
+  'Cost of Sales': 'warning',
   Expense: 'secondary',
 };
+
+const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Cost of Sales', 'Expense'];
 
 export function ChartOfAccounts() {
   const { accounts, createAccount, updateAccount } = useAccounts();
   const [searchTerm, setSearchTerm] = useState("");
+  const [typeFilter, setTypeFilter] = useState<AccountType | "All">("All");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((acc) =>
-      acc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      acc.code.includes(searchTerm)
+      (typeFilter === "All" || acc.type === typeFilter) &&
+      (acc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        acc.code.includes(searchTerm))
     );
-  }, [accounts, searchTerm]);
+  }, [accounts, searchTerm, typeFilter]);
 
   const handleCreateOrEdit = async (data: any) => {
     if (selectedAccount) {
@@ -80,7 +85,7 @@ export function ChartOfAccounts() {
         </Button>
       </div>
 
-      <div className="flex items-center">
+      <div className="flex items-center gap-3">
         <div className="relative w-full max-w-sm">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-secondary-400" />
           <Input
@@ -90,6 +95,17 @@ export function ChartOfAccounts() {
             onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value as AccountType | "All")}
+          className="flex h-10 rounded-md border border-secondary-300 bg-white px-3 py-2 text-sm text-secondary-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-secondary-700 dark:bg-secondary-900 dark:text-secondary-50"
+          aria-label="Filter by Account Type"
+        >
+          <option value="All">All Types</option>
+          {ACCOUNT_TYPES.map((t) => (
+            <option key={t} value={t}>{t}</option>
+          ))}
+        </select>
       </div>
 
       <div className="bg-white dark:bg-secondary-900 shadow-sm border border-secondary-200 dark:border-secondary-800 rounded-xl overflow-hidden">

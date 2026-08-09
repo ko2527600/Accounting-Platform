@@ -224,6 +224,20 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
 
       CREATE INDEX IF NOT EXISTS idx_journal_entries_reversal_of ON journal_entries(reversal_of_entry_id);
     `
+  },
+  {
+    version: 6,
+    name: '006_add_cost_of_sales_account_type',
+    sql: `
+      -- Adds a real Cost of Sales account type so tenants can post COGS
+      -- and get a genuine Gross Profit line on the P&L (Revenue - Cost of
+      -- Sales), rather than Cost of Sales being silently indistinguishable
+      -- from ordinary Operating Expenses. accounts.type is a plain VARCHAR +
+      -- CHECK (not a global Postgres enum, unlike journal_entries.status),
+      -- so this is a simple additive constraint swap.
+      ALTER TABLE accounts DROP CONSTRAINT IF EXISTS chk_account_type;
+      ALTER TABLE accounts ADD CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE', 'COST_OF_SALES'));
+    `
   }
 ];
 

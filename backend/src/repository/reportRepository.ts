@@ -35,6 +35,9 @@ export interface ProfitLossResult {
   asOfDate: string | null;
   revenues: ProfitLossAccount[];
   totalRevenue: number;
+  costOfSales: ProfitLossAccount[];
+  totalCostOfSales: number;
+  grossProfit: number;
   expenses: ProfitLossAccount[];
   totalExpenses: number;
   netProfit: number;
@@ -158,7 +161,7 @@ export async function getProfitAndLoss(
 ): Promise<ProfitLossResult> {
   const effectiveEndDate = endDate || asOfDate;
 
-  const conditions: string[] = [`a.type IN ('REVENUE', 'EXPENSE')`];
+  const conditions: string[] = [`a.type IN ('REVENUE', 'EXPENSE', 'COST_OF_SALES')`];
   const params: any[] = [];
   let paramIdx = 1;
 
@@ -194,9 +197,11 @@ export async function getProfitAndLoss(
   const rows: any[] = await prisma.$queryRawUnsafe(sql, ...params);
 
   const revenues: ProfitLossAccount[] = [];
+  const costOfSales: ProfitLossAccount[] = [];
   const expenses: ProfitLossAccount[] = [];
 
   let totalRevenue = 0;
+  let totalCostOfSales = 0;
   let totalExpenses = 0;
 
   for (const r of rows) {
@@ -207,6 +212,16 @@ export async function getProfitAndLoss(
       const amount = Math.round((credit - debit) * 100) / 100;
       totalRevenue += amount;
       revenues.push({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        type: r.type,
+        amount,
+      });
+    } else if (r.type === 'COST_OF_SALES') {
+      const amount = Math.round((debit - credit) * 100) / 100;
+      totalCostOfSales += amount;
+      costOfSales.push({
         id: r.id,
         code: r.code,
         name: r.name,
@@ -227,8 +242,10 @@ export async function getProfitAndLoss(
   }
 
   totalRevenue = Math.round(totalRevenue * 100) / 100;
+  totalCostOfSales = Math.round(totalCostOfSales * 100) / 100;
   totalExpenses = Math.round(totalExpenses * 100) / 100;
-  const netProfit = Math.round((totalRevenue - totalExpenses) * 100) / 100;
+  const grossProfit = Math.round((totalRevenue - totalCostOfSales) * 100) / 100;
+  const netProfit = Math.round((grossProfit - totalExpenses) * 100) / 100;
 
   return {
     startDate: startDate || null,
@@ -236,6 +253,9 @@ export async function getProfitAndLoss(
     asOfDate: asOfDate || null,
     revenues,
     totalRevenue,
+    costOfSales,
+    totalCostOfSales,
+    grossProfit,
     expenses,
     totalExpenses,
     netProfit,
@@ -390,7 +410,9 @@ export async function getCashFlowStatement(
       netCashFromFinancing += cashImpact;
     } else if (r.type === 'REVENUE') {
       totalRevenue += periodCredit - periodDebit;
-    } else if (r.type === 'EXPENSE') {
+    } else if (r.type === 'EXPENSE' || r.type === 'COST_OF_SALES') {
+      // Cost of Sales is debit-normal like an Operating Expense and reduces
+      // net income the same way - no separate Cash Flow line needed for it.
       totalExpenses += periodDebit - periodCredit;
     }
   }
@@ -426,11 +448,13 @@ export interface KpiDashboardResult {
   netIncome: number;
   totalRevenue: number;
   totalExpenses: number;
+  totalCostOfSales: number;
   totalAssets: number;
   totalLiabilities: number;
   totalEquity: number;
   totalCashEquivalents: number;
   netProfitMarginPct: number | null;
+  grossProfitMarginPct: number | null;
   returnOnAssetsPct: number | null;
   debtToEquityRatio: number | null;
   cashRatio: number | null;
@@ -441,9 +465,12 @@ export interface KpiDashboardResult {
  * A lightweight set of financial ratios computed entirely from Balance Sheet
  * + Profit & Loss totals - no new data entry required. Deliberately limited
  * to ratios this schema can compute honestly:
- *  - No Gross Margin / Inventory Turnover: POS sales (cashTill.ts) never post
- *    a Cost of Goods Sold journal entry - there is no COGS anywhere in the
- *    ledger to divide by, so a "Gross Margin" here would be fabricated.
+ *  - Gross Margin is only real for tenants that actually post to a Cost of
+ *    Sales account - POS sales (cashTill.ts) still never auto-post a COGS
+ *    entry (that needs real inventory costing, a separate, larger project),
+ *    so `grossProfitMarginPct` is `null` until a tenant posts real Cost of
+ *    Sales entries themselves, exactly like every other ratio's existing
+ *    null-when-not-computable convention below.
  *  - No Current Ratio / Quick Ratio: accounts have no current-vs-non-current
  *    classification (same gap the Cash Flow Statement's missing Investing
  *    section documents), so "current assets" isn't a real, distinct number.
@@ -504,6 +531,7 @@ export async function getKpiDashboard(
   let cumulativeExpenses = 0;
   let periodRevenue = 0;
   let periodExpenses = 0;
+  let periodCostOfSales = 0;
 
   for (const r of rows) {
     const endDebit = parseFloat(r.end_debit);
@@ -522,6 +550,11 @@ export async function getKpiDashboard(
     } else if (r.type === 'REVENUE') {
       cumulativeRevenue += endCredit - endDebit;
       periodRevenue += periodCredit - periodDebit;
+    } else if (r.type === 'COST_OF_SALES') {
+      // Debit-normal like Expense for retainedEarnings/netIncome purposes,
+      // but tracked separately so Gross Margin can be computed for real.
+      cumulativeExpenses += endDebit - endCredit;
+      periodCostOfSales += periodDebit - periodCredit;
     } else if (r.type === 'EXPENSE') {
       cumulativeExpenses += endDebit - endCredit;
       periodExpenses += periodDebit - periodCredit;
@@ -534,8 +567,9 @@ export async function getKpiDashboard(
   totalCashEquivalents = round2(totalCashEquivalents);
   totalLiabilities = round2(totalLiabilities);
   const totalRevenue = round2(periodRevenue);
+  const totalCostOfSales = round2(periodCostOfSales);
   const totalExpenses = round2(periodExpenses);
-  const netIncome = round2(totalRevenue - totalExpenses);
+  const netIncome = round2(totalRevenue - totalCostOfSales - totalExpenses);
 
   return {
     startDate: startDate || null,
@@ -543,11 +577,13 @@ export async function getKpiDashboard(
     netIncome,
     totalRevenue,
     totalExpenses,
+    totalCostOfSales,
     totalAssets,
     totalLiabilities,
     totalEquity,
     totalCashEquivalents,
     netProfitMarginPct: totalRevenue > 0 ? round2((netIncome / totalRevenue) * 100) : null,
+    grossProfitMarginPct: totalRevenue > 0 ? round2(((totalRevenue - totalCostOfSales) / totalRevenue) * 100) : null,
     returnOnAssetsPct: totalAssets > 0 ? round2((netIncome / totalAssets) * 100) : null,
     debtToEquityRatio: totalEquity !== 0 ? round2(totalLiabilities / totalEquity) : null,
     cashRatio: totalLiabilities > 0 ? round2(totalCashEquivalents / totalLiabilities) : null,
@@ -627,7 +663,7 @@ export async function getBalanceSheet(
       });
     } else if (r.type === 'REVENUE') {
       cumulativeRevenue += (credit - debit);
-    } else if (r.type === 'EXPENSE') {
+    } else if (r.type === 'EXPENSE' || r.type === 'COST_OF_SALES') {
       cumulativeExpenses += (debit - credit);
     }
   }

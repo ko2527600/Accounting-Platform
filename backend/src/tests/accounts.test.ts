@@ -30,6 +30,7 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
   let parentAccountId: string;
   let subAccountId: string;
   let leafAccountId: string;
+  let costOfSalesAccountId: string;
 
   async function cleanupTestData() {
     if (tenant1Id) {
@@ -257,6 +258,24 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
       expect(res.status).toBe(400);
       expect(res.body.success).toBe(false);
       expect(res.body.error).toContain('Parent account');
+    });
+
+    it('should create a COST_OF_SALES account (real Gross Profit support)', async () => {
+      const res = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          code: '5000',
+          name: 'Cost of Goods Sold',
+          type: 'COST_OF_SALES',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.account.type).toBe('COST_OF_SALES');
+
+      costOfSalesAccountId = res.body.data.account.id;
     });
   });
 

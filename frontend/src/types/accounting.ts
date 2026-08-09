@@ -1,4 +1,4 @@
-export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense' | 'Cost of Sales';
 export type AccountStatus = 'Active' | 'Archived';
 
 export interface Account {
