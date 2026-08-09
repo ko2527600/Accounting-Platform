@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from 'react';
 import { api } from '../lib/api';
+import { useTenantSettings } from './useTenantSettings';
 import type { Account, AccountType, CreateAccountDTO, UpdateAccountDTO } from '../types/accounting';
 
 // Backend account type values (fixed, matching the tenant-schema CHECK
@@ -32,6 +33,7 @@ function accountTypeToBackend(type: AccountType): string {
 }
 
 export function useAccounts() {
+  const { settings } = useTenantSettings();
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -72,16 +74,21 @@ export function useAccounts() {
   const createAccount = useCallback(async (data: CreateAccountDTO) => {
     setIsLoading(true);
     try {
-      // Map frontend DTO to backend Prisma payload
+      // Map frontend DTO to backend Prisma payload. currency always
+      // follows the tenant's own configured base currency - there's no
+      // per-account currency picker anywhere in the UI, and the ledger is
+      // single-currency by design, so a hardcoded literal here would just
+      // silently drift from whatever the tenant actually set under
+      // Settings > Currency & Regional.
       const payload: any = {
         code: data.code,
         name: data.name,
         type: accountTypeToBackend(data.type),
-        currency: "USD",
+        currency: settings.baseCurrency,
         isActive: true,
       };
       if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
-      
+
       const response = await api.post('/accounts', payload);
       if (response.data.success) {
         await fetchAccounts();
@@ -93,7 +100,7 @@ export function useAccounts() {
     } finally {
       setIsLoading(false);
     }
-  }, [fetchAccounts]);
+  }, [fetchAccounts, settings.baseCurrency]);
 
   const updateAccount = useCallback(async (id: string, data: UpdateAccountDTO) => {
     setIsLoading(true);

@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-09] - Chart of Accounts Ignored the Tenant's Configured Currency
+
+**What:** user report - "chart accounts is showing dollars even if I set cedis in my settings." Confirmed: `ChartOfAccounts.tsx` formatted each row using that account's own `currency` field (`formatCurrency(account.balance, account.currency)`), and `useAccounts.ts`'s `createAccount()` hardcoded `currency: "USD"` into every account creation payload, completely ignoring whatever the tenant had actually set under Settings > Currency & Regional. No UI anywhere (create or edit) ever exposed a per-account currency picker, so this stored value was pure accident-of-creation-time, not a deliberate choice - confirmed via a repo-wide search that `account.currency` is read in exactly one place in the entire frontend (that same display line), so it carries no other functional meaning anywhere.
+
+**Fix:** `ChartOfAccounts.tsx` now formats every balance using `useTenantSettings().settings.baseCurrency` - the same tenant-currency source every other report (P&L, Balance Sheet, Cash Flow, etc.) already correctly reads - instead of trusting the stored per-account field at all. `useAccounts.ts`'s `createAccount()` now sends the tenant's real `baseCurrency` instead of a hardcoded literal, so newly-created accounts stop writing the wrong value in the first place. Because the display fix no longer depends on the stored column, this is also correct immediately for every account created before this fix, with no data backfill needed.
+
+**Verification:** `tsc -b` clean. Live-verified against the real dev stack: onboarded a fresh tenant with `baseCurrency: 'GHS'`, created an account and posted a journal entry against it, confirmed the Chart of Accounts page renders `GHS 1,500.00` / `-GHS 1,500.00` (not `$`), screenshotted for the record.
+**Files Affected:** `frontend/src/pages/accounts/ChartOfAccounts.tsx`, `frontend/src/hooks/useAccounts.ts`.
+
 ## [Date: 2026-08-09] - Real Per-Levy Tax Accounts: Invoice Tax Posts to Its Own GL Account(s), Not Revenue
 
 **What:** an accountant collaborating with the user flagged a real accounting-correctness gap: paying a customer invoice credited the *entire* total - subtotal **and** tax - straight to Revenue. Tax collected on behalf of the government (VAT/NHIL/GETFund, in the Ghana case this platform already models) isn't the business's income - it's a liability pending remittance. Lumping it into Revenue overstated income and left no ledger balance anywhere showing how much tax was currently owed. Confirmed with the user this should be a **per-levy** account (VAT/NHIL/GETFund each get their own destination, not one shared account) and scoped to **invoices only** (output tax) - vendor bills have no tax fields today, so input tax/recoverable VAT is a separate future addition.
