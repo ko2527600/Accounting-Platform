@@ -444,6 +444,9 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(voidRes.body.success).toBe(true);
       expect(voidRes.body.message).toContain('voided successfully');
       expect(voidRes.body.data.journalEntry.status).toBe('VOID');
+      // A DRAFT never touched the ledger - voiding it is a plain status flip,
+      // no reversal is created.
+      expect(voidRes.body.data.reversalEntry).toBeNull();
 
       const auditRows = await prisma.auditLog.findMany({
         where: { tenantId: tenant1Id, entity: 'JournalEntry', entityId: voidedEntryId, action: 'JOURNAL_ENTRY.VOIDED' },
@@ -475,41 +478,189 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(res.body.error).toContain('voided');
     });
 
-    it('should return 400 Bad Request when attempting to void an already-POSTED entry (voiding does not reverse ledger rows)', async () => {
+    it('should void a POSTED entry by creating and posting a real reversing entry that offsets it', async () => {
       const createRes = await request(app)
         .post('/api/v1/journal-entries')
         .set('Authorization', `Bearer ${accountantToken1}`)
         .set('X-Tenant-ID', tenant1Slug)
         .send({
-          entryNumber: 'JE-2026-POSTED-NO-VOID',
+          entryNumber: 'JE-2026-POSTED-REVERSAL',
           lines: [
-            { accountId: cashAccountId1, debit: 75.0, credit: 0.0 },
-            { accountId: revenueAccountId1, debit: 0.0, credit: 75.0 },
+            { accountId: cashAccountId1, debit: 321.0, credit: 0.0 },
+            { accountId: revenueAccountId1, debit: 0.0, credit: 321.0 },
           ],
         });
-      const postedEntryId = createRes.body.data.journalEntry.id;
+      const originalId = createRes.body.data.journalEntry.id;
 
       const postRes = await request(app)
-        .post(`/api/v1/journal-entries/${postedEntryId}/post`)
+        .post(`/api/v1/journal-entries/${originalId}/post`)
         .set('Authorization', `Bearer ${accountantToken1}`)
         .set('X-Tenant-ID', tenant1Slug);
       expect(postRes.status).toBe(200);
 
+      const summaryBefore = await request(app)
+        .get('/api/v1/ledgers/summary')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      const cashBefore = summaryBefore.body.data.accounts.find((a: any) => a.id === cashAccountId1).closingBalance;
+      const revenueBefore = summaryBefore.body.data.accounts.find((a: any) => a.id === revenueAccountId1).closingBalance;
+
       const voidRes = await request(app)
-        .post(`/api/v1/journal-entries/${postedEntryId}/void`)
+        .post(`/api/v1/journal-entries/${originalId}/void`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ reason: 'Recorded in error' });
+
+      expect(voidRes.status).toBe(200);
+      expect(voidRes.body.success).toBe(true);
+      expect(voidRes.body.data.journalEntry.status).toBe('VOID');
+      const reversal = voidRes.body.data.reversalEntry;
+      expect(reversal).toBeTruthy();
+      expect(reversal.entryNumber).toMatch(/^REV-/);
+      expect(reversal.status).toBe('POSTED');
+      expect(reversal.reversalOfEntryId).toBe(originalId);
+
+      // Reversal lines must swap debit/credit per account vs. the original.
+      const cashLine = reversal.lines.find((l: any) => l.accountId === cashAccountId1);
+      const revenueLine = reversal.lines.find((l: any) => l.accountId === revenueAccountId1);
+      expect(Number(cashLine.credit)).toBe(321.0);
+      expect(Number(cashLine.debit)).toBe(0);
+      expect(Number(revenueLine.debit)).toBe(321.0);
+      expect(Number(revenueLine.credit)).toBe(0);
+
+      // Re-fetching the original shows the forward link to its reversal.
+      const getOriginal = await request(app)
+        .get(`/api/v1/journal-entries/${originalId}`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      expect(getOriginal.body.data.journalEntry.status).toBe('VOID');
+      expect(getOriginal.body.data.journalEntry.reversedByEntryId).toBe(reversal.id);
+
+      // The ledger balances net back to exactly what they were before the
+      // original entry was posted - the reversal is a real offsetting
+      // posting, not just a status flag. closingBalance is a debit-positive
+      // figure (SUM(debit) - SUM(credit)): the reversal's debit-swapped cash
+      // credit moves cash's balance down by 321, while its debit-swapped
+      // revenue debit moves revenue's balance up by 321.
+      const summaryAfter = await request(app)
+        .get('/api/v1/ledgers/summary')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      const cashAfter = summaryAfter.body.data.accounts.find((a: any) => a.id === cashAccountId1).closingBalance;
+      const revenueAfter = summaryAfter.body.data.accounts.find((a: any) => a.id === revenueAccountId1).closingBalance;
+      expect(cashAfter).toBeCloseTo(cashBefore - 321.0, 2);
+      expect(revenueAfter).toBeCloseTo(revenueBefore + 321.0, 2);
+
+      const voidAuditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'JournalEntry', entityId: originalId, action: 'JOURNAL_ENTRY.VOIDED' },
+      });
+      expect(voidAuditRows).toHaveLength(1);
+      const reversalAuditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'JournalEntry', entityId: reversal.id, action: 'JOURNAL_ENTRY.REVERSED' },
+      });
+      expect(reversalAuditRows).toHaveLength(1);
+    });
+
+    it('should allow voiding a reversal entry itself, producing a second reversal', async () => {
+      const createRes = await request(app)
+        .post('/api/v1/journal-entries')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          entryNumber: 'JE-2026-DOUBLE-REVERSAL',
+          lines: [
+            { accountId: cashAccountId1, debit: 50.0, credit: 0.0 },
+            { accountId: revenueAccountId1, debit: 0.0, credit: 50.0 },
+          ],
+        });
+      const originalId = createRes.body.data.journalEntry.id;
+      await request(app)
+        .post(`/api/v1/journal-entries/${originalId}/post`)
         .set('Authorization', `Bearer ${accountantToken1}`)
         .set('X-Tenant-ID', tenant1Slug);
 
-      expect(voidRes.status).toBe(400);
-      expect(voidRes.body.success).toBe(false);
-      expect(voidRes.body.error).toContain('cannot be voided');
-
-      // The entry must still be POSTED, not silently transitioned to VOID.
-      const getRes = await request(app)
-        .get(`/api/v1/journal-entries/${postedEntryId}`)
+      const firstVoid = await request(app)
+        .post(`/api/v1/journal-entries/${originalId}/void`)
         .set('Authorization', `Bearer ${accountantToken1}`)
         .set('X-Tenant-ID', tenant1Slug);
-      expect(getRes.body.data.journalEntry.status).toBe('POSTED');
+      const firstReversalId = firstVoid.body.data.reversalEntry.id;
+
+      const secondVoid = await request(app)
+        .post(`/api/v1/journal-entries/${firstReversalId}/void`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      expect(secondVoid.status).toBe(200);
+      expect(secondVoid.body.data.journalEntry.status).toBe('VOID');
+      expect(secondVoid.body.data.reversalEntry).toBeTruthy();
+      expect(secondVoid.body.data.reversalEntry.reversalOfEntryId).toBe(firstReversalId);
+    });
+
+    it('should reject voiding a POSTED entry when the fiscal period covering today is closed', async () => {
+      // endDate must be strictly after startDate, and the comparison against
+      // "now" (full timestamp, not date-only) needs endDate to be at least
+      // tomorrow's midnight so the period still covers "now" no matter what
+      // time of day this test runs.
+      const todayStr = new Date().toISOString().split('T')[0];
+      const tomorrow = new Date();
+      tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
+      const tomorrowStr = tomorrow.toISOString().split('T')[0];
+      const periodRes = await request(app)
+        .post('/api/v1/fiscal-periods')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Void-Block Test Period',
+          fiscalYear: new Date().getFullYear(),
+          periodNumber: 999,
+          startDate: todayStr,
+          endDate: tomorrowStr,
+        });
+      expect(periodRes.status).toBe(201);
+      const periodId = periodRes.body.data.fiscalPeriod.id;
+
+      const createRes = await request(app)
+        .post('/api/v1/journal-entries')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          entryNumber: 'JE-2026-CLOSED-PERIOD-VOID',
+          lines: [
+            { accountId: cashAccountId1, debit: 10.0, credit: 0.0 },
+            { accountId: revenueAccountId1, debit: 0.0, credit: 10.0 },
+          ],
+        });
+      const originalId = createRes.body.data.journalEntry.id;
+      await request(app)
+        .post(`/api/v1/journal-entries/${originalId}/post`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+
+      const closeRes = await request(app)
+        .patch(`/api/v1/fiscal-periods/${periodId}/close`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      expect(closeRes.status).toBe(200);
+
+      try {
+        const voidRes = await request(app)
+          .post(`/api/v1/journal-entries/${originalId}/void`)
+          .set('Authorization', `Bearer ${accountantToken1}`)
+          .set('X-Tenant-ID', tenant1Slug);
+
+        expect(voidRes.status).toBe(400);
+        expect(voidRes.body.success).toBe(false);
+
+        const getRes = await request(app)
+          .get(`/api/v1/journal-entries/${originalId}`)
+          .set('Authorization', `Bearer ${accountantToken1}`)
+          .set('X-Tenant-ID', tenant1Slug);
+        expect(getRes.body.data.journalEntry.status).toBe('POSTED');
+      } finally {
+        // Remove the period entirely so it doesn't block other tests/entries
+        // dated today - there is no "reopen" action once CLOSED.
+        await prisma.fiscalPeriod.delete({ where: { id: periodId } }).catch(() => {});
+      }
     });
   });
 

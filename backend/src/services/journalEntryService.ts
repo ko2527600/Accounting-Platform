@@ -354,14 +354,23 @@ export async function postJournalEntry(id: string, actor?: AuditActor): Promise<
   return updatedEntry;
 }
 
-export async function voidJournalEntry(id: string, actor?: AuditActor): Promise<JournalEntryRecord> {
+export interface VoidJournalEntryResult {
+  journalEntry: JournalEntryRecord;
+  reversalEntry: JournalEntryRecord | null;
+}
+
+export async function voidJournalEntry(
+  id: string,
+  actor?: AuditActor,
+  reason?: string
+): Promise<VoidJournalEntryResult> {
   if (!id || typeof id !== 'string') {
     throw new JournalEntryServiceError('Journal Entry ID is required.', 400);
   }
 
   let previousStatus: JournalEntryStatus = 'DRAFT';
 
-  const updatedEntry = await withCurrentTenantDb(prisma, async (client) => {
+  const { journalEntry, reversalEntry } = await withCurrentTenantDb(prisma, async (client) => {
     const entry = await journalEntryRepository.getJournalEntryById(client, id);
     if (!entry) {
       throw new JournalEntryServiceError(`Journal entry with ID "${id}" not found.`, 404);
@@ -371,35 +380,75 @@ export async function voidJournalEntry(id: string, actor?: AuditActor): Promise<
       throw new JournalEntryServiceError(`Journal entry "${entry.entryNumber}" is already voided.`, 400);
     }
 
-    // Voiding only flips this record's status - it does not reverse the ledger
-    // rows a POSTED entry has already written (reports sum directly from
-    // `ledgers`, with no join back to journal entry status). Allowing void on
-    // a POSTED entry would silently leave incorrect numbers in every report.
-    // Correcting a posted entry requires an actual reversing entry, not a void.
-    if (entry.status === 'POSTED') {
-      throw new JournalEntryServiceError(
-        `Journal entry "${entry.entryNumber}" is already posted to the ledger and cannot be voided. Record a reversing journal entry instead.`,
-        400
-      );
-    }
-
     previousStatus = entry.status;
 
-    const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'VOID');
-    if (!updatedEntry) {
+    // A DRAFT never touched the ledger, so voiding it is just a status flip -
+    // no reversal is needed or created.
+    if (entry.status === 'DRAFT') {
+      const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'VOID');
+      if (!updatedEntry) {
+        throw new JournalEntryServiceError(`Failed to void journal entry "${id}".`, 500);
+      }
+      return { journalEntry: updatedEntry, reversalEntry: null as JournalEntryRecord | null };
+    }
+
+    // entry.status === 'POSTED': it already has real ledger rows, so voiding
+    // it must post a real offsetting entry today (not just flip a flag) -
+    // reports/G-L sum directly from `ledgers` with no join back to journal
+    // entry status, so only an actual reversing entry corrects the numbers.
+    const { tenantId } = requireTenantContext();
+    const today = new Date();
+    await assertPeriodOpenOrThrowJournalError(tenantId, today);
+
+    let reversalEntryNumber = `REV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    while (await journalEntryRepository.getJournalEntryByEntryNumber(client, reversalEntryNumber)) {
+      reversalEntryNumber = `REV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    const reversal = await journalEntryRepository.createJournalEntry(client, {
+      entryNumber: reversalEntryNumber,
+      entryDate: today,
+      description: `Reversal of ${entry.entryNumber}: ${reason?.trim() || entry.description || 'Journal Entry Void'}`,
+      status: 'POSTED',
+      reversalOfEntryId: entry.id,
+      lines: (entry.lines || []).map((l) => ({
+        accountId: l.accountId,
+        debit: l.credit,
+        credit: l.debit,
+        description: l.description || undefined,
+      })),
+    });
+
+    await ledgerRepository.postJournalEntryToLedger(client, reversal.id);
+
+    const voidedOriginal = await journalEntryRepository.setReversalLink(client, entry.id, reversal.id);
+    if (!voidedOriginal) {
       throw new JournalEntryServiceError(`Failed to void journal entry "${id}".`, 500);
     }
 
-    return updatedEntry;
+    const reversalWithLines = await journalEntryRepository.getJournalEntryById(client, reversal.id);
+
+    return { journalEntry: voidedOriginal, reversalEntry: reversalWithLines };
   });
 
   await recordAuditLog({
     action: 'JOURNAL_ENTRY.VOIDED',
     entity: 'JournalEntry',
-    entityId: updatedEntry.id,
+    entityId: journalEntry.id,
     actor,
     changes: { status: { from: previousStatus, to: 'VOID' } },
+    details: reversalEntry ? `Reversed by ${reversalEntry.entryNumber}.` : undefined,
   });
 
-  return updatedEntry;
+  if (reversalEntry) {
+    await recordAuditLog({
+      action: 'JOURNAL_ENTRY.REVERSED',
+      entity: 'JournalEntry',
+      entityId: reversalEntry.id,
+      actor,
+      details: `Reversal of ${journalEntry.entryNumber}.`,
+    });
+  }
+
+  return { journalEntry, reversalEntry };
 }

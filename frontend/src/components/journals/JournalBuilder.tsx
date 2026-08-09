@@ -107,10 +107,10 @@ export function JournalBuilder() {
           Back to Journals
         </Button>
         <h2 className="text-3xl font-bold tracking-tight text-secondary-900 dark:text-secondary-50">
-          Create Journal Entry
+          Create Journal Voucher
         </h2>
         <p className="text-secondary-500 dark:text-secondary-400 mt-1">
-          Record a manual double-entry transaction.
+          Record a manual double-entry transaction. It's saved as a Draft voucher - post it from the Journal Vouchers list to send it to the general ledger.
         </p>
       </div>
 
@@ -297,7 +297,7 @@ export function JournalBuilder() {
               </div>
               <div className="h-10 w-px bg-secondary-300 dark:bg-secondary-700 mx-2"></div>
               <Button type="submit" disabled={!isBalanced || totalDebit === 0} isLoading={isPosting} className="w-32">
-                Post Entry
+                Save Voucher
               </Button>
             </div>
           </CardFooter>

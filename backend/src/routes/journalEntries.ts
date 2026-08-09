@@ -188,17 +188,28 @@ router.post('/:id/post', requireRole('Accountant'), async (req: Request, res: Re
 
 /**
  * POST /api/v1/journal-entries/:id/void
- * Description: Void a journal entry.
+ * Description: Void a journal entry. A DRAFT is simply flipped to VOID
+ * (it never touched the ledger). A POSTED entry cannot be edited, so
+ * voiding it auto-generates and posts a reversing entry that offsets it -
+ * both the voided original and the new reversal are returned.
  * Access: Accountant role or higher
  */
 router.post('/:id/void', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.voidJournalEntry(req.params.id, actorFromRequest(req));
+    const { reason } = req.body || {};
+    const { journalEntry, reversalEntry } = await journalEntryService.voidJournalEntry(
+      req.params.id,
+      actorFromRequest(req),
+      reason
+    );
     res.status(200).json({
       success: true,
-      message: 'Journal entry voided successfully',
+      message: reversalEntry
+        ? `Journal entry voided successfully. Reversal ${reversalEntry.entryNumber} posted.`
+        : 'Journal entry voided successfully',
       data: {
         journalEntry,
+        reversalEntry,
       },
     });
   } catch (error: any) {

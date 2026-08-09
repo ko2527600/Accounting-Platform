@@ -38,6 +38,8 @@ export interface JournalEntry {
   totalDebit: number;
   totalCredit: number;
   createdAt: string;
+  reversalOfEntryId?: string | null;
+  reversedByEntryId?: string | null;
 }
 
 export type CreateJournalEntryDTO = Omit<JournalEntry, 'id' | 'status' | 'totalDebit' | 'totalCredit' | 'createdAt'>;
