@@ -191,4 +191,141 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
     expect(res.body.data.suggestion).not.toBeNull();
     expect(res.body.data.suggestion.accountId).toBe(expenseAccountId);
   });
+
+  describe('Per-levy tax account posting (accountant-requested: tax should not post to Revenue)', () => {
+    async function createAccount(code: string, name: string) {
+      const res = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ code, name, type: 'LIABILITY' });
+      return res.body.data.account.id as string;
+    }
+
+    async function createLayeredTaxRate(code: string, components: { name: string; rate: number; accountId?: string }[]) {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({
+          name: `Layered ${code}`,
+          code,
+          rate: components.reduce((sum, c) => sum + c.rate, 0),
+          effectiveFrom: '2020-01-01',
+          components,
+        });
+      expect(res.status).toBe(201);
+      return res.body.data.taxRate;
+    }
+
+    async function payAndGetJournal(invoiceId: string) {
+      const payRes = await request(app)
+        .post(`/api/v1/invoices/${invoiceId}/pay`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({});
+      expect(payRes.status).toBe(200);
+      const journalId = payRes.body.data.invoice.journalId;
+      expect(journalId).toBeTruthy();
+
+      const journalRes = await request(app)
+        .get(`/api/v1/journal-entries/${journalId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      expect(journalRes.status).toBe(200);
+      return journalRes.body.data.journalEntry;
+    }
+
+    it('splits collected tax across each levy\'s own account instead of crediting it all to Revenue', async () => {
+      const vatAccountId = await createAccount('2201', 'VAT Payable');
+      const nhilAccountId = await createAccount('2202', 'NHIL Payable');
+      const getfundAccountId = await createAccount('2203', 'GETFund Payable');
+
+      const taxRate = await createLayeredTaxRate('GH-PAY-1', [
+        { name: 'VAT', rate: 0.15, accountId: vatAccountId },
+        { name: 'NHIL', rate: 0.025, accountId: nhilAccountId },
+        { name: 'GETFund Levy', rate: 0.025, accountId: getfundAccountId },
+      ]);
+
+      const invoice = await request(app)
+        .post('/api/v1/invoices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ customerId, taxRateId: taxRate.id, items: [{ description: 'Per-levy test', quantity: 1, unitPrice: 1000 }] });
+      expect(invoice.status).toBe(201);
+      expect(Number(invoice.body.data.invoice.total)).toBeCloseTo(1200, 2);
+
+      const journalEntry = await payAndGetJournal(invoice.body.data.invoice.id);
+      expect(journalEntry.lines.length).toBe(5); // Cash + VAT + NHIL + GETFund + Revenue
+
+      const cashLine = journalEntry.lines.find((l: any) => l.accountId === cashAccountId);
+      const vatLine = journalEntry.lines.find((l: any) => l.accountId === vatAccountId);
+      const nhilLine = journalEntry.lines.find((l: any) => l.accountId === nhilAccountId);
+      const getfundLine = journalEntry.lines.find((l: any) => l.accountId === getfundAccountId);
+      const revenueLine = journalEntry.lines.find((l: any) => l.accountId === revenueAccountId);
+
+      expect(cashLine.debit).toBe(1200);
+      expect(vatLine.credit).toBe(150);
+      expect(nhilLine.credit).toBe(25);
+      expect(getfundLine.credit).toBe(25);
+      // Revenue only reflects the subtotal - not the full invoice total.
+      expect(revenueLine.credit).toBe(1000);
+
+      const totalCredits = journalEntry.lines.reduce((sum: number, l: any) => sum + Number(l.credit), 0);
+      expect(totalCredits).toBe(1200);
+    });
+
+    it('folds any levy without a configured destination account into Revenue, alongside the subtotal', async () => {
+      const vatAccountId = await createAccount('2204', 'VAT Payable (Mixed)');
+
+      const taxRate = await createLayeredTaxRate('GH-PAY-2', [
+        { name: 'VAT', rate: 0.15, accountId: vatAccountId },
+        { name: 'NHIL', rate: 0.025 },
+        { name: 'GETFund Levy', rate: 0.025 },
+      ]);
+
+      const invoice = await request(app)
+        .post('/api/v1/invoices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ customerId, taxRateId: taxRate.id, items: [{ description: 'Mixed levy test', quantity: 1, unitPrice: 1000 }] });
+      expect(invoice.status).toBe(201);
+
+      const journalEntry = await payAndGetJournal(invoice.body.data.invoice.id);
+      expect(journalEntry.lines.length).toBe(3); // Cash + VAT + Revenue (NHIL/GETFund folded in)
+
+      const vatLine = journalEntry.lines.find((l: any) => l.accountId === vatAccountId);
+      const revenueLine = journalEntry.lines.find((l: any) => l.accountId === revenueAccountId);
+      expect(vatLine.credit).toBe(150);
+      // Revenue absorbs subtotal (1000) + the two unrouted levies (25 + 25).
+      expect(revenueLine.credit).toBe(1050);
+    });
+
+    it('falls back to Revenue for a levy whose destination account was deleted after the invoice was created, without blocking payment', async () => {
+      const vatAccountId = await createAccount('2205', 'VAT Payable (To Be Deleted)');
+      const taxRate = await createLayeredTaxRate('GH-PAY-3', [{ name: 'VAT', rate: 0.15, accountId: vatAccountId }]);
+
+      const invoice = await request(app)
+        .post('/api/v1/invoices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ customerId, taxRateId: taxRate.id, items: [{ description: 'Deleted account test', quantity: 1, unitPrice: 1000 }] });
+      expect(invoice.status).toBe(201);
+      expect(Number(invoice.body.data.invoice.total)).toBeCloseTo(1150, 2);
+
+      const deleteRes = await request(app)
+        .delete(`/api/v1/accounts/${vatAccountId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      expect(deleteRes.status).toBe(200);
+
+      const journalEntry = await payAndGetJournal(invoice.body.data.invoice.id);
+      expect(journalEntry.lines.length).toBe(2); // Cash + Revenue only - stale account silently skipped
+
+      const cashLine = journalEntry.lines.find((l: any) => l.accountId === cashAccountId);
+      const revenueLine = journalEntry.lines.find((l: any) => l.accountId === revenueAccountId);
+      expect(cashLine.debit).toBe(1150);
+      expect(revenueLine.credit).toBe(1150);
+    });
+  });
 });

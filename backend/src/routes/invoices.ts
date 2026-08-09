@@ -130,17 +130,23 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     // or the tenant's single active default for this date. No hardcoded percentage.
     let resolvedTaxRateId: string | null = null;
     let tax = 0;
-    // Snapshot of each named levy's own amount at issue time (e.g. Ghana's
+    // Snapshot of each named levy's own amount (and destination GL account,
+    // if the tax rate has one configured) at issue time (e.g. Ghana's
     // VAT/NHIL/GETFund) - null when the rate has no layered breakdown, so
-    // existing simple tax rates are entirely unaffected.
-    let taxBreakdown: { name: string; rate: number; amount: number }[] | null = null;
+    // existing simple tax rates are entirely unaffected. Snapshotting
+    // accountId here (not just re-reading it off the TaxRate at payment
+    // time) means a later edit to which account a levy posts to never
+    // rewrites the accounting history of what was actually charged/posted
+    // on this invoice - same reasoning as the amount itself being snapshotted.
+    let taxBreakdown: { name: string; rate: number; amount: number; accountId?: string }[] | null = null;
 
     function buildBreakdown(rateRecord: { components: any }, base: number) {
       if (!rateRecord.components || !Array.isArray(rateRecord.components)) return null;
-      return rateRecord.components.map((c: { name: string; rate: number }) => ({
+      return rateRecord.components.map((c: { name: string; rate: number; accountId?: string }) => ({
         name: c.name,
         rate: c.rate,
         amount: Math.round(base * c.rate * 100) / 100,
+        ...(c.accountId ? { accountId: c.accountId } : {}),
       }));
     }
 

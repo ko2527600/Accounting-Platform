@@ -329,4 +329,163 @@ describe('Tax Rates API (CRUD, tenant isolation, real invoice tax calculation)',
       expect(Number(rateChange.body.data.taxRate.rate)).toBeCloseTo(0.25, 4);
     });
   });
+
+  describe('Per-levy GL account posting configuration', () => {
+    let tenant1LiabilityAccountId: string;
+    let tenant2LiabilityAccountId: string;
+
+    beforeAll(async () => {
+      const acc1 = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ code: '2200', name: 'VAT Payable', type: 'LIABILITY' });
+      tenant1LiabilityAccountId = acc1.body.data.account.id;
+
+      const acc2 = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${token2}`)
+        .set('X-Tenant-ID', tenant2Slug)
+        .send({ code: '2200', name: 'VAT Payable (Tenant 2)', type: 'LIABILITY' });
+      tenant2LiabilityAccountId = acc2.body.data.account.id;
+    });
+
+    it('accepts a whole-rate accountId that exists in the tenant\'s own Chart of Accounts', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Simple VAT with Account',
+          code: 'GH-ACC-1',
+          rate: 0.15,
+          effectiveFrom: '2026-01-01',
+          accountId: tenant1LiabilityAccountId,
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.data.taxRate.accountId).toBe(tenant1LiabilityAccountId);
+    });
+
+    it('rejects a whole-rate accountId that does not exist', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Bad Account Rate',
+          code: 'GH-ACC-2',
+          rate: 0.15,
+          effectiveFrom: '2026-01-01',
+          accountId: '00000000-0000-0000-0000-000000000000',
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not exist');
+    });
+
+    it('rejects a whole-rate accountId that belongs to another tenant', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Cross Tenant Account Rate',
+          code: 'GH-ACC-3',
+          rate: 0.15,
+          effectiveFrom: '2026-01-01',
+          accountId: tenant2LiabilityAccountId,
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not exist');
+    });
+
+    it('accepts a per-component accountId that exists, and the component still serializes to exactly {name, rate, accountId} - no accidental nulls', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Layered VAT with Account',
+          code: 'GH-ACC-4',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [
+            { name: 'VAT', rate: 0.15, accountId: tenant1LiabilityAccountId },
+            { name: 'NHIL', rate: 0.025 },
+            { name: 'GETFund Levy', rate: 0.025 },
+          ],
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.data.taxRate.components[0]).toEqual({
+        name: 'VAT',
+        rate: 0.15,
+        accountId: tenant1LiabilityAccountId,
+      });
+      // No account configured -> no accountId key at all (never an explicit null).
+      expect(res.body.data.taxRate.components[1]).toEqual({ name: 'NHIL', rate: 0.025 });
+    });
+
+    it('rejects a per-component accountId that does not exist', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Layered VAT Bad Component Account',
+          code: 'GH-ACC-5',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [
+            { name: 'VAT', rate: 0.15, accountId: '00000000-0000-0000-0000-000000000000' },
+            { name: 'NHIL', rate: 0.025 },
+            { name: 'GETFund Levy', rate: 0.025 },
+          ],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not exist');
+    });
+
+    it('rejects a per-component accountId that belongs to another tenant', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Layered VAT Cross Tenant Component Account',
+          code: 'GH-ACC-6',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [
+            { name: 'VAT', rate: 0.15, accountId: tenant2LiabilityAccountId },
+            { name: 'NHIL', rate: 0.025 },
+            { name: 'GETFund Levy', rate: 0.025 },
+          ],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('does not exist');
+    });
+
+    it('validates accountId on update the same way as on create', async () => {
+      const created = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ name: 'Update Account Test', code: 'GH-ACC-7', rate: 0.15, effectiveFrom: '2026-01-01' });
+      expect(created.status).toBe(201);
+
+      const badUpdate = await request(app)
+        .put(`/api/v1/tax-rates/${created.body.data.taxRate.id}`)
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ accountId: '00000000-0000-0000-0000-000000000000' });
+      expect(badUpdate.status).toBe(400);
+
+      const goodUpdate = await request(app)
+        .put(`/api/v1/tax-rates/${created.body.data.taxRate.id}`)
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ accountId: tenant1LiabilityAccountId });
+      expect(goodUpdate.status).toBe(200);
+      expect(goodUpdate.body.data.taxRate.accountId).toBe(tenant1LiabilityAccountId);
+    });
+  });
 });

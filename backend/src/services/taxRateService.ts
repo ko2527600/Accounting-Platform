@@ -1,5 +1,7 @@
 import { prisma } from '../config/db';
+import { withCurrentTenantDb } from '../database/tenantClient';
 import * as taxRateRepository from '../repository/taxRateRepository';
+import * as accountRepository from '../repository/accountRepository';
 import { TaxRateRecord, CreateTaxRateData, TaxRateComponent } from '../repository/taxRateRepository';
 
 export class TaxRateServiceError extends Error {
@@ -47,7 +49,14 @@ function validateComponents(components: unknown, parentRate: number): TaxRateCom
       throw new TaxRateServiceError(`Component ${i + 1} ("${c.name}"): rate must be a number greater than 0 and less than or equal to 1.`, 400);
     }
     sum += rate;
-    return { name: c.name.trim(), rate };
+    // Never write an explicit accountId: null - keeps a component's
+    // serialized shape exactly {name, rate} when no account is set, rather
+    // than {name, rate, accountId: null}.
+    return {
+      name: c.name.trim(),
+      rate,
+      ...(c.accountId ? { accountId: String(c.accountId) } : {}),
+    };
   });
 
   if (Math.abs(sum - parentRate) > 0.0005) {
@@ -58,6 +67,41 @@ function validateComponents(components: unknown, parentRate: number): TaxRateCom
   }
 
   return validated;
+}
+
+/**
+ * Confirms every GL account referenced by a tax rate (the whole-rate
+ * accountId and/or each component's accountId) actually exists in the
+ * tenant's own Chart of Accounts. Kept separate from validateComponents
+ * (which is pure structural validation, no DB dependency, unit-testable
+ * as-is) since this needs a real tenant-schema lookup - mirrors how
+ * journalEntryService.createJournalEntry validates every line's accountId
+ * via the same accountRepository.getAccountById helper.
+ *
+ * Depends on an active tenant context (withCurrentTenantDb throws without
+ * one) - safe today since taxRateService is only ever called from
+ * routes/taxRates.ts and routes/invoices.ts, both behind
+ * tenantContextMiddleware, same tradeoff journalEntryService already accepts.
+ */
+async function validateAccountIds(
+  accountId: string | null | undefined,
+  components: TaxRateComponent[] | null
+): Promise<void> {
+  const ids = new Set<string>();
+  if (accountId) ids.add(accountId);
+  for (const c of components || []) {
+    if (c.accountId) ids.add(c.accountId);
+  }
+  if (ids.size === 0) return;
+
+  await withCurrentTenantDb(prisma, async (client) => {
+    for (const id of ids) {
+      const account = await accountRepository.getAccountById(client, id);
+      if (!account) {
+        throw new TaxRateServiceError(`Account with ID "${id}" does not exist.`, 400);
+      }
+    }
+  });
 }
 
 export async function listTaxRates(tenantId: string): Promise<TaxRateRecord[]> {
@@ -91,6 +135,8 @@ export async function createTaxRate(tenantId: string, input: any): Promise<TaxRa
   if (existingCode) {
     throw new TaxRateServiceError(`Tax rate code "${code.trim()}" already exists.`, 409);
   }
+
+  await validateAccountIds(accountId, validatedComponents);
 
   const data: CreateTaxRateData = {
     name,
@@ -158,6 +204,10 @@ export async function updateTaxRate(tenantId: string, id: string, input: any): P
     data.effectiveFrom = newFrom;
     data.effectiveTo = newTo;
   }
+
+  const effectiveAccountId = data.accountId !== undefined ? data.accountId : existing.accountId;
+  const effectiveComponents = data.components !== undefined ? data.components : existing.components;
+  await validateAccountIds(effectiveAccountId, effectiveComponents);
 
   const updated = await taxRateRepository.updateTaxRate(prisma, tenantId, id, data);
   if (!updated) {

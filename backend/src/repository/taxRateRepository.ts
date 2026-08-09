@@ -3,6 +3,11 @@ import { PrismaClient } from '@prisma/client';
 export interface TaxRateComponent {
   name: string;
   rate: number;
+  // Which GL account this levy's collected amount posts to on invoice
+  // payment (e.g. a distinct "VAT Payable"/"NHIL Payable" liability account
+  // per component) - omitted entirely (never explicitly null) when unset,
+  // so components without one still serialize to exactly {name, rate}.
+  accountId?: string;
 }
 
 export interface TaxRateRecord {
