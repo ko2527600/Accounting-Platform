@@ -193,4 +193,140 @@ describe('Tax Rates API (CRUD, tenant isolation, real invoice tax calculation)',
       .set('X-Tenant-ID', tenant1Slug);
     expect(deleteRes.status).toBe(400);
   });
+
+  describe('Layered tax rate breakdown (Ghana VAT + NHIL + GETFund)', () => {
+    it('creates a layered tax rate whose components sum to the total rate', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Ghana Standard VAT',
+          code: 'GH-VAT-STD',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [
+            { name: 'VAT', rate: 0.15 },
+            { name: 'NHIL', rate: 0.025 },
+            { name: 'GETFund Levy', rate: 0.025 },
+          ],
+        });
+      expect(res.status).toBe(201);
+      expect(res.body.data.taxRate.components).toHaveLength(3);
+      expect(res.body.data.taxRate.components[0]).toEqual({ name: 'VAT', rate: 0.15 });
+    });
+
+    it('rejects a components breakdown that does not sum to the parent rate', async () => {
+      const res = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Mismatched Levy',
+          code: 'GH-BAD-1',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [{ name: 'VAT', rate: 0.15 }, { name: 'NHIL', rate: 0.02 }],
+        });
+      expect(res.status).toBe(400);
+      expect(res.body.error).toContain('must sum to');
+    });
+
+    it('rejects a component with a missing name or an invalid rate', async () => {
+      const missingName = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Bad Component',
+          code: 'GH-BAD-2',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [{ rate: 0.2 }],
+        });
+      expect(missingName.status).toBe(400);
+
+      const badRate = await request(app)
+        .post('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          name: 'Bad Component Rate',
+          code: 'GH-BAD-3',
+          rate: 0.20,
+          effectiveFrom: '2026-01-01',
+          components: [{ name: 'VAT', rate: 1.5 }],
+        });
+      expect(badRate.status).toBe(400);
+    });
+
+    it('computes a real per-levy breakdown on an invoice using an explicit layered tax rate', async () => {
+      const list = await request(app)
+        .get('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      const ghanaVat = list.body.data.taxRates.find((t: any) => t.code === 'GH-VAT-STD');
+
+      const invoiceRes = await request(app)
+        .post('/api/v1/invoices')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          customerId,
+          taxRateId: ghanaVat.id,
+          items: [{ description: 'Layered tax test', quantity: 1, unitPrice: 1000 }],
+        });
+
+      expect(invoiceRes.status).toBe(201);
+      const invoice = invoiceRes.body.data.invoice;
+      expect(Number(invoice.tax)).toBeCloseTo(200, 2);
+      expect(Number(invoice.total)).toBeCloseTo(1200, 2);
+      expect(invoice.taxBreakdown).toHaveLength(3);
+      const vatLine = invoice.taxBreakdown.find((c: any) => c.name === 'VAT');
+      const nhilLine = invoice.taxBreakdown.find((c: any) => c.name === 'NHIL');
+      const getfundLine = invoice.taxBreakdown.find((c: any) => c.name === 'GETFund Levy');
+      expect(vatLine.amount).toBeCloseTo(150, 2);
+      expect(nhilLine.amount).toBeCloseTo(25, 2);
+      expect(getfundLine.amount).toBeCloseTo(25, 2);
+    });
+
+    it('rejects changing the rate on a layered tax rate without also updating its components', async () => {
+      const list = await request(app)
+        .get('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      const ghanaVat = list.body.data.taxRates.find((t: any) => t.code === 'GH-VAT-STD');
+
+      const res = await request(app)
+        .put(`/api/v1/tax-rates/${ghanaVat.id}`)
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ rate: 0.25 });
+      expect(res.status).toBe(400);
+    });
+
+    it('allows clearing a components breakdown by setting components to null', async () => {
+      const list = await request(app)
+        .get('/api/v1/tax-rates')
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      const ghanaVat = list.body.data.taxRates.find((t: any) => t.code === 'GH-VAT-STD');
+
+      const cleared = await request(app)
+        .put(`/api/v1/tax-rates/${ghanaVat.id}`)
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ components: null });
+      expect(cleared.status).toBe(200);
+      expect(cleared.body.data.taxRate.components).toBeNull();
+
+      const rateChange = await request(app)
+        .put(`/api/v1/tax-rates/${ghanaVat.id}`)
+        .set('Authorization', `Bearer ${token1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ rate: 0.25 });
+      expect(rateChange.status).toBe(200);
+      expect(Number(rateChange.body.data.taxRate.rate)).toBeCloseTo(0.25, 4);
+    });
+  });
 });

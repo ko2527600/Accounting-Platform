@@ -10,6 +10,7 @@ export interface Account {
   status: AccountStatus;
   balance: number;
   currency: string;
+  isCashEquivalent?: boolean;
   createdAt: string;
   updatedAt: string;
 }

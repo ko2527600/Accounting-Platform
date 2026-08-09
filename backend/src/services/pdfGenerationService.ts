@@ -459,6 +459,79 @@ export function generateProfitAndLossPdf(
   });
 }
 
+export interface CashFlowLineItem {
+  code: string;
+  name: string;
+  change: number;
+}
+
+/**
+ * Generates a real Cash Flow Statement PDF (indirect method), mirroring
+ * CashFlowStatement.tsx's on-screen layout.
+ */
+export function generateCashFlowPdf(
+  tenantName: string,
+  currency: string,
+  periodLabel: string,
+  data: {
+    netIncome: number;
+    operatingAdjustments: CashFlowLineItem[];
+    netCashFromOperating: number;
+    financingAdjustments: CashFlowLineItem[];
+    netCashFromFinancing: number;
+    netChangeInCash: number;
+    beginningCash: number;
+    endingCash: number;
+    cashTies: boolean;
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: true, compress: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    drawReportCover(doc, tenantName, 'Cash Flow Statement', `${periodLabel} — all figures in ${currency}`);
+
+    const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const columns: TableColumn[] = [
+      { header: 'Code', width: tableWidth * 0.15 },
+      { header: 'Account', width: tableWidth * 0.55 },
+      { header: 'Change in Cash', width: tableWidth * 0.3 },
+    ];
+
+    addSectionHeading(doc, 'Operating Activities');
+    doc.fillColor(INK).font('Helvetica').fontSize(10.5).text(`Net Income: ${formatMoney(data.netIncome, currency)}`, doc.page.margins.left);
+    doc.moveDown(0.5);
+    drawSimpleTable(doc, columns, data.operatingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)]));
+    drawTotalRow(doc, 'Net Cash from Operating Activities', formatMoney(data.netCashFromOperating, currency));
+
+    addSectionHeading(doc, 'Financing Activities');
+    drawSimpleTable(doc, columns, data.financingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)]));
+    drawTotalRow(doc, 'Net Cash from Financing Activities', formatMoney(data.netCashFromFinancing, currency));
+
+    drawTotalRow(doc, 'Net Change in Cash', formatMoney(data.netChangeInCash, currency));
+    drawTotalRow(doc, 'Cash at Beginning of Period', formatMoney(data.beginningCash, currency));
+    drawTotalRow(doc, 'Cash at End of Period', formatMoney(data.endingCash, currency), { color: BRAND_GREEN });
+
+    doc.moveDown(0.3);
+    doc.x = doc.page.margins.left;
+    doc
+      .fillColor(data.cashTies ? BRAND_GREEN : '#dc2626')
+      .font('Helvetica')
+      .fontSize(9.5)
+      .text(
+        data.cashTies
+          ? 'Reconciles with actual cash account balances.'
+          : 'Does not reconcile with actual cash account balances - check ledger entries.',
+        doc.page.margins.left
+      );
+
+    doc.end();
+  });
+}
+
 export interface ExecutiveReportCloseoutRow {
   closedAt: string;
   warehouseName: string;

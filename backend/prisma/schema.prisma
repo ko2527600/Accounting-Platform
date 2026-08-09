@@ -36,20 +36,20 @@ model Tenant {
 }
 
 model Invitation {
-  id        String   @id @default(uuid())
-  email     String
-  tenantId  String   @map("tenant_id")
-  role      String   @default("Viewer")
+  id           String   @id @default(uuid())
+  email        String
+  tenantId     String   @map("tenant_id")
+  role         String   @default("Viewer")
   // Warehouse IDs to grant on acceptance, only meaningful when role is a
   // location-scoped role ('Shop Manager'/'Cashier') - empty for company-wide roles.
   warehouseIds String[] @default([]) @map("warehouse_ids")
-  token     String   @unique
-  status    String   @default("PENDING")
-  expiresAt DateTime @map("expires_at")
-  createdAt DateTime @default(now()) @map("created_at")
-  updatedAt DateTime @updatedAt @map("updated_at")
+  token        String   @unique
+  status       String   @default("PENDING")
+  expiresAt    DateTime @map("expires_at")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
 
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([token])
@@ -73,7 +73,7 @@ model User {
   createdAt              DateTime @default(now()) @map("created_at")
   updatedAt              DateTime @updatedAt @map("updated_at")
 
-  tenant Tenant? @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  tenant          Tenant?           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   warehouseAccess WarehouseAccess[]
 
   @@index([tenantId])
@@ -233,38 +233,38 @@ model ReportSchedule {
 }
 
 model BankAccount {
-  id              String            @id @default(uuid())
-  tenantId        String            @map("tenant_id")
-  accountName     String            @map("account_name")
-  accountNumber   String            @map("account_number")
-  bankName        String            @map("bank_name")
-  currency        String            @default("USD")
-  currentBalance  Decimal           @default(0.00) @db.Decimal(15, 2) @map("current_balance")
-  isActive        Boolean           @default(true) @map("is_active")
-  createdAt       DateTime          @default(now()) @map("created_at")
-  monoAccountId   String?           @unique @map("mono_account_id")
-  institutionName String?           @map("institution_name")
-  lastSyncedAt    DateTime?         @map("last_synced_at")
+  id              String    @id @default(uuid())
+  tenantId        String    @map("tenant_id")
+  accountName     String    @map("account_name")
+  accountNumber   String    @map("account_number")
+  bankName        String    @map("bank_name")
+  currency        String    @default("USD")
+  currentBalance  Decimal   @default(0.00) @map("current_balance") @db.Decimal(15, 2)
+  isActive        Boolean   @default(true) @map("is_active")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  monoAccountId   String?   @unique @map("mono_account_id")
+  institutionName String?   @map("institution_name")
+  lastSyncedAt    DateTime? @map("last_synced_at")
 
-  transactions    BankTransaction[]
+  transactions BankTransaction[]
 
   @@index([tenantId])
   @@map("bank_accounts")
 }
 
 model BankTransaction {
-  id                String      @id @default(uuid())
-  tenantId          String      @map("tenant_id")
-  bankAccountId     String      @map("bank_account_id")
-  amount            Decimal     @db.Decimal(15, 2)
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  bankAccountId     String   @map("bank_account_id")
+  amount            Decimal  @db.Decimal(15, 2)
   payee             String
   description       String?
-  postedDate        DateTime    @default(now()) @map("posted_date")
-  status            String      @default("UNRECONCILED")
-  ledgerId          String?     @map("ledger_id")
-  monoTransactionId String?     @unique @map("mono_transaction_id")
+  postedDate        DateTime @default(now()) @map("posted_date")
+  status            String   @default("UNRECONCILED")
+  ledgerId          String?  @map("ledger_id")
+  monoTransactionId String?  @unique @map("mono_transaction_id")
 
-  bankAccount       BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([bankAccountId])
@@ -273,41 +273,48 @@ model BankTransaction {
 }
 
 model Customer {
-  id        String    @id @default(uuid())
-  tenantId  String    @map("tenant_id")
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
   name      String
   email     String
   phone     String?
   address   String?
-  createdAt DateTime  @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  invoices  Invoice[]
+  invoices Invoice[]
 
   @@index([tenantId])
   @@map("customers")
 }
 
 model Invoice {
-  id            String        @id @default(uuid())
-  tenantId      String        @map("tenant_id")
-  invoiceNumber String        @map("invoice_number")
-  customerId    String        @map("customer_id")
-  issueDate     DateTime      @default(now()) @map("issue_date")
-  dueDate       DateTime      @map("due_date")
-  currency      String        @default("USD")
-  exchangeRate  Decimal       @default(1.0000) @db.Decimal(10, 4) @map("exchange_rate")
-  subtotal      Decimal       @db.Decimal(15, 2)
-  tax           Decimal       @default(0.00) @db.Decimal(15, 2)
-  taxRateId     String?       @map("tax_rate_id")
-  total         Decimal       @db.Decimal(15, 2)
-  baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
-  status        String        @default("DRAFT")
-  journalId     String?       @map("journal_id")
-  createdAt     DateTime      @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  invoiceNumber      String   @map("invoice_number")
+  customerId         String   @map("customer_id")
+  issueDate          DateTime @default(now()) @map("issue_date")
+  dueDate            DateTime @map("due_date")
+  currency           String   @default("USD")
+  exchangeRate       Decimal  @default(1.0000) @map("exchange_rate") @db.Decimal(10, 4)
+  subtotal           Decimal  @db.Decimal(15, 2)
+  tax                Decimal  @default(0.00) @db.Decimal(15, 2)
+  taxRateId          String?  @map("tax_rate_id")
+  // Snapshot of the tax rate's components at issue time (name/rate/amount per
+  // levy), so a later edit to the TaxRate's components never rewrites the
+  // history of what was actually charged on this invoice - same reasoning as
+  // `subtotal`/`tax`/`total` already being snapshotted rather than derived live.
+  taxBreakdown       Json?    @map("tax_breakdown")
+  total              Decimal  @db.Decimal(15, 2)
+  baseCurrencyAmount Decimal? @map("base_currency_amount") @db.Decimal(15, 2)
+  status             String   @default("DRAFT")
+  journalId          String?  @map("journal_id")
+  createdAt          DateTime @default(now()) @map("created_at")
 
-  customer      Customer      @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  taxRate       TaxRate?      @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
-  items         InvoiceItem[]
+  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  taxRate      TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+  items        InvoiceItem[]
+  creditNotes  CreditNote[]
+  momoRequests MomoPaymentRequest[]
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
@@ -317,76 +324,208 @@ model Invoice {
   @@map("invoices")
 }
 
-model InvoiceItem {
-  id          String   @id @default(uuid())
-  tenantId    String   @map("tenant_id")
-  invoiceId   String   @map("invoice_id")
-  description String
-  quantity    Decimal  @db.Decimal(10, 2)
-  unitPrice   Decimal  @db.Decimal(15, 2) @map("unit_price")
-  amount      Decimal  @db.Decimal(15, 2)
+// A real MTN Mobile Money "Request to Pay" collection attempt against an
+// invoice - the customer gets a USSD prompt on their phone to approve. MTN's
+// Collections API has no bulk transaction-history endpoint (unlike Mono's
+// bank-feed model), so each attempt is tracked individually here and its
+// result learned by polling GET requesttopay/{referenceId}, not by syncing a
+// statement. referenceId is the caller-generated X-Reference-Id (a UUID)
+// used as the MTN-side handle; externalId is our own invoice-linked
+// reference sent in the request body.
+model MomoPaymentRequest {
+  id                     String   @id @default(uuid())
+  tenantId               String   @map("tenant_id")
+  invoiceId              String   @map("invoice_id")
+  phoneNumber            String   @map("phone_number")
+  amount                 Decimal  @db.Decimal(15, 2)
+  currency               String   @default("GHS")
+  referenceId            String   @unique @map("reference_id")
+  externalId             String   @map("external_id")
+  status                 String   @default("PENDING")
+  financialTransactionId String?  @map("financial_transaction_id")
+  failureReason          String?  @map("failure_reason")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
 
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("momo_payment_requests")
+}
+
+// A correction/refund against an already-issued Invoice (returned goods,
+// overcharge, negotiated discount, etc.). Because this platform only
+// recognizes revenue at payment time (see invoices.ts's `/pay` handler -
+// there is no separate Accounts Receivable posting at invoice creation),
+// the correct accounting treatment genuinely differs by whether the invoice
+// has been paid yet, and `method` records which path was taken rather than
+// leaving it to be inferred later from whether `journalId` happens to be set:
+//  - INVOICE_REDUCTION (invoice still unpaid): nothing has been posted to
+//    the ledger yet, so the credit note simply reduces what the invoice will
+//    charge on payment - no journal entry.
+//  - JOURNAL_REVERSAL (invoice already paid): revenue and cash were already
+//    recognized at the original total, so the credit note posts a real
+//    reversing entry (Debit Revenue, Credit Cash) and leaves the invoice's
+//    own total/status untouched as the historical record of what was paid.
+model CreditNote {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  creditNoteNumber String   @map("credit_note_number")
+  invoiceId        String   @map("invoice_id")
+  amount           Decimal  @db.Decimal(15, 2)
+  reason           String
+  method           String
+  journalId        String?  @map("journal_id")
+  issueDate        DateTime @default(now()) @map("issue_date")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, creditNoteNumber])
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("credit_notes")
+}
+
+model InvoiceItem {
+  id          String  @id @default(uuid())
+  tenantId    String  @map("tenant_id")
+  invoiceId   String  @map("invoice_id")
+  description String
+  quantity    Decimal @db.Decimal(10, 2)
+  unitPrice   Decimal @map("unit_price") @db.Decimal(15, 2)
+  amount      Decimal @db.Decimal(15, 2)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("invoice_items")
 }
 
 model Vendor {
-  id        String       @id @default(uuid())
-  tenantId  String       @map("tenant_id")
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
   name      String
   email     String
   phone     String?
   address   String?
-  createdAt DateTime     @default(now()) @map("created_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  bills     VendorBill[]
+  bills VendorBill[]
 
   @@index([tenantId])
   @@map("vendors")
 }
 
 model VendorBill {
-  id         String   @id @default(uuid())
-  tenantId   String   @map("tenant_id")
-  billNumber String   @map("bill_number")
-  vendorId   String   @map("vendor_id")
-  billDate   DateTime @default(now()) @map("bill_date")
-  dueDate    DateTime @map("due_date")
-  amount     Decimal  @db.Decimal(15, 2)
-  currency   String   @default("USD")
-  baseCurrencyAmount Decimal? @db.Decimal(15, 2) @map("base_currency_amount")
-  status     String   @default("UNPAID")
-  journalId  String?  @map("journal_id")
-  createdAt  DateTime @default(now()) @map("created_at")
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  billNumber         String   @map("bill_number")
+  vendorId           String   @map("vendor_id")
+  billDate           DateTime @default(now()) @map("bill_date")
+  dueDate            DateTime @map("due_date")
+  amount             Decimal  @db.Decimal(15, 2)
+  currency           String   @default("USD")
+  baseCurrencyAmount Decimal? @map("base_currency_amount") @db.Decimal(15, 2)
+  status             String   @default("UNPAID")
+  journalId          String?  @map("journal_id")
+  createdAt          DateTime @default(now()) @map("created_at")
 
-  vendor     Vendor   @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  // Itemized purchase / goods-receipt fields - all optional/backward-compatible
+  // with the original lump-sum bill shape. `warehouseId` + `lines` are set
+  // together when a bill represents real inventory received, not a generic
+  // expense. `billType`/`landedCostForBillId` distinguish a normal purchase
+  // bill from a secondary freight/customs/duty bill whose cost gets spread
+  // across a linked primary bill's line items (landed cost allocation).
+  warehouseId         String?   @map("warehouse_id")
+  billType            String    @default("STANDARD") @map("bill_type")
+  landedCostForBillId String?   @map("landed_cost_for_bill_id")
+  landedCostAppliedAt DateTime? @map("landed_cost_applied_at")
+
+  vendor     Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  warehouse  Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines      VendorBillLine[]
+  debitNotes DebitNote[]
+
+  landedCostForBill VendorBill?  @relation("LandedCostLink", fields: [landedCostForBillId], references: [id], onDelete: SetNull)
+  landedCostBills   VendorBill[] @relation("LandedCostLink")
 
   @@unique([tenantId, billNumber])
   @@index([tenantId])
   @@index([vendorId])
   @@index([status])
+  @@index([warehouseId])
+  @@index([landedCostForBillId])
   @@map("vendor_bills")
 }
 
+// Mirror of CreditNote for the AP side: a correction/refund against an
+// already-issued VendorBill. Same reasoning as CreditNote applies since
+// bills.ts's `/pay` handler recognizes the expense only at payment time:
+//  - BILL_REDUCTION (bill still unpaid): reduces what the bill will charge
+//    on payment, no journal entry since nothing was posted yet.
+//  - JOURNAL_REVERSAL (bill already paid): posts a real reversing entry
+//    (Debit Cash, Credit Expense - money refunded by the vendor) and leaves
+//    the bill's own amount/status untouched as the historical payment record.
+model DebitNote {
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  debitNoteNumber String   @map("debit_note_number")
+  billId          String   @map("bill_id")
+  amount          Decimal  @db.Decimal(15, 2)
+  reason          String
+  method          String
+  journalId       String?  @map("journal_id")
+  issueDate       DateTime @default(now()) @map("issue_date")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  bill VendorBill @relation(fields: [billId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, debitNoteNumber])
+  @@index([tenantId])
+  @@index([billId])
+  @@map("debit_notes")
+}
+
+model VendorBillLine {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  billId    String   @map("bill_id")
+  itemId    String   @map("item_id")
+  quantity  Int
+  unitCost  Decimal  @map("unit_cost") @db.Decimal(15, 2)
+  lineTotal Decimal  @map("line_total") @db.Decimal(15, 2)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  bill VendorBill    @relation(fields: [billId], references: [id], onDelete: Cascade)
+  item InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([billId])
+  @@index([itemId])
+  @@map("vendor_bill_lines")
+}
+
 model Warehouse {
-  id          String           @id @default(uuid())
-  tenantId    String           @map("tenant_id")
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
   name        String
   code        String
   location    String?
-  managerName String?          @map("manager_name")
-  isPrimary   Boolean          @default(false) @map("is_primary")
-  createdAt   DateTime         @default(now()) @map("created_at")
+  managerName String?  @map("manager_name")
+  isPrimary   Boolean  @default(false) @map("is_primary")
+  createdAt   DateTime @default(now()) @map("created_at")
 
   stocks        WarehouseStock[]
-  fromTransfers StockTransfer[] @relation("FromWarehouse")
-  toTransfers   StockTransfer[] @relation("ToWarehouse")
+  fromTransfers StockTransfer[]       @relation("FromWarehouse")
+  toTransfers   StockTransfer[]       @relation("ToWarehouse")
   tills         CashTill[]
   closeouts     DailyCloseoutReport[]
   adjustments   StockAdjustment[]
   userAccess    WarehouseAccess[]
+  vendorBills   VendorBill[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -394,19 +533,20 @@ model Warehouse {
 }
 
 model InventoryItem {
-  id            String           @id @default(uuid())
-  tenantId      String           @map("tenant_id")
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
   sku           String
   name          String
-  category      String           @default("General")
-  unitOfMeasure String           @default("pcs") @map("unit_of_measure")
-  costPrice     Decimal          @db.Decimal(15, 2) @map("cost_price")
-  sellingPrice  Decimal          @db.Decimal(15, 2) @map("selling_price")
-  reorderLevel  Int              @default(10) @map("reorder_level")
-  createdAt     DateTime         @default(now()) @map("created_at")
+  category      String   @default("General")
+  unitOfMeasure String   @default("pcs") @map("unit_of_measure")
+  costPrice     Decimal  @map("cost_price") @db.Decimal(15, 2)
+  sellingPrice  Decimal  @map("selling_price") @db.Decimal(15, 2)
+  reorderLevel  Int      @default(10) @map("reorder_level")
+  createdAt     DateTime @default(now()) @map("created_at")
 
   warehouseStocks WarehouseStock[]
   adjustments     StockAdjustment[]
+  vendorBillLines VendorBillLine[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -414,14 +554,14 @@ model InventoryItem {
 }
 
 model WarehouseStock {
-  id             String        @id @default(uuid())
-  tenantId       String        @map("tenant_id")
-  warehouseId    String        @map("warehouse_id")
-  itemId         String        @map("item_id")
-  quantityOnHand Int           @default(0) @map("quantity_on_hand")
+  id             String @id @default(uuid())
+  tenantId       String @map("tenant_id")
+  warehouseId    String @map("warehouse_id")
+  itemId         String @map("item_id")
+  quantityOnHand Int    @default(0) @map("quantity_on_hand")
 
-  warehouse      Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  warehouse Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@unique([warehouseId, itemId])
   @@index([tenantId])
@@ -429,19 +569,19 @@ model WarehouseStock {
 }
 
 model StockTransfer {
-  id              String              @id @default(uuid())
-  tenantId        String              @map("tenant_id")
-  transferNumber  String              @map("transfer_number")
-  fromWarehouseId String              @map("from_warehouse_id")
-  toWarehouseId   String              @map("to_warehouse_id")
-  transferDate    DateTime            @default(now()) @map("transfer_date")
+  id              String   @id @default(uuid())
+  tenantId        String   @map("tenant_id")
+  transferNumber  String   @map("transfer_number")
+  fromWarehouseId String   @map("from_warehouse_id")
+  toWarehouseId   String   @map("to_warehouse_id")
+  transferDate    DateTime @default(now()) @map("transfer_date")
   notes           String?
-  status          String              @default("COMPLETED")
-  createdAt       DateTime            @default(now()) @map("created_at")
+  status          String   @default("COMPLETED")
+  createdAt       DateTime @default(now()) @map("created_at")
 
-  fromWarehouse   Warehouse           @relation("FromWarehouse", fields: [fromWarehouseId], references: [id])
-  toWarehouse     Warehouse           @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
-  items           StockTransferItem[]
+  fromWarehouse Warehouse           @relation("FromWarehouse", fields: [fromWarehouseId], references: [id])
+  toWarehouse   Warehouse           @relation("ToWarehouse", fields: [toWarehouseId], references: [id])
+  items         StockTransferItem[]
 
   @@unique([tenantId, transferNumber])
   @@index([tenantId])
@@ -449,33 +589,33 @@ model StockTransfer {
 }
 
 model StockTransferItem {
-  id          String        @id @default(uuid())
-  tenantId    String        @map("tenant_id")
-  transferId  String        @map("transfer_id")
-  itemId      String        @map("item_id")
-  quantity    Int
+  id         String @id @default(uuid())
+  tenantId   String @map("tenant_id")
+  transferId String @map("transfer_id")
+  itemId     String @map("item_id")
+  quantity   Int
 
-  transfer    StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
+  transfer StockTransfer @relation(fields: [transferId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@map("stock_transfer_items")
 }
 
 model StockAdjustment {
-  id             String        @id @default(uuid())
-  tenantId       String        @map("tenant_id")
-  warehouseId    String        @map("warehouse_id")
-  itemId         String        @map("item_id")
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  warehouseId    String   @map("warehouse_id")
+  itemId         String   @map("item_id")
   mode           String
-  previousQty    Int           @map("previous_qty")
-  newQty         Int           @map("new_qty")
+  previousQty    Int      @map("previous_qty")
+  newQty         Int      @map("new_qty")
   delta          Int
   reason         String
-  adjustedByName String?       @map("adjusted_by_name")
-  createdAt      DateTime      @default(now()) @map("created_at")
+  adjustedByName String?  @map("adjusted_by_name")
+  createdAt      DateTime @default(now()) @map("created_at")
 
-  warehouse      Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
-  item           InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  warehouse Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  item      InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([itemId])
@@ -484,40 +624,63 @@ model StockAdjustment {
 }
 
 model CashTill {
-  id              String               @id @default(uuid())
-  tenantId        String               @map("tenant_id")
-  warehouseId     String               @map("warehouse_id")
-  openedBy        String               @map("opened_by")
-  openingCash     Decimal              @db.Decimal(15, 2) @map("opening_cash")
-  cashSalesTotal  Decimal              @default(0) @db.Decimal(15, 2) @map("cash_sales_total")
-  actualEndingCash Decimal?            @db.Decimal(15, 2) @map("actual_ending_cash")
-  status          String               @default("OPEN")
-  openedAt        DateTime             @default(now()) @map("opened_at")
-  closedAt        DateTime?            @map("closed_at")
+  id               String    @id @default(uuid())
+  tenantId         String    @map("tenant_id")
+  warehouseId      String    @map("warehouse_id")
+  openedBy         String    @map("opened_by")
+  openingCash      Decimal   @map("opening_cash") @db.Decimal(15, 2)
+  cashSalesTotal   Decimal   @default(0) @map("cash_sales_total") @db.Decimal(15, 2)
+  actualEndingCash Decimal?  @map("actual_ending_cash") @db.Decimal(15, 2)
+  status           String    @default("OPEN")
+  openedAt         DateTime  @default(now()) @map("opened_at")
+  closedAt         DateTime? @map("closed_at")
 
-  warehouse       Warehouse            @relation(fields: [warehouseId], references: [id])
-  sales           CashSale[]
-  closeoutReport  DailyCloseoutReport?
+  warehouse      Warehouse            @relation(fields: [warehouseId], references: [id])
+  sales          CashSale[]
+  closeoutReport DailyCloseoutReport?
 
   @@index([tenantId])
   @@map("cash_tills")
 }
 
-model CashSale {
-  id          String   @id @default(uuid())
-  tenantId    String   @map("tenant_id")
-  tillId      String   @map("till_id")
-  receiptNo   String   @map("receipt_no")
-  amount      Decimal  @db.Decimal(15, 2)
-  cashGiven   Decimal  @db.Decimal(15, 2) @map("cash_given")
-  changeGiven Decimal  @db.Decimal(15, 2) @map("change_given")
-  createdAt   DateTime @default(now()) @map("created_at")
+enum CashSaleStatus {
+  COMPLETED
+  VOIDED
+}
 
-  till        CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
-  lines       CashSaleLine[]
+model CashSale {
+  id              String         @id @default(uuid())
+  tenantId        String         @map("tenant_id")
+  tillId          String         @map("till_id")
+  receiptNo       String         @map("receipt_no")
+  amount          Decimal        @db.Decimal(15, 2)
+  cashGiven       Decimal        @map("cash_given") @db.Decimal(15, 2)
+  changeGiven     Decimal        @map("change_given") @db.Decimal(15, 2)
+  status          CashSaleStatus @default(COMPLETED)
+  createdByUserId String?        @map("created_by_user_id")
+  createdByName   String?        @map("created_by_name")
+  voidedAt        DateTime?      @map("voided_at")
+  voidedByUserId  String?        @map("voided_by_user_id")
+  voidedByName    String?        @map("voided_by_name")
+  voidReason      String?        @map("void_reason")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  // Client-generated dedup key for offline-queued/retried sale submissions -
+  // lets POST /tills/sales safely replay-and-return-existing instead of
+  // double-processing (see @@unique below, enforced at the DB level since a
+  // pre-check alone isn't race-safe under Read Committed isolation).
+  clientTxnId String? @map("client_txn_id")
+  // When the sale actually happened on the device, distinct from createdAt
+  // (true row-insert time) - populated for offline-queued sales synced after
+  // the fact, so void-stats time-bucketing reflects the real shift.
+  clientOccurredAt DateTime? @map("client_occurred_at")
+
+  till  CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
+  lines CashSaleLine[]
 
   @@unique([tenantId, receiptNo])
+  @@unique([tenantId, clientTxnId])
   @@index([tenantId])
+  @@index([tenantId, createdByUserId])
   @@map("cash_sales")
 }
 
@@ -529,11 +692,11 @@ model CashSaleLine {
   itemName  String   @map("item_name")
   itemSku   String   @map("item_sku")
   quantity  Int
-  unitPrice Decimal  @db.Decimal(15, 2) @map("unit_price")
-  lineTotal Decimal  @db.Decimal(15, 2) @map("line_total")
+  unitPrice Decimal  @map("unit_price") @db.Decimal(15, 2)
+  lineTotal Decimal  @map("line_total") @db.Decimal(15, 2)
   createdAt DateTime @default(now()) @map("created_at")
 
-  sale      CashSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  sale CashSale @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@index([tenantId])
   @@index([saleId])
@@ -541,22 +704,22 @@ model CashSaleLine {
 }
 
 model DailyCloseoutReport {
-  id           String    @id @default(uuid())
-  tenantId     String    @map("tenant_id")
-  tillId       String    @unique @map("till_id")
-  warehouseId  String    @map("warehouse_id")
-  closedBy     String    @map("closed_by")
-  openingCash  Decimal   @db.Decimal(15, 2) @map("opening_cash")
-  cashSales    Decimal   @db.Decimal(15, 2) @map("cash_sales")
-  expectedCash Decimal   @db.Decimal(15, 2) @map("expected_cash")
-  actualCash   Decimal   @db.Decimal(15, 2) @map("actual_cash")
-  discrepancy  Decimal   @db.Decimal(15, 2)
-  itemsSold    Int       @default(0) @map("items_sold")
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  tillId       String   @unique @map("till_id")
+  warehouseId  String   @map("warehouse_id")
+  closedBy     String   @map("closed_by")
+  openingCash  Decimal  @map("opening_cash") @db.Decimal(15, 2)
+  cashSales    Decimal  @map("cash_sales") @db.Decimal(15, 2)
+  expectedCash Decimal  @map("expected_cash") @db.Decimal(15, 2)
+  actualCash   Decimal  @map("actual_cash") @db.Decimal(15, 2)
+  discrepancy  Decimal  @db.Decimal(15, 2)
+  itemsSold    Int      @default(0) @map("items_sold")
   notes        String?
-  closedAt     DateTime  @default(now()) @map("closed_at")
+  closedAt     DateTime @default(now()) @map("closed_at")
 
-  till         CashTill  @relation(fields: [tillId], references: [id])
-  warehouse    Warehouse @relation(fields: [warehouseId], references: [id])
+  till      CashTill  @relation(fields: [tillId], references: [id])
+  warehouse Warehouse @relation(fields: [warehouseId], references: [id])
 
   @@index([tenantId])
   @@map("daily_closeout_reports")
@@ -680,10 +843,15 @@ model TaxRate {
   isActive      Boolean   @default(true) @map("is_active")
   effectiveFrom DateTime  @map("effective_from")
   effectiveTo   DateTime? @map("effective_to")
+  // Optional layered breakdown of `rate` into named components (e.g. Ghana's
+  // VAT 15% + NHIL 2.5% + GETFund 2.5% = 20%) - an array of {name, rate}
+  // objects whose rates must sum to `rate`. Null/omitted means a simple,
+  // single-line tax rate - fully backward compatible with existing rates.
+  components    Json?
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  invoices      Invoice[]
+  invoices Invoice[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -846,4 +1014,38 @@ model ApprovalStep {
   @@index([approverId])
   @@index([status])
   @@map("approval_steps")
+}
+
+// An employee's out-of-pocket expense claim, distinct from a VendorBill
+// (which represents money owed to an external vendor, not a reimbursement
+// owed to a staff member). Approval reuses the existing ApprovalWorkflow
+// engine (entityType 'ExpenseClaim') rather than a bespoke chain -
+// expenseAccountId is a bare id (not a Prisma relation) because Account
+// lives in the tenant's own per-tenant Postgres schema, not `public`, the
+// same cross-schema-boundary reason TaxRate/Invoice never relate directly
+// to Account either.
+model ExpenseClaim {
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  claimNumber        String    @map("claim_number")
+  submittedBy        String    @map("submitted_by")
+  submittedByName    String    @map("submitted_by_name")
+  category           String
+  description        String
+  amount             Decimal   @db.Decimal(15, 2)
+  currency           String    @default("USD")
+  expenseDate        DateTime  @map("expense_date")
+  expenseAccountId   String?   @map("expense_account_id")
+  status             String    @default("PENDING_APPROVAL")
+  approvalWorkflowId String?   @map("approval_workflow_id")
+  journalId          String?   @map("journal_id")
+  reimbursedAt       DateTime? @map("reimbursed_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  @@unique([tenantId, claimNumber])
+  @@index([tenantId])
+  @@index([status])
+  @@index([submittedBy])
+  @@map("expense_claims")
 }

@@ -6,7 +6,12 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
 import { useToast } from "../../contexts/ToastContext";
-import { ShoppingCart, Lock, Unlock, Receipt, AlertTriangle, CheckCircle2, XCircle, Search, Plus, Minus, Trash2 } from "lucide-react";
+import { useAuth } from "../../contexts/AuthContext";
+import { saveCatalogSnapshot, removePendingSale, type OfflinePendingSale } from "../../lib/offlineDb";
+import { useSaleSyncQueue } from "../../lib/saleSyncQueue";
+import { ShoppingCart, Lock, Unlock, Receipt, AlertTriangle, CheckCircle2, XCircle, Search, Plus, Minus, Trash2, Ban, ShieldAlert, WifiOff, RefreshCw } from "lucide-react";
+
+const VOID_AUTHORIZER_ROLES = ["Admin", "Shop Manager", "Accountant"];
 
 interface WarehouseOption {
   id: string;
@@ -48,6 +53,9 @@ interface CashSale {
   amount: number;
   cashGiven: number;
   changeGiven: number;
+  status: "COMPLETED" | "VOIDED";
+  voidedByName?: string | null;
+  voidReason?: string | null;
   createdAt: string;
   lines?: CashSaleLine[];
 }
@@ -72,6 +80,8 @@ interface LastReceipt {
 
 export function PointOfSale() {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const canSelfAuthorizeVoid = user ? VOID_AUTHORIZER_ROLES.includes(user.role) : false;
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [till, setTill] = useState<CashTill | null>(null);
@@ -96,6 +106,20 @@ export function PointOfSale() {
   const [closeNotes, setCloseNotes] = useState("");
   const [isClosing, setIsClosing] = useState(false);
   const [closeoutResult, setCloseoutResult] = useState<any | null>(null);
+
+  // Void Sale Modal
+  const [saleToVoid, setSaleToVoid] = useState<CashSale | null>(null);
+  const [voidReason, setVoidReason] = useState("");
+  const [managerEmail, setManagerEmail] = useState("");
+  const [managerPassword, setManagerPassword] = useState("");
+  const [isVoiding, setIsVoiding] = useState(false);
+  const [voidError, setVoidError] = useState<string | null>(null);
+
+  // Void Activity (manager/admin/accountant visibility into who voids sales
+  // and how often - the anomaly-detection surface, not a per-void alert)
+  const [voidStats, setVoidStats] = useState<
+    { userId: string; name: string; totalSales: number; voidedSales: number; voidRatio: number; anomaly: boolean }[]
+  >([]);
 
   const fetchWarehouses = useCallback(async () => {
     try {
@@ -143,6 +167,9 @@ export function PointOfSale() {
           })
           .filter((it: InventoryItemOption) => it.stockQty > 0);
         setItems(mapped);
+        // Opportunistic offline-catalog refresh - the only way a cashier can
+        // still search/add products to a cart once connectivity drops.
+        saveCatalogSnapshot(selectedWarehouseId, mapped).catch(() => {});
       }
     } catch (err) {
       console.error("Failed to load till/items:", err);
@@ -151,6 +178,20 @@ export function PointOfSale() {
     }
   }, [selectedWarehouseId]);
 
+  // Hybrid-offline sale queue for the current till - a sale rung up while
+  // offline gets queued locally and replayed automatically once connectivity
+  // returns (or on demand via "Sync Now"). Till open/close and voids stay
+  // online-only; only cart -> submit-sale is offline-capable.
+  const { pendingSales, needsAttention, pendingTotal, isSyncing, syncNow, queueSale, refreshPending } = useSaleSyncQueue(
+    till?.id ?? null,
+    fetchTillAndItems
+  );
+
+  const cancelPendingSale = async (clientTxnId: string) => {
+    await removePendingSale(clientTxnId);
+    await refreshPending();
+  };
+
   useEffect(() => {
     fetchTillAndItems();
     setLastReceipt(null);
@@ -158,6 +199,20 @@ export function PointOfSale() {
     setCart([]);
     setItemSearch("");
   }, [fetchTillAndItems]);
+
+  const fetchVoidStats = useCallback(async () => {
+    if (!canSelfAuthorizeVoid) return;
+    try {
+      const res = await api.get("/tills/void-stats");
+      if (res.data.success) setVoidStats(res.data.data);
+    } catch (err) {
+      console.error("Failed to load void statistics:", err);
+    }
+  }, [canSelfAuthorizeVoid]);
+
+  useEffect(() => {
+    fetchVoidStats();
+  }, [fetchVoidStats, till]);
 
   const handleOpenTill = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -233,11 +288,19 @@ export function PointOfSale() {
     }
 
     setIsRecordingSale(true);
+    // Generated even for an online sale (not just an offline bolt-on) - this
+    // makes POST /tills/sales retry-safe in general, e.g. a double-tap submit
+    // or a request that times out client-side but actually succeeded
+    // server-side, not only the offline-queue case below.
+    const clientTxnId = crypto.randomUUID();
+    const clientOccurredAt = new Date().toISOString();
     try {
       const res = await api.post("/tills/sales", {
         tillId: till.id,
         items: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })),
         cashGiven: Number(cashGiven),
+        clientTxnId,
+        clientOccurredAt,
       });
 
       if (res.data.success) {
@@ -253,7 +316,30 @@ export function PointOfSale() {
         fetchTillAndItems();
       }
     } catch (err: any) {
-      setSaleError(err.response?.data?.error || "Failed to record sale.");
+      if (!err.response) {
+        // No response at all - genuinely offline (or a transient network
+        // blip), as opposed to a real rejection from the server (insufficient
+        // stock, till not open, etc). Queue it locally instead of losing the
+        // sale - the cashier keeps working, the sync loop replays it once
+        // connectivity returns.
+        const queuedSale: OfflinePendingSale = {
+          clientTxnId,
+          tillId: till.id,
+          warehouseId: till.warehouseId,
+          lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, itemName: l.name, itemSku: l.sku, unitPrice: l.sellingPrice })),
+          cashGiven: Number(cashGiven),
+          clientOccurredAt,
+          queuedAt: Date.now(),
+          status: "pending",
+        };
+        await queueSale(queuedSale);
+        showToast(`Sale queued (offline) - will sync automatically once back online.`, "info");
+        setCart([]);
+        setItemSearch("");
+        setCashGiven("");
+      } else {
+        setSaleError(err.response?.data?.error || "Failed to record sale.");
+      }
     } finally {
       setIsRecordingSale(false);
     }
@@ -267,6 +353,10 @@ export function PointOfSale() {
 
   const handleCloseTill = async () => {
     if (!till) return;
+    if (pendingSales.length > 0) {
+      showToast(`${pendingSales.length} sale${pendingSales.length === 1 ? "" : "s"} still pending sync - reconnect and sync before closing the till.`, "error");
+      return;
+    }
     setIsClosing(true);
     try {
       const res = await api.post("/tills/close", {
@@ -283,6 +373,44 @@ export function PointOfSale() {
       showToast(err.response?.data?.error || "Failed to close till.", "error");
     } finally {
       setIsClosing(false);
+    }
+  };
+
+  const openVoidModal = (sale: CashSale) => {
+    setSaleToVoid(sale);
+    setVoidReason("");
+    setManagerEmail("");
+    setManagerPassword("");
+    setVoidError(null);
+  };
+
+  const handleVoidSale = async () => {
+    if (!saleToVoid) return;
+    if (!voidReason.trim()) {
+      setVoidError("Please enter a reason for voiding this sale.");
+      return;
+    }
+    if (!canSelfAuthorizeVoid && (!managerEmail.trim() || !managerPassword)) {
+      setVoidError("A manager must confirm this void with their email and password.");
+      return;
+    }
+
+    setIsVoiding(true);
+    setVoidError(null);
+    try {
+      const res = await api.post(`/tills/sales/${saleToVoid.id}/void`, {
+        reason: voidReason.trim(),
+        ...(canSelfAuthorizeVoid ? {} : { managerEmail: managerEmail.trim(), managerPassword }),
+      });
+      if (res.data.success) {
+        showToast(`Sale ${saleToVoid.receiptNo} voided.`, "success");
+        setSaleToVoid(null);
+        fetchTillAndItems();
+      }
+    } catch (err: any) {
+      setVoidError(err.response?.data?.error || "Failed to void sale.");
+    } finally {
+      setIsVoiding(false);
     }
   };
 
@@ -389,11 +517,16 @@ export function PointOfSale() {
               </div>
               <div>
                 <div className="text-xs text-emerald-300">Cash Sales So Far</div>
-                <div className="font-bold">{formatMoney(Number(till.cashSalesTotal))}</div>
+                <div className="font-bold">
+                  {formatMoney(Number(till.cashSalesTotal))}
+                  {pendingTotal > 0 && (
+                    <span className="ml-1.5 text-xs font-normal text-amber-300">(+ {formatMoney(pendingTotal)} pending sync)</span>
+                  )}
+                </div>
               </div>
               <div>
                 <div className="text-xs text-emerald-300">Expected Drawer Total</div>
-                <div className="font-bold">{formatMoney(expectedCash)}</div>
+                <div className="font-bold">{formatMoney(expectedCash + pendingTotal)}</div>
               </div>
             </div>
             <Button variant="outline" onClick={openCloseModal} className="border-white/30 text-white hover:bg-white/10 flex items-center">
@@ -401,6 +534,25 @@ export function PointOfSale() {
               Close Till
             </Button>
           </div>
+
+          {pendingSales.length > 0 && (
+            <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex items-center text-amber-800 dark:text-amber-300 text-sm">
+                <WifiOff className="h-4 w-4 mr-2 flex-shrink-0" />
+                <span>
+                  <strong>{pendingSales.length}</strong> sale{pendingSales.length === 1 ? "" : "s"} queued offline, not yet synced
+                  {needsAttention.length > 0 && (
+                    <span className="text-red-600 dark:text-red-400"> — {needsAttention.length} need{needsAttention.length === 1 ? "s" : ""} attention</span>
+                  )}
+                  . The till stays open until these sync.
+                </span>
+              </div>
+              <Button type="button" variant="outline" size="sm" onClick={() => syncNow()} disabled={isSyncing} className="flex items-center text-xs flex-shrink-0">
+                <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isSyncing ? "animate-spin" : ""}`} />
+                {isSyncing ? "Syncing..." : "Sync Now"}
+              </Button>
+            </div>
+          )}
 
           <div className="grid gap-6 lg:grid-cols-3">
             {/* Cart / Sale Form */}
@@ -545,22 +697,81 @@ export function PointOfSale() {
                 <CardTitle className="text-base">Today's Receipts ({till.sales?.length || 0})</CardTitle>
               </CardHeader>
               <CardContent>
+                {pendingSales.length > 0 && (
+                  <div className="space-y-2 mb-3 pb-3 border-b border-secondary-200 dark:border-secondary-800">
+                    {pendingSales.map((sale) => {
+                      const amount = sale.lines.reduce((sum, l) => sum + l.unitPrice * l.quantity, 0);
+                      const isFailed = sale.status === "failed";
+                      return (
+                        <div
+                          key={sale.clientTxnId}
+                          className={`p-2 rounded-md text-xs ${isFailed ? "bg-red-50 dark:bg-red-950/20" : "bg-amber-50 dark:bg-amber-950/20"}`}
+                        >
+                          <div className="flex items-center justify-between">
+                            <div className={`flex items-center font-medium ${isFailed ? "text-red-700 dark:text-red-400" : "text-amber-700 dark:text-amber-400"}`}>
+                              <WifiOff className="h-3 w-3 mr-1" />
+                              {isFailed ? "Needs Attention" : "Pending Sync"}
+                            </div>
+                            <div className="font-bold">{formatMoney(amount)}</div>
+                          </div>
+                          <div className="text-secondary-400 flex items-center justify-between mt-0.5">
+                            <span className="truncate max-w-[60%]" title={sale.lines.map((l) => `${l.quantity}× ${l.itemName}`).join(", ")}>
+                              {sale.lines.map((l) => `${l.quantity}× ${l.itemName}`).join(", ")}
+                            </span>
+                            <span>{new Date(sale.clientOccurredAt).toLocaleTimeString()}</span>
+                          </div>
+                          {isFailed && sale.failureReason && (
+                            <div className="mt-1 text-red-600 dark:text-red-400">{sale.failureReason}</div>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => cancelPendingSale(sale.clientTxnId)}
+                            className="mt-1 flex items-center text-secondary-400 hover:text-red-500 font-medium"
+                          >
+                            <Ban className="h-3 w-3 mr-1" />
+                            Cancel (never synced)
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
                 {(till.sales?.length || 0) === 0 ? (
                   <p className="text-sm text-secondary-500 text-center py-6">No sales recorded yet this session.</p>
                 ) : (
                   <div className="space-y-2 max-h-96 overflow-y-auto">
                     {[...till.sales].reverse().map((sale) => (
-                      <div key={sale.id} className="p-2 rounded-md bg-secondary-50 dark:bg-secondary-900 text-xs">
+                      <div
+                        key={sale.id}
+                        className={`p-2 rounded-md text-xs ${sale.status === "VOIDED" ? "bg-red-50 dark:bg-red-950/20 opacity-70" : "bg-secondary-50 dark:bg-secondary-900"}`}
+                      >
                         <div className="flex items-center justify-between">
                           <div className="font-mono text-secondary-500">{sale.receiptNo}</div>
-                          <div className="font-bold">{formatMoney(Number(sale.amount))}</div>
+                          <div className={`font-bold ${sale.status === "VOIDED" ? "line-through text-red-500" : ""}`}>
+                            {formatMoney(Number(sale.amount))}
+                          </div>
                         </div>
                         <div className="text-secondary-400 flex items-center justify-between mt-0.5">
-                          <span className="truncate max-w-[70%]" title={sale.lines?.map((l) => `${l.quantity}× ${l.itemName}`).join(", ")}>
+                          <span className="truncate max-w-[60%]" title={sale.lines?.map((l) => `${l.quantity}× ${l.itemName}`).join(", ")}>
                             {sale.lines?.map((l) => `${l.quantity}× ${l.itemName}`).join(", ") || "—"}
                           </span>
                           <span>{new Date(sale.createdAt).toLocaleTimeString()}</span>
                         </div>
+                        {sale.status === "VOIDED" ? (
+                          <div className="mt-1 flex items-center text-red-600 dark:text-red-400 font-medium">
+                            <Ban className="h-3 w-3 mr-1" />
+                            Voided by {sale.voidedByName}{sale.voidReason ? ` — ${sale.voidReason}` : ""}
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => openVoidModal(sale)}
+                            className="mt-1 flex items-center text-secondary-400 hover:text-red-500 font-medium"
+                          >
+                            <Ban className="h-3 w-3 mr-1" />
+                            Void this sale
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -568,6 +779,51 @@ export function PointOfSale() {
               </CardContent>
             </Card>
           </div>
+
+          {canSelfAuthorizeVoid && voidStats.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base flex items-center">
+                  <ShieldAlert className="mr-2 h-4 w-4 text-amber-600" />
+                  Void Activity by Cashier
+                </CardTitle>
+                <CardDescription>
+                  Cash sales voided per staff member across this shop. A high void ratio is worth a conversation, not automatically fraud - use judgment.
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-xs text-secondary-500 border-b border-secondary-200 dark:border-secondary-800">
+                        <th className="pb-2 pr-4">Staff Member</th>
+                        <th className="pb-2 pr-4 text-right">Total Sales</th>
+                        <th className="pb-2 pr-4 text-right">Voided</th>
+                        <th className="pb-2 text-right">Void Ratio</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {voidStats.map((row) => (
+                        <tr key={row.userId} className="border-b border-secondary-100 dark:border-secondary-800 last:border-0">
+                          <td className="py-2 pr-4">
+                            <div className="flex items-center">
+                              {row.anomaly && <AlertTriangle className="h-3.5 w-3.5 text-red-500 mr-1.5" />}
+                              <span className={row.anomaly ? "font-bold text-red-600 dark:text-red-400" : ""}>{row.name}</span>
+                            </div>
+                          </td>
+                          <td className="py-2 pr-4 text-right">{row.totalSales}</td>
+                          <td className="py-2 pr-4 text-right">{row.voidedSales}</td>
+                          <td className={`py-2 text-right font-semibold ${row.anomaly ? "text-red-600 dark:text-red-400" : ""}`}>
+                            {(row.voidRatio * 100).toFixed(1)}%
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </>
       )}
 
@@ -579,6 +835,12 @@ export function PointOfSale() {
             <div className="flex justify-between"><span className="text-secondary-500">Cash Sales</span><span>{formatMoney(till ? Number(till.cashSalesTotal) : 0)}</span></div>
             <div className="flex justify-between font-bold border-t border-secondary-200 dark:border-secondary-800 mt-1 pt-1"><span>Expected in Drawer</span><span>{formatMoney(expectedCash)}</span></div>
           </div>
+          {pendingSales.length > 0 && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-xs text-amber-800 dark:text-amber-300 flex items-center">
+              <WifiOff className="h-4 w-4 mr-2 flex-shrink-0" />
+              {pendingSales.length} sale{pendingSales.length === 1 ? "" : "s"} still pending sync - reconnect and sync before closing the till.
+            </div>
+          )}
           <div>
             <label className="block text-sm font-medium mb-1">Actual Cash Counted</label>
             <Input type="number" required min={0} step="0.01" value={actualEndingCash} onChange={(e) => setActualEndingCash(e.target.value)} />
@@ -589,8 +851,55 @@ export function PointOfSale() {
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsCloseModalOpen(false)}>Cancel</Button>
-            <Button type="button" variant="primary" onClick={handleCloseTill} disabled={isClosing || !actualEndingCash}>
+            <Button type="button" variant="primary" onClick={handleCloseTill} disabled={isClosing || !actualEndingCash || pendingSales.length > 0}>
               {isClosing ? "Closing..." : "Close Till & Generate Report"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Void Sale Modal */}
+      <Modal isOpen={!!saleToVoid} onClose={() => setSaleToVoid(null)} title="Void Sale">
+        <div className="space-y-4">
+          {saleToVoid && (
+            <div className="p-3 bg-secondary-50 dark:bg-secondary-900 rounded-md text-sm">
+              <div className="flex justify-between"><span className="text-secondary-500">Receipt</span><span className="font-mono">{saleToVoid.receiptNo}</span></div>
+              <div className="flex justify-between font-bold"><span>Amount</span><span>{formatMoney(Number(saleToVoid.amount))}</span></div>
+            </div>
+          )}
+
+          {voidError && (
+            <div className="p-3 text-sm bg-red-50 dark:bg-red-900/30 text-red-600 dark:text-red-400 rounded-md border border-red-200 dark:border-red-800">
+              {voidError}
+            </div>
+          )}
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Reason for voiding</label>
+            <Input value={voidReason} onChange={(e) => setVoidReason(e.target.value)} placeholder="e.g. Wrong item scanned, customer changed their mind" />
+          </div>
+
+          {!canSelfAuthorizeVoid && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md space-y-3">
+              <div className="flex items-center text-amber-800 dark:text-amber-300 text-xs font-bold">
+                <ShieldAlert className="h-4 w-4 mr-1.5" />
+                A manager must confirm this void
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Manager Email</label>
+                <Input type="email" value={managerEmail} onChange={(e) => setManagerEmail(e.target.value)} placeholder="manager@business.com" />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Manager Password</label>
+                <Input type="password" value={managerPassword} onChange={(e) => setManagerPassword(e.target.value)} placeholder="Manager's own password" />
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setSaleToVoid(null)}>Cancel</Button>
+            <Button type="button" variant="danger" onClick={handleVoidSale} disabled={isVoiding || !voidReason.trim()}>
+              {isVoiding ? "Voiding..." : "Void Sale"}
             </Button>
           </div>
         </div>

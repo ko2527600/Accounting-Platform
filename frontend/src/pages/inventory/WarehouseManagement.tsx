@@ -860,7 +860,7 @@ export function WarehouseManagement() {
       </Modal>
 
       {/* Add Inventory Item Modal */}
-      <Modal isOpen={isItemModalOpen} onClose={() => setIsItemModalOpen(false)} title="Add Product / Inventory Item">
+      <Modal isOpen={isItemModalOpen} onClose={() => setIsItemModalOpen(false)} title="Add Product / Inventory Item" className="max-w-2xl">
         <form onSubmit={handleAddItem} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Product Name</label>
@@ -917,7 +917,7 @@ export function WarehouseManagement() {
       </Modal>
 
       {/* Bulk Add Products Modal */}
-      <Modal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} title="Bulk Add Products">
+      <Modal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} title="Bulk Add Products" className="max-w-5xl">
         <div className="space-y-4">
           <div className="flex space-x-4 border-b border-secondary-200 dark:border-secondary-800">
             <button
@@ -985,7 +985,7 @@ export function WarehouseManagement() {
                     <td className="p-1"><Input type="number" className="h-8 text-xs w-20" value={row.sellingPrice} onChange={(e) => updateBulkRow(i, "sellingPrice", e.target.value)} /></td>
                     <td className="p-1">
                       <select
-                        className="h-8 text-xs w-32 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                        className="h-8 text-xs w-40 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
                         value={row.warehouseName}
                         onChange={(e) => updateBulkRow(i, "warehouseName", e.target.value)}
                       >
@@ -1117,7 +1117,7 @@ export function WarehouseManagement() {
       </Modal>
 
       {/* Adjustment History Modal */}
-      <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Stock Adjustment History">
+      <Modal isOpen={isHistoryModalOpen} onClose={() => setIsHistoryModalOpen(false)} title="Stock Adjustment History" className="max-w-3xl">
         <div className="max-h-[60vh] overflow-y-auto">
           {isHistoryLoading ? (
             <div className="py-8 text-center text-secondary-500 text-sm">Loading history...</div>
@@ -1161,7 +1161,7 @@ export function WarehouseManagement() {
       </Modal>
 
       {/* Stock Take Modal */}
-      <Modal isOpen={isStockTakeModalOpen} onClose={() => setIsStockTakeModalOpen(false)} title={`Stock Take: ${stockTakeWarehouseName}`}>
+      <Modal isOpen={isStockTakeModalOpen} onClose={() => setIsStockTakeModalOpen(false)} title={`Stock Take: ${stockTakeWarehouseName}`} className="max-w-3xl">
         <div className="space-y-4">
           {stockTakeResult ? (
             <div className="space-y-4">

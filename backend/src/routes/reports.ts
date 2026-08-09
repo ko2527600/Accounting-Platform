@@ -6,8 +6,10 @@ import * as reportingService from '../services/reportingService';
 import { ReportingServiceError } from '../services/reportingService';
 import { requireTenantContext } from '../context/tenantContext';
 import { prisma } from '../config/db';
-import { generateBalanceSheetPdf, generateProfitAndLossPdf } from '../services/pdfGenerationService';
-import { generateBalanceSheetDocx, generateProfitAndLossDocx } from '../services/reportDocxService';
+import { generateBalanceSheetPdf, generateProfitAndLossPdf, generateCashFlowPdf } from '../services/pdfGenerationService';
+import { generateBalanceSheetDocx, generateProfitAndLossDocx, generateCashFlowDocx } from '../services/reportDocxService';
+import * as cashFlowForecastService from '../services/cashFlowForecastService';
+import { CashFlowForecastServiceError } from '../services/cashFlowForecastService';
 
 const router = Router();
 
@@ -214,6 +216,152 @@ router.get('/profit-loss/export', requireRole('Viewer'), async (req: Request, re
     }
     console.error('[Reports] Profit & Loss export error:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to generate Profit & Loss export.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow
+ * Description: Indirect-method Cash Flow Statement (Operating/Financing activities,
+ * Net Change in Cash) over a date range. Omit startDate/endDate for since-inception.
+ * Access: Viewer role or higher
+ */
+router.get('/cash-flow', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getCashFlowStatement(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+    res.status(200).json({
+      success: true,
+      data: report,
+    });
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating Cash Flow Statement.',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow/export?format=pdf|docx
+ * Downloads the Cash Flow Statement as a real generated PDF or Word document.
+ * Access: Viewer role or higher (matches GET /cash-flow).
+ */
+router.get('/cash-flow/export', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const format = req.query.format as string;
+    if (format !== 'pdf' && format !== 'docx') {
+      res.status(400).json({ success: false, error: 'Query param "format" must be "pdf" or "docx".' });
+      return;
+    }
+
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getCashFlowStatement(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+
+    const { tenantId, tenantName } = requireTenantContext();
+    const { name, currency } = await resolveTenantDisplayInfo(tenantId, tenantName);
+    const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const periodLabel = report.startDate
+      ? `${fmtDate(report.startDate)} to ${report.endDate ? fmtDate(report.endDate) : 'present'}`
+      : `Since inception to ${report.endDate ? fmtDate(report.endDate) : 'present'}`;
+
+    const filenameBase = `Cash_Flow_Statement_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'pdf') {
+      const buffer = await generateCashFlowPdf(name, currency, periodLabel, report);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
+      res.status(200).send(buffer);
+    } else {
+      const buffer = await generateCashFlowDocx(name, currency, periodLabel, report);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.docx`);
+      res.status(200).send(buffer);
+    }
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Cash Flow Statement export error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate Cash Flow Statement export.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/kpis
+ * Description: A lightweight financial ratio dashboard (Net Profit Margin, Return on
+ * Assets, Debt-to-Equity, Cash Ratio, Equity Ratio) computed from Balance Sheet + P&L
+ * totals. Omit startDate/endDate for since-inception. No Gross Margin/Current Ratio -
+ * this schema has no COGS or current-vs-non-current classification to compute those honestly.
+ * Access: Viewer role or higher
+ */
+router.get('/kpis', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getKpiDashboard(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+    res.status(200).json({
+      success: true,
+      data: report,
+    });
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating KPI dashboard.',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow-forecast?days=180
+ * A recurring-transaction-aware, event-grounded forward cash projection -
+ * NOT a trend-based extrapolation. Every dollar traces back to a real
+ * scheduled RecurringTransaction occurrence or a real outstanding
+ * Invoice/VendorBill due date, weekly-bucketed. No PDF/Word export (same
+ * scope call as /kpis - a forward projection is read in-app, not typically
+ * submitted as a formal document).
+ * Access: Viewer role or higher.
+ */
+router.get('/cash-flow-forecast', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const days = req.query.days ? Number(req.query.days) : 180;
+    const forecast = await cashFlowForecastService.getCashFlowForecast(days);
+    res.status(200).json({
+      success: true,
+      data: forecast,
+    });
+  } catch (error: any) {
+    if (error instanceof CashFlowForecastServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Cash Flow Forecast error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating Cash Flow Forecast.',
+    });
   }
 });
 

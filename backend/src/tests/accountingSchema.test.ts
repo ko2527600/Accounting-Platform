@@ -80,6 +80,7 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
           parent_id: null,
           currency: 'USD',
           is_active: true,
+          is_cash_equivalent: true,
           created_at: new Date(),
           updated_at: new Date(),
         },
@@ -100,6 +101,9 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         'ASSET',
         null,
         'USD',
+        true,
+        // isCashEquivalent - auto-defaulted true because the name matches
+        // the cash/bank/till heuristic (see defaultIsCashEquivalent()).
         true
       );
     });

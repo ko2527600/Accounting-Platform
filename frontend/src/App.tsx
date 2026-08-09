@@ -22,6 +22,7 @@ import { TaxRates } from "./pages/settings/TaxRates";
 import { FiscalPeriods } from "./pages/settings/FiscalPeriods";
 import { RecurringTransactions } from "./pages/settings/RecurringTransactions";
 import { Approvals } from "./pages/approvals/Approvals";
+import { ExpenseClaims } from "./pages/expenses/ExpenseClaims";
 import { Budgets } from "./pages/reports/Budgets";
 import { TeamManagement } from "./pages/team/TeamManagement";
 import { AuditLogs } from "./pages/audit/AuditLogs";
@@ -39,6 +40,9 @@ import { ContraVoucher } from "./pages/journals/ContraVoucher";
 import { GeneralLedger } from "./pages/reports/GeneralLedger";
 import { ProfitAndLoss } from "./pages/reports/ProfitAndLoss";
 import { BalanceSheet } from "./pages/reports/BalanceSheet";
+import { CashFlowStatement } from "./pages/reports/CashFlowStatement";
+import { CashFlowForecast } from "./pages/reports/CashFlowForecast";
+import { KpiDashboard } from "./pages/reports/KpiDashboard";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 import { useTenantSettings } from "./hooks/useTenantSettings";
@@ -167,6 +171,7 @@ function App() {
             <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
+            <Route path="/expenses" element={<ProtectedRoute><MainLayout><ExpenseClaims /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
             <Route path="/audit-logs" element={<ProtectedRoute><MainLayout><AuditLogs /></MainLayout></ProtectedRoute>} />
@@ -184,6 +189,9 @@ function App() {
             <Route path="/reports/ledger" element={<ProtectedRoute><MainLayout><GeneralLedger /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/cash-flow" element={<ProtectedRoute><MainLayout><CashFlowStatement /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/cash-flow-forecast" element={<ProtectedRoute><MainLayout><CashFlowForecast /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/kpis" element={<ProtectedRoute><MainLayout><KpiDashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

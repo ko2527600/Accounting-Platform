@@ -10,6 +10,7 @@ export interface AccountRecord {
   parentId: string | null;
   currency: string;
   isActive: boolean;
+  isCashEquivalent: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -21,6 +22,7 @@ export interface CreateAccountData {
   parentId?: string | null;
   currency?: string;
   isActive?: boolean;
+  isCashEquivalent?: boolean;
 }
 
 function mapAccountRow(row: any): AccountRecord {
@@ -32,9 +34,21 @@ function mapAccountRow(row: any): AccountRecord {
     parentId: row.parent_id || null,
     currency: row.currency || 'USD',
     isActive: Boolean(row.is_active),
+    isCashEquivalent: Boolean(row.is_cash_equivalent),
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
+}
+
+/**
+ * Default for isCashEquivalent when not explicitly supplied: ASSET accounts
+ * whose name reads like a cash/bank/till account. Mirrors the same naming
+ * convention the '004_add_cash_equivalent_flag' tenant migration backfills
+ * existing accounts with, so newly-created accounts behave consistently
+ * with older ones for Cash Flow Statement purposes.
+ */
+export function defaultIsCashEquivalent(type: AccountType, name: string): boolean {
+  return type === 'ASSET' && /cash|bank|till/i.test(name);
 }
 
 export async function getChildAccountsCount(prisma: PrismaClient, parentId: string): Promise<number> {
@@ -55,16 +69,21 @@ export async function createAccount(
   prisma: PrismaClient,
   data: CreateAccountData
 ): Promise<AccountRecord> {
+  const name = data.name.trim();
+  const isCashEquivalent =
+    data.isCashEquivalent !== undefined ? data.isCashEquivalent : defaultIsCashEquivalent(data.type, name);
+
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `INSERT INTO accounts (code, name, type, parent_id, currency, is_active)
-     VALUES ($1, $2, $3, $4::uuid, $5, $6)
-     RETURNING id, code, name, type, parent_id, currency, is_active, created_at, updated_at`,
+    `INSERT INTO accounts (code, name, type, parent_id, currency, is_active, is_cash_equivalent)
+     VALUES ($1, $2, $3, $4::uuid, $5, $6, $7)
+     RETURNING id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at`,
     data.code.trim(),
-    data.name.trim(),
+    name,
     data.type,
     data.parentId || null,
     data.currency || 'USD',
-    data.isActive !== undefined ? data.isActive : true
+    data.isActive !== undefined ? data.isActive : true,
+    isCashEquivalent
   );
 
   return mapAccountRow(rows[0]);
@@ -77,7 +96,7 @@ export async function getAccountById(
   if (!isValidUuid(id)) return null;
 
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, code, name, type, parent_id, currency, is_active, created_at, updated_at
+    `SELECT id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at
      FROM accounts
      WHERE id = $1::uuid`,
     id
@@ -92,7 +111,7 @@ export async function getAccountByCode(
   code: string
 ): Promise<AccountRecord | null> {
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, code, name, type, parent_id, currency, is_active, created_at, updated_at
+    `SELECT id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at
      FROM accounts
      WHERE code = $1`,
     code.trim()
@@ -104,7 +123,7 @@ export async function getAccountByCode(
 
 export async function listAccounts(prisma: PrismaClient): Promise<AccountRecord[]> {
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, code, name, type, parent_id, currency, is_active, created_at, updated_at
+    `SELECT id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at
      FROM accounts
      ORDER BY code ASC`
   );
@@ -128,18 +147,20 @@ export async function updateAccount(
   const parentId = data.parentId !== undefined ? data.parentId : existing.parentId;
   const currency = data.currency !== undefined ? data.currency : existing.currency;
   const isActive = data.isActive !== undefined ? data.isActive : existing.isActive;
+  const isCashEquivalent = data.isCashEquivalent !== undefined ? data.isCashEquivalent : existing.isCashEquivalent;
 
   const rows: any[] = await prisma.$queryRawUnsafe(
     `UPDATE accounts
-     SET code = $1, name = $2, type = $3, parent_id = $4::uuid, currency = $5, is_active = $6, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $7::uuid
-     RETURNING id, code, name, type, parent_id, currency, is_active, created_at, updated_at`,
+     SET code = $1, name = $2, type = $3, parent_id = $4::uuid, currency = $5, is_active = $6, is_cash_equivalent = $7, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $8::uuid
+     RETURNING id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at`,
     code,
     name,
     type,
     parentId,
     currency,
     isActive,
+    isCashEquivalent,
     id
   );
 

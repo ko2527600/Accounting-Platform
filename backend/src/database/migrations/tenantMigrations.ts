@@ -178,6 +178,28 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_account ON journal_entry_lines(account_id);
       CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_id);
     `
+  },
+  {
+    version: 4,
+    name: '004_add_cash_equivalent_flag',
+    sql: `
+      -- Marks which ASSET accounts represent cash/bank/till balances, so the
+      -- Cash Flow Statement can separate "cash itself" from every other
+      -- account whose change in balance is a source or use of that cash.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_cash_equivalent BOOLEAN NOT NULL DEFAULT false;
+
+      -- Backfill existing accounts using the same Cash/Bank/Till naming
+      -- convention already implicit across this codebase (e.g. the '1010'
+      -- code used by invoices.ts/bills.ts default payment postings), so
+      -- tenants get a working report immediately without manual setup.
+      UPDATE accounts
+      SET is_cash_equivalent = true
+      WHERE type = 'ASSET'
+        AND is_cash_equivalent = false
+        AND (name ILIKE '%cash%' OR name ILIKE '%bank%' OR name ILIKE '%till%');
+
+      CREATE INDEX IF NOT EXISTS idx_accounts_is_cash_equivalent ON accounts(is_cash_equivalent);
+    `
   }
 ];
 
