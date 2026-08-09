@@ -202,7 +202,7 @@ export async function updateAccount(
     entity: 'Account',
     entityId: updated.id,
     actor,
-    changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId']),
+    changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId', 'isCashEquivalent']),
   });
 
   return updated;

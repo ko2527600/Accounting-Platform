@@ -1,10 +1,10 @@
 # Privacy Policy: Multi-Tenant Accounting Platform
 
-> **Placeholder notice:** This document uses a placeholder legal entity name ("Ledgio") and placeholder contact email (`privacy@ledgiobusinessaccountingsoftware.com`). Before this policy is published in production, replace both with the real registered business name, registered address, and a real monitored contact email.
+> **Placeholder notice:** This document still uses a placeholder contact email (`privacy@ledgiobusinessaccountingsoftware.com`) and a placeholder registered address. Before this policy is published in production, replace the email with a real monitored contact address once the domain is registered, and add the company's real registered office address.
 
 ## 1. Who We Are
 
-Ledgio ("we," "us," "our") operates a web-based, multi-tenant accounting and business management platform (the "Service") for businesses ("you," "the Business," "the Tenant"). This Privacy Policy explains what personal and business data we collect, how we use it, and the rights you have over it. It should be read alongside our [Terms and Conditions](./TERMS_AND_CONDITIONS.md).
+Ledgio is a web-based, multi-tenant accounting and business management platform (the "Service"), built and operated by **AlphaGroupOfDevelopers Company Limited** ("we," "us," "our") for businesses ("you," "the Business," "the Tenant"). This Privacy Policy explains what personal and business data we collect, how we use it, and the rights you have over it. It should be read alongside our [Terms and Conditions](./TERMS_AND_CONDITIONS.md).
 
 ## 2. Data We Collect
 

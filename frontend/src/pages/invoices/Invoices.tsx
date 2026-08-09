@@ -6,7 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, RefreshCw } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -29,6 +29,12 @@ interface InvoiceItem {
   amount: number;
 }
 
+interface TaxBreakdownLine {
+  name: string;
+  rate: number;
+  amount: number;
+}
+
 interface Invoice {
   id: string;
   invoiceNumber: string;
@@ -38,8 +44,28 @@ interface Invoice {
   currency: string;
   subtotal: number;
   tax: number;
+  taxBreakdown: TaxBreakdownLine[] | null;
   total: number;
   status: string;
+}
+
+interface CreditNote {
+  id: string;
+  creditNoteNumber: string;
+  amount: number;
+  reason: string;
+  method: "INVOICE_REDUCTION" | "JOURNAL_REVERSAL";
+  issueDate: string;
+}
+
+interface MomoRequest {
+  id: string;
+  referenceId: string;
+  phoneNumber: string;
+  amount: number;
+  status: "PENDING" | "SUCCESSFUL" | "FAILED";
+  failureReason: string | null;
+  createdAt: string;
 }
 
 export function Invoices() {
@@ -65,6 +91,20 @@ export function Invoices() {
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Credit Note modal
+  const [creditNoteInvoice, setCreditNoteInvoice] = useState<Invoice | null>(null);
+  const [creditNotesHistory, setCreditNotesHistory] = useState<CreditNote[]>([]);
+  const [creditAmount, setCreditAmount] = useState("");
+  const [creditReason, setCreditReason] = useState("");
+  const [isIssuingCredit, setIsIssuingCredit] = useState(false);
+
+  // Mobile Money (MTN MoMo) collection modal
+  const [momoInvoice, setMomoInvoice] = useState<Invoice | null>(null);
+  const [momoRequests, setMomoRequests] = useState<MomoRequest[]>([]);
+  const [momoPhone, setMomoPhone] = useState("");
+  const [isSendingMomo, setIsSendingMomo] = useState(false);
+  const [checkingReferenceId, setCheckingReferenceId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -138,6 +178,93 @@ export function Invoices() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
+    }
+  };
+
+  const openCreditNoteModal = async (invoice: Invoice) => {
+    setCreditNoteInvoice(invoice);
+    setCreditAmount("");
+    setCreditReason("");
+    setCreditNotesHistory([]);
+    try {
+      const res = await api.get(`/invoices/${invoice.id}/credit-notes`);
+      if (res.data.success) setCreditNotesHistory(res.data.data.creditNotes);
+    } catch (err) {
+      console.error("Failed to load credit note history:", err);
+    }
+  };
+
+  const handleIssueCreditNote = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!creditNoteInvoice) return;
+    setIsIssuingCredit(true);
+    try {
+      const res = await api.post(`/invoices/${creditNoteInvoice.id}/credit-notes`, {
+        amount: Number(creditAmount),
+        reason: creditReason,
+      });
+      if (res.data.success) {
+        showToast(`Credit note ${res.data.data.creditNote.creditNoteNumber} issued.`, "success");
+        setCreditNoteInvoice(null);
+        fetchData();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to issue credit note.", "error");
+    } finally {
+      setIsIssuingCredit(false);
+    }
+  };
+
+  const openMomoModal = async (invoice: Invoice) => {
+    setMomoInvoice(invoice);
+    setMomoPhone("");
+    setMomoRequests([]);
+    try {
+      const res = await api.get(`/momo/invoices/${invoice.id}/requests`);
+      if (res.data.success) setMomoRequests(res.data.data.requests);
+    } catch (err) {
+      console.error("Failed to load Mobile Money request history:", err);
+    }
+  };
+
+  const handleSendMomoRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!momoInvoice) return;
+    setIsSendingMomo(true);
+    try {
+      const res = await api.post(`/momo/invoices/${momoInvoice.id}/request`, { phoneNumber: momoPhone });
+      if (res.data.success) {
+        showToast("MTN MoMo payment request sent. The customer must approve it on their phone.", "success");
+        setMomoRequests((prev) => [res.data.data.request, ...prev]);
+        setMomoPhone("");
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to send Mobile Money payment request.", "error");
+    } finally {
+      setIsSendingMomo(false);
+    }
+  };
+
+  const handleCheckMomoStatus = async (referenceId: string) => {
+    setCheckingReferenceId(referenceId);
+    try {
+      const res = await api.post(`/momo/requests/${referenceId}/check-status`);
+      if (res.data.success) {
+        setMomoRequests((prev) => prev.map((r) => (r.referenceId === referenceId ? res.data.data.request : r)));
+        if (res.data.data.request.status === "SUCCESSFUL") {
+          showToast("Payment confirmed - invoice marked PAID.", "success");
+          setMomoInvoice(null);
+          fetchData();
+        } else if (res.data.data.request.status === "FAILED") {
+          showToast("Payment was not successful. See the reason below.", "error");
+        } else {
+          showToast("Still pending - the customer hasn't approved the prompt yet.", "info");
+        }
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to check Mobile Money payment status.", "error");
+    } finally {
+      setCheckingReferenceId(null);
     }
   };
 
@@ -225,6 +352,7 @@ export function Invoices() {
                   <TableHead>Invoice #</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead>Issue Date</TableHead>
+                  <TableHead>Tax</TableHead>
                   <TableHead>Total Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Action</TableHead>
@@ -243,6 +371,14 @@ export function Invoices() {
                     <TableCell className="text-xs text-secondary-500">
                       {new Date(inv.issueDate).toLocaleDateString()}
                     </TableCell>
+                    <TableCell>
+                      <div className="text-secondary-900 dark:text-secondary-50">{formatCurrency(Number(inv.tax), inv.currency)}</div>
+                      {inv.taxBreakdown && inv.taxBreakdown.length > 0 && (
+                        <div className="text-xs text-secondary-500 mt-0.5">
+                          {inv.taxBreakdown.map((c) => `${c.name} ${(c.rate * 100).toFixed(1)}%`).join(" + ")}
+                        </div>
+                      )}
+                    </TableCell>
                     <TableCell className="font-bold text-secondary-900 dark:text-secondary-50">
                       {formatCurrency(Number(inv.total), inv.currency)}
                     </TableCell>
@@ -257,10 +393,22 @@ export function Invoices() {
                         </span>
                       )}
                     </TableCell>
-                    <TableCell className="text-right">
+                    <TableCell className="text-right space-x-2">
                       {inv.status !== "PAID" && (
                         <Button variant="outline" size="sm" onClick={() => handlePayInvoice(inv.id)} className="text-xs">
                           Record Payment
+                        </Button>
+                      )}
+                      {inv.status !== "PAID" && inv.status !== "DRAFT" && (
+                        <Button variant="outline" size="sm" onClick={() => openMomoModal(inv)} className="text-xs">
+                          <Smartphone className="mr-1 h-3 w-3" />
+                          Collect via MoMo
+                        </Button>
+                      )}
+                      {inv.status !== "DRAFT" && (
+                        <Button variant="outline" size="sm" onClick={() => openCreditNoteModal(inv)} className="text-xs">
+                          <Undo2 className="mr-1 h-3 w-3" />
+                          Credit Note
                         </Button>
                       )}
                     </TableCell>
@@ -291,7 +439,7 @@ export function Invoices() {
       </Modal>
 
       {/* Create Invoice Modal */}
-      <Modal isOpen={isInvoiceOpen} onClose={() => setIsInvoiceOpen(false)} title="Create New Invoice">
+      <Modal isOpen={isInvoiceOpen} onClose={() => setIsInvoiceOpen(false)} title="Create New Invoice" className="max-w-2xl">
         <form onSubmit={handleCreateInvoice} className="space-y-4">
           <div>
             <label className="block text-sm font-medium mb-1">Select Customer</label>
@@ -386,6 +534,147 @@ export function Invoices() {
             <Button type="button" variant="outline" onClick={() => setIsInvoiceOpen(false)}>Cancel</Button>
             <Button type="submit" variant="primary" disabled={isSubmitting}>
               {isSubmitting ? "Generating..." : "Issue Invoice"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Credit Note Modal */}
+      <Modal
+        isOpen={!!creditNoteInvoice}
+        onClose={() => setCreditNoteInvoice(null)}
+        title={`Issue Credit Note - ${creditNoteInvoice?.invoiceNumber ?? ""}`}
+        description={
+          creditNoteInvoice?.status === "PAID"
+            ? "This invoice is already paid, so the credit will post a real refund entry (Cash out, Revenue reversed)."
+            : "This invoice is unpaid, so the credit simply reduces the amount that will be charged on payment."
+        }
+      >
+        <form onSubmit={handleIssueCreditNote} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Amount ({creditNoteInvoice?.currency ?? "USD"})
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              placeholder="0.00"
+              value={creditAmount}
+              onChange={(e) => setCreditAmount(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Reason</label>
+            <Input
+              required
+              placeholder="e.g. Customer returned one unit"
+              value={creditReason}
+              onChange={(e) => setCreditReason(e.target.value)}
+            />
+          </div>
+
+          {creditNotesHistory.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Previously Issued</label>
+              <div className="space-y-1 max-h-32 overflow-y-auto text-xs">
+                {creditNotesHistory.map((cn) => (
+                  <div key={cn.id} className="flex justify-between border-b border-secondary-100 dark:border-secondary-800 py-1">
+                    <span className="text-secondary-600 dark:text-secondary-400">
+                      {cn.creditNoteNumber} - {cn.reason}
+                    </span>
+                    <span className="font-medium text-secondary-900 dark:text-secondary-50">
+                      {formatCurrency(Number(cn.amount), creditNoteInvoice?.currency)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setCreditNoteInvoice(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isIssuingCredit}>
+              {isIssuingCredit ? "Issuing..." : "Issue Credit Note"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Collect via MoMo Modal */}
+      <Modal
+        isOpen={!!momoInvoice}
+        onClose={() => setMomoInvoice(null)}
+        title={`Collect via MTN MoMo - ${momoInvoice?.invoiceNumber ?? ""}`}
+        description="Sends a real USSD payment prompt to the customer's phone. Once they approve, click Check Status to confirm and mark the invoice PAID."
+      >
+        <form onSubmit={handleSendMomoRequest} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Customer Phone Number ({momoInvoice ? formatCurrency(Number(momoInvoice.total), momoInvoice.currency) : ""})
+            </label>
+            <Input
+              required
+              placeholder="0244000000"
+              value={momoPhone}
+              onChange={(e) => setMomoPhone(e.target.value)}
+            />
+          </div>
+
+          {momoRequests.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Payment Requests</label>
+              <div className="space-y-2 max-h-48 overflow-y-auto text-xs">
+                {momoRequests.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between border-b border-secondary-100 dark:border-secondary-800 py-1.5">
+                    <div>
+                      <div className="text-secondary-900 dark:text-secondary-50">{r.phoneNumber}</div>
+                      <div className="text-secondary-500">{new Date(r.createdAt).toLocaleString()}</div>
+                      {r.status === "FAILED" && r.failureReason && (
+                        <div className="text-red-500 mt-0.5">{r.failureReason}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === "PENDING" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                          Pending
+                        </span>
+                      )}
+                      {r.status === "SUCCESSFUL" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          Successful
+                        </span>
+                      )}
+                      {r.status === "FAILED" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                          Failed
+                        </span>
+                      )}
+                      {r.status === "PENDING" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          disabled={checkingReferenceId === r.referenceId}
+                          onClick={() => handleCheckMomoStatus(r.referenceId)}
+                        >
+                          <RefreshCw className="mr-1 h-3 w-3" />
+                          {checkingReferenceId === r.referenceId ? "Checking..." : "Check Status"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setMomoInvoice(null)}>Close</Button>
+            <Button type="submit" variant="primary" disabled={isSendingMomo}>
+              {isSendingMomo ? "Sending..." : "Send Payment Request"}
             </Button>
           </div>
         </form>

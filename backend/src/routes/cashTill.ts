@@ -5,6 +5,24 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
+import { verifyPassword } from '../utils/password';
+import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
+
+// Roles that can authorize a void either by initiating it themselves or by
+// stepping up to approve a Cashier-initiated one.
+const VOID_AUTHORIZER_ROLES = ['Admin', 'Shop Manager', 'Accountant'];
+
+// Sentinel thrown when a POST /tills/sales retry/replay collides with an
+// already-committed sale sharing the same clientTxnId. Caught outside the
+// transaction so the loser's own (already-applied) stock decrement rolls
+// back cleanly, then the winning sale is re-fetched in a fresh transaction
+// once it's guaranteed committed.
+class DuplicateSaleReplayError extends Error {
+  constructor() {
+    super('Duplicate sale replay - clientTxnId already recorded.');
+    this.name = 'DuplicateSaleReplayError';
+  }
+}
 
 const router = Router();
 
@@ -118,7 +136,7 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { tillId, items, cashGiven } = req.body;
+    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt } = req.body;
 
     if (!tillId || !Array.isArray(items) || items.length === 0 || cashGiven === undefined || cashGiven === null || cashGiven === '') {
       res.status(400).json({ success: false, error: 'Till ID, at least one cart item, and cash given are required.' });
@@ -137,111 +155,168 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
         return;
       }
     }
+    if (clientTxnId !== undefined && (typeof clientTxnId !== 'string' || !clientTxnId)) {
+      res.status(400).json({ success: false, error: 'clientTxnId, if provided, must be a non-empty string.' });
+      return;
+    }
 
-    const result = await withCurrentTenantDb(prisma, async (client) => {
-      const till = await (client as any).cashTill.findFirst({
-        where: { id: tillId, tenantId },
-        include: { warehouse: true },
-      });
-
-      if (!till || till.status !== 'OPEN') {
-        throw new Error('Cash till is not open or does not exist.');
-      }
-
-      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, till.warehouseId);
-
-      const itemIds = [...new Set(items.map((l: any) => l.itemId))];
-      const foundItems = await (client as any).inventoryItem.findMany({ where: { id: { in: itemIds }, tenantId } });
-      const itemsById = new Map(foundItems.map((it: any) => [it.id, it]));
-
-      const missingId = itemIds.find((id: string) => !itemsById.has(id));
-      if (missingId) {
-        throw new Error('Inventory item not found.');
-      }
-
-      const stocks = await (client as any).warehouseStock.findMany({
-        where: { warehouseId: till.warehouseId, itemId: { in: itemIds } },
-      });
-      const stockByItemId = new Map(stocks.map((s: any) => [s.itemId, s]));
-
-      // Friendly pre-check for every line before touching anything - the
-      // actual deduction below is still atomically guarded per line to
-      // protect against a genuine concurrent race.
-      for (const line of items) {
-        const item = itemsById.get(line.itemId) as any;
-        const stock = stockByItemId.get(line.itemId) as any;
-        if (!stock || stock.quantityOnHand < line.quantity) {
-          throw new Error(
-            `Insufficient stock for ${item.name} in ${till.warehouse.name} (Available: ${stock?.quantityOnHand || 0} ${item.unitOfMeasure}).`
-          );
-        }
-      }
-
-      const totalAmount = items.reduce((sum: number, line: any) => {
-        const item = itemsById.get(line.itemId) as any;
-        return sum + Number(item.sellingPrice) * line.quantity;
-      }, 0);
-
-      const changeGiven = Number(cashGiven) - totalAmount;
-      if (changeGiven < 0) {
-        throw new Error(`Cash given (GH₵ ${cashGiven}) is less than total bill amount (GH₵ ${totalAmount.toFixed(2)}).`);
-      }
-
-      // 1. Deduct stock per line - atomic guarded decrement so two concurrent
-      // sales of the same item can't both read the same stale quantity and
-      // both succeed (lost-update / phantom-stock bug).
-      for (const line of items) {
-        const stock = stockByItemId.get(line.itemId) as any;
-        const deduction = await (client as any).warehouseStock.updateMany({
-          where: { id: stock.id, quantityOnHand: { gte: line.quantity } },
-          data: { quantityOnHand: { decrement: line.quantity } },
+    let result;
+    try {
+      result = await withCurrentTenantDb(prisma, async (client) => {
+        const till = await (client as any).cashTill.findFirst({
+          where: { id: tillId, tenantId },
+          include: { warehouse: true },
         });
-        if (deduction.count === 0) {
-          const item = itemsById.get(line.itemId) as any;
-          throw new Error(`Insufficient stock for ${item.name} (stock changed concurrently, please retry).`);
+
+        if (!till || till.status !== 'OPEN') {
+          throw new Error('Cash till is not open or does not exist.');
         }
-      }
 
-      // 2. Record the cash sale header and its lines.
-      const receiptNo = `REC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-      const sale = await (client as any).cashSale.create({
-        data: {
-          tenantId,
-          tillId,
-          receiptNo,
-          amount: totalAmount,
-          cashGiven: Number(cashGiven),
-          changeGiven,
-        },
-      });
+        await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, till.warehouseId);
 
-      const lines = items.map((line: any) => {
-        const item = itemsById.get(line.itemId) as any;
-        return {
-          itemId: line.itemId,
-          itemName: item.name as string,
-          itemSku: item.sku as string,
-          quantity: line.quantity as number,
-          unitPrice: Number(item.sellingPrice),
-          lineTotal: Number(item.sellingPrice) * line.quantity,
-        };
-      });
+        // Fast-path: a simple sequential retry (the common case - e.g. an
+        // offline-queued sale being replayed, or a double-tap submit) hits
+        // this before redoing any stock work. This is an optimization only,
+        // not the safety net - see the P2002 handling below for why.
+        if (clientTxnId) {
+          const existing = await (client as any).cashSale.findFirst({
+            where: { tenantId, clientTxnId },
+            include: { lines: true },
+          });
+          if (existing) {
+            return { sale: existing, lines: existing.lines, totalAmount: Number(existing.amount), changeGiven: Number(existing.changeGiven), replayed: true };
+          }
+        }
 
-      await (client as any).cashSaleLine.createMany({
-        data: lines.map((l: any) => ({ tenantId, saleId: sale.id, ...l })),
-      });
+        const itemIds = [...new Set(items.map((l: any) => l.itemId))];
+        const foundItems = await (client as any).inventoryItem.findMany({ where: { id: { in: itemIds }, tenantId } });
+        const itemsById = new Map(foundItems.map((it: any) => [it.id, it]));
 
-      // 3. Increment till total cash sales atomically - avoids losing concurrent
-      // sales' contributions to the running total.
-      await (client as any).cashTill.update({
-        where: { id: tillId },
-        data: { cashSalesTotal: { increment: totalAmount } },
-      });
+        const missingId = itemIds.find((id: string) => !itemsById.has(id));
+        if (missingId) {
+          throw new Error('Inventory item not found.');
+        }
 
-      return { sale, lines, totalAmount, changeGiven };
+        const stocks = await (client as any).warehouseStock.findMany({
+          where: { warehouseId: till.warehouseId, itemId: { in: itemIds } },
+        });
+        const stockByItemId = new Map(stocks.map((s: any) => [s.itemId, s]));
+
+        // Friendly pre-check for every line before touching anything - the
+        // actual deduction below is still atomically guarded per line to
+        // protect against a genuine concurrent race.
+        for (const line of items) {
+          const item = itemsById.get(line.itemId) as any;
+          const stock = stockByItemId.get(line.itemId) as any;
+          if (!stock || stock.quantityOnHand < line.quantity) {
+            throw new Error(
+              `Insufficient stock for ${item.name} in ${till.warehouse.name} (Available: ${stock?.quantityOnHand || 0} ${item.unitOfMeasure}).`
+            );
+          }
+        }
+
+        const totalAmount = items.reduce((sum: number, line: any) => {
+          const item = itemsById.get(line.itemId) as any;
+          return sum + Number(item.sellingPrice) * line.quantity;
+        }, 0);
+
+        const changeGiven = Number(cashGiven) - totalAmount;
+        if (changeGiven < 0) {
+          throw new Error(`Cash given (GH₵ ${cashGiven}) is less than total bill amount (GH₵ ${totalAmount.toFixed(2)}).`);
+        }
+
+        // 1. Deduct stock per line - atomic guarded decrement so two concurrent
+        // sales of the same item can't both read the same stale quantity and
+        // both succeed (lost-update / phantom-stock bug).
+        for (const line of items) {
+          const stock = stockByItemId.get(line.itemId) as any;
+          const deduction = await (client as any).warehouseStock.updateMany({
+            where: { id: stock.id, quantityOnHand: { gte: line.quantity } },
+            data: { quantityOnHand: { decrement: line.quantity } },
+          });
+          if (deduction.count === 0) {
+            const item = itemsById.get(line.itemId) as any;
+            throw new Error(`Insufficient stock for ${item.name} (stock changed concurrently, please retry).`);
+          }
+        }
+
+        // 2. Record the cash sale header and its lines.
+        const receiptNo = `REC-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+        let sale;
+        try {
+          sale = await (client as any).cashSale.create({
+            data: {
+              tenantId,
+              tillId,
+              receiptNo,
+              amount: totalAmount,
+              cashGiven: Number(cashGiven),
+              changeGiven,
+              createdByUserId: req.user!.id,
+              createdByName: req.user!.name || req.user!.email,
+              clientTxnId: clientTxnId || null,
+              clientOccurredAt: clientOccurredAt ? new Date(clientOccurredAt) : null,
+            },
+          });
+        } catch (createError: any) {
+          // A concurrent request racing on the SAME clientTxnId can lose this
+          // unique-constraint check even after passing the fast-path findFirst
+          // above (Read Committed isolation - both can start before either
+          // commits). Postgres blocks this INSERT until the winner resolves,
+          // so by the time we get here the winner is guaranteed committed or
+          // rolled back. Throw a sentinel so this whole transaction rolls back
+          // cleanly (including this request's own stock decrement above) -
+          // swallowing this here and returning 200 would let Prisma commit the
+          // transaction anyway, silently double-deducting stock.
+          if (createError.code === 'P2002' && clientTxnId && createError.meta?.target?.includes?.('client_txn_id')) {
+            throw new DuplicateSaleReplayError();
+          }
+          throw createError;
+        }
+
+        const lines = items.map((line: any) => {
+          const item = itemsById.get(line.itemId) as any;
+          return {
+            itemId: line.itemId,
+            itemName: item.name as string,
+            itemSku: item.sku as string,
+            quantity: line.quantity as number,
+            unitPrice: Number(item.sellingPrice),
+            lineTotal: Number(item.sellingPrice) * line.quantity,
+          };
+        });
+
+        await (client as any).cashSaleLine.createMany({
+          data: lines.map((l: any) => ({ tenantId, saleId: sale.id, ...l })),
+        });
+
+        // 3. Increment till total cash sales atomically - avoids losing concurrent
+        // sales' contributions to the running total.
+        await (client as any).cashTill.update({
+          where: { id: tillId },
+          data: { cashSalesTotal: { increment: totalAmount } },
+        });
+
+        return { sale, lines, totalAmount, changeGiven, replayed: false };
     });
+    } catch (raceError: any) {
+      if (raceError instanceof DuplicateSaleReplayError) {
+        // The winning transaction is guaranteed committed by now (Postgres
+        // blocked our INSERT until it resolved) - a fresh transaction here
+        // is safe and will find it.
+        result = await withCurrentTenantDb(prisma, async (client) => {
+          const existing = await (client as any).cashSale.findFirst({
+            where: { tenantId, clientTxnId },
+            include: { lines: true },
+          });
+          return { sale: existing, lines: existing.lines, totalAmount: Number(existing.amount), changeGiven: Number(existing.changeGiven), replayed: true };
+        });
+      } else {
+        throw raceError;
+      }
+    }
 
-    res.status(201).json({ success: true, message: 'Cash sale recorded successfully', data: result });
+    res.status(result.replayed ? 200 : 201).json({ success: true, message: 'Cash sale recorded successfully', data: result });
   } catch (error: any) {
     console.error('[CashTill] Error recording cash sale:', error);
     if (error instanceof WarehouseAccessError) {
@@ -249,6 +324,235 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
       return;
     }
     res.status(500).json({ success: false, error: error.message || 'Failed to record cash sale.' });
+  }
+});
+
+/**
+ * POST /api/v1/tills/sales/sync-failures
+ * Records that a locally-queued offline sale definitively failed to sync
+ * (e.g. a real stock conflict discovered only once connectivity returned -
+ * there's no offline stock reservation, so this is a genuine possible
+ * outcome, not a bug). Deliberately creates no CashSale row - no sale was
+ * ever actually completed server-side. This is a best-effort, fire-and-forget
+ * call from the frontend once its sync loop gives up retrying a given sale,
+ * so a manager on ANY device (not just the terminal that queued it) has
+ * visibility via the audit log - a completed cash sale with real money
+ * already collected must never be silently invisible outside one browser's
+ * local IndexedDB.
+ */
+router.post('/sales/sync-failures', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { clientTxnId, reason, saleSnapshot } = req.body;
+    if (!clientTxnId || typeof clientTxnId !== 'string') {
+      res.status(400).json({ success: false, error: 'clientTxnId is required.' });
+      return;
+    }
+    if (!reason || typeof reason !== 'string') {
+      res.status(400).json({ success: false, error: 'reason is required.' });
+      return;
+    }
+
+    await recordAuditLog({
+      action: 'CASH_SALE.SYNC_FAILED',
+      entity: 'CashSale',
+      entityId: clientTxnId,
+      actor: actorFromRequest(req),
+      details: reason,
+      changes: { saleSnapshot: { from: null, to: saleSnapshot ?? null } },
+    });
+
+    res.status(200).json({ success: true, message: 'Sync failure recorded for manual reconciliation.' });
+  } catch (error: any) {
+    console.error('[CashTill] Error recording sync failure:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to record sync failure.' });
+  }
+});
+
+/**
+ * POST /api/v1/tills/sales/:id/void
+ * Voids a completed cash sale: restores the deducted stock, reverses the
+ * till's running cash total, and marks the sale VOIDED with a full audit
+ * trail. Any Admin/Shop Manager/Accountant can void their own sale directly;
+ * anyone else (e.g. a Cashier) must supply a manager's own credentials as a
+ * step-up confirmation - this is the actual safeguard against a cashier
+ * voiding a completed sale to quietly pocket the cash while stock and books
+ * appear to reconcile.
+ */
+router.post('/sales/:id/void', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+    const { reason, managerEmail, managerPassword } = req.body;
+
+    if (!reason || typeof reason !== 'string' || !reason.trim()) {
+      res.status(400).json({ success: false, error: 'A reason is required to void a sale.' });
+      return;
+    }
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const sale = await (client as any).cashSale.findFirst({
+        where: { id, tenantId },
+        include: { lines: true, till: { include: { warehouse: true } } },
+      });
+      if (!sale) throw new Error('Sale not found.');
+      if (sale.status === 'VOIDED') throw new Error('This sale has already been voided.');
+
+      await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, sale.till.warehouseId);
+
+      if (sale.till.status !== 'OPEN') {
+        throw new Error(
+          'This sale belongs to a till that has already been closed and reconciled - it can no longer be voided. Use a stock adjustment to correct inventory instead.'
+        );
+      }
+
+      const actingRole = req.user!.role;
+      let authorizer: { id: string; name: string; role: string };
+
+      if (VOID_AUTHORIZER_ROLES.includes(actingRole)) {
+        // Self-authorizing manager/admin/accountant - no step-up needed.
+        authorizer = { id: req.user!.id, name: req.user!.name || req.user!.email, role: actingRole };
+      } else {
+        // Cashier (or any other non-authorizer role) must supply a manager's
+        // own credentials right here - the actual "manager PIN override"
+        // equivalent for a web app.
+        if (!managerEmail || !managerPassword) {
+          throw new Error('A manager must confirm this void with their email and password.');
+        }
+        const manager = await prisma.user.findFirst({
+          where: { email: String(managerEmail).trim().toLowerCase(), tenantId, isActive: true },
+        });
+        if (!manager || !verifyPassword(managerPassword, manager.password)) {
+          throw new Error('Manager credentials are incorrect.');
+        }
+        if (!VOID_AUTHORIZER_ROLES.includes(manager.role)) {
+          throw new Error('That account is not authorized to approve a void.');
+        }
+        authorizer = { id: manager.id, name: manager.name || manager.email, role: manager.role };
+      }
+
+      // Restore stock for every line.
+      for (const line of sale.lines) {
+        await (client as any).warehouseStock.updateMany({
+          where: { warehouseId: sale.till.warehouseId, itemId: line.itemId },
+          data: { quantityOnHand: { increment: line.quantity } },
+        });
+      }
+
+      // Reverse the till's running cash-sales total.
+      await (client as any).cashTill.update({
+        where: { id: sale.tillId },
+        data: { cashSalesTotal: { decrement: Number(sale.amount) } },
+      });
+
+      const voided = await (client as any).cashSale.update({
+        where: { id: sale.id },
+        data: {
+          status: 'VOIDED',
+          voidedAt: new Date(),
+          voidedByUserId: authorizer.id,
+          voidedByName: authorizer.name,
+          voidReason: reason.trim(),
+        },
+      });
+
+      return { voided, authorizer, originalAmount: Number(sale.amount) };
+    });
+
+    await recordAuditLog({
+      action: 'CASH_SALE.VOIDED',
+      entity: 'CashSale',
+      entityId: result.voided.id,
+      tenantId,
+      actor: actorFromRequest(req),
+      changes: { status: { from: 'COMPLETED', to: 'VOIDED' } },
+      details: `Sale ${result.voided.receiptNo} (GH₵ ${result.originalAmount.toFixed(2)}) voided by ${req.user!.name || req.user!.email}, authorized by ${result.authorizer.name} (${result.authorizer.role}). Reason: ${result.voided.voidReason}`,
+    });
+
+    res.status(200).json({ success: true, message: 'Sale voided and stock restored.', data: { sale: result.voided } });
+  } catch (error: any) {
+    console.error('[CashTill] Error voiding sale:', error);
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    const status = error.message?.includes('not found') ? 404 : 400;
+    res.status(status).json({ success: false, error: error.message || 'Failed to void sale.' });
+  }
+});
+
+/**
+ * GET /api/v1/tills/void-stats
+ * Per-cashier void-ratio report - surfaces potential fraud patterns
+ * (someone voiding an unusually high share of their own sales) for a
+ * manager/admin/accountant to review, rather than alerting on every void.
+ */
+router.get('/void-stats', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    if (!VOID_AUTHORIZER_ROLES.includes(req.user!.role)) {
+      res.status(403).json({ success: false, error: 'You do not have permission to view void statistics.' });
+      return;
+    }
+
+    const { from, to } = req.query;
+
+    const stats = await withCurrentTenantDb(prisma, async (client) => {
+      const accessibleIds = await getAccessibleWarehouseIds(client, tenantId, req.user!.id, req.user!.role);
+
+      const where: any = { tenantId };
+      if (from || to) {
+        // Bucket by clientOccurredAt (when a synced offline sale actually
+        // happened) when present, falling back to createdAt (true row-insert
+        // time) for every sale that never carried one - i.e. every sale
+        // recorded before offline sync existed, and every online sale today.
+        const range: any = {};
+        if (from) range.gte = new Date(String(from));
+        if (to) range.lte = new Date(String(to));
+        where.OR = [
+          { clientOccurredAt: range },
+          { clientOccurredAt: null, createdAt: range },
+        ];
+      }
+      if (accessibleIds !== null) {
+        where.till = { warehouseId: { in: accessibleIds } };
+      }
+
+      const sales = await (client as any).cashSale.findMany({
+        where,
+        select: { createdByUserId: true, createdByName: true, status: true },
+      });
+
+      const byUser = new Map<string, { name: string; total: number; voided: number }>();
+      for (const s of sales) {
+        const key = s.createdByUserId || 'unknown';
+        const entry = byUser.get(key) || { name: s.createdByName || 'Unknown', total: 0, voided: 0 };
+        entry.total += 1;
+        if (s.status === 'VOIDED') entry.voided += 1;
+        byUser.set(key, entry);
+      }
+
+      const VOID_RATIO_ANOMALY_THRESHOLD = 0.15;
+      const MIN_SAMPLE_SIZE = 5;
+
+      return Array.from(byUser.entries())
+        .map(([userId, v]) => {
+          const ratio = v.total > 0 ? v.voided / v.total : 0;
+          return {
+            userId,
+            name: v.name,
+            totalSales: v.total,
+            voidedSales: v.voided,
+            voidRatio: Number(ratio.toFixed(4)),
+            anomaly: v.total >= MIN_SAMPLE_SIZE && ratio >= VOID_RATIO_ANOMALY_THRESHOLD,
+          };
+        })
+        .sort((a, b) => b.voidRatio - a.voidRatio);
+    });
+
+    res.status(200).json({ success: true, data: stats });
+  } catch (error: any) {
+    console.error('[CashTill] Error computing void stats:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to compute void statistics.' });
   }
 });
 
