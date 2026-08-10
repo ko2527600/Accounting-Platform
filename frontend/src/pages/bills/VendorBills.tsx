@@ -6,6 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2 } from "lucide-react";
 
 interface Vendor {
@@ -74,6 +75,7 @@ interface DebitNote {
 
 export function VendorBills() {
   const { showToast } = useToast();
+  const { settings } = useTenantSettings();
   const [bills, setBills] = useState<VendorBill[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
@@ -171,7 +173,7 @@ export function VendorBills() {
     setIsItemized(false);
     setSelectedVendor("");
     setBillAmount("450");
-    setCurrency("USD");
+    setCurrency(settings.baseCurrency);
     setSelectedWarehouse("");
     setSelectedFundId("");
     setPurchaseLines([{ itemId: "", quantity: "", unitCost: "" }]);
@@ -305,7 +307,11 @@ export function VendorBills() {
     }
   };
 
-  const formatCurrency = (amt: number, curr = "USD") => {
+  // Defaults to the tenant's real configured base currency (not a hardcoded
+  // "USD") for aggregate figures like the AP/Paid summary tiles that don't
+  // pass an explicit currency. Individual bill rows still pass `b.currency`
+  // explicitly - that's the real per-bill native currency, correct as-is.
+  const formatCurrency = (amt: number, curr = settings.baseCurrency) => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: curr }).format(amt);
   };
 
@@ -533,7 +539,7 @@ export function VendorBills() {
           {!isItemized ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Bill Amount ($)</label>
+                <label className="block text-sm font-medium mb-1">Bill Amount</label>
                 <Input
                   type="number"
                   required={!isItemized}

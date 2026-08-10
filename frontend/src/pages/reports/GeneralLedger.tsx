@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Download, BookOpen, ChevronRight } from "lucide-react";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useLedgerReport } from "../../hooks/useLedgerReport";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
 import { Card, CardContent } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
@@ -19,11 +20,17 @@ export function GeneralLedger() {
   const { accounts } = useAccounts();
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || "");
   const { account, lines, openingBalance, totalDebit, totalCredit, closingBalance } = useLedgerReport(selectedAccountId);
+  const { settings } = useTenantSettings();
 
+  // Formats using the tenant's real configured base currency, the same
+  // source every other report (Chart of Accounts, P&L, Balance Sheet, etc.)
+  // already reads - not the stored per-account `currency` field, which is
+  // write-only accident-of-creation-time data (the ledger is single-currency
+  // by design, so every account's `currency` is always the tenant's own).
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: account?.currency || "USD",
+      currency: settings.baseCurrency,
     }).format(amount);
   };
 

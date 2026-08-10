@@ -6,6 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw } from "lucide-react";
 
 interface Customer {
@@ -95,6 +96,7 @@ const TELLER_NETWORKS: { value: string; label: string }[] = [
 
 export function Invoices() {
   const { showToast } = useToast();
+  const { settings } = useTenantSettings();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
@@ -140,6 +142,16 @@ export function Invoices() {
   const [tellerNetwork, setTellerNetwork] = useState("VDF");
   const [isSendingTeller, setIsSendingTeller] = useState(false);
   const [checkingTellerTxnId, setCheckingTellerTxnId] = useState<string | null>(null);
+
+  // Once the tenant's real base currency loads, default the new-invoice
+  // currency picker to it instead of leaving it pinned to the initial "USD"
+  // guess - most users never touch this field, so leaving it wrong would
+  // silently misdenominate every invoice. Only snaps it while the field is
+  // still at that initial default, so it never clobbers a currency the user
+  // already chose.
+  useEffect(() => {
+    setCurrency((c) => (c === "USD" ? settings.baseCurrency : c));
+  }, [settings.baseCurrency]);
 
   const fetchData = useCallback(async () => {
     setIsLoading(true);
@@ -373,7 +385,12 @@ export function Invoices() {
     }
   };
 
-  const formatCurrency = (amt: number, curr = "USD") => {
+  // Defaults to the tenant's real configured base currency (not a hardcoded
+  // "USD") for aggregate figures like the AR/Paid summary tiles that don't
+  // pass an explicit currency. Individual invoice rows still pass
+  // `inv.currency` explicitly - that's the real per-invoice native currency,
+  // correct as-is.
+  const formatCurrency = (amt: number, curr = settings.baseCurrency) => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: curr }).format(amt);
   };
 

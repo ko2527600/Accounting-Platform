@@ -9,12 +9,14 @@ import { Input } from "../ui/Input";
 import { Card, CardHeader, CardContent, CardFooter } from "../ui/Card";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 
 export function JournalBuilder() {
   const navigate = useNavigate();
   const { postJournal, isLoading: isPosting } = useJournals();
   const { accounts } = useAccounts();
   const { showToast } = useToast();
+  const { settings } = useTenantSettings();
 
   const [funds, setFunds] = useState<Fund[]>([]);
   useEffect(() => {
@@ -106,7 +108,7 @@ export function JournalBuilder() {
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: settings.baseCurrency }).format(amount);
   };
 
   return (

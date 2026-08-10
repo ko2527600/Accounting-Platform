@@ -6,6 +6,7 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 
 interface ExpenseAccount {
   id: string;
@@ -43,6 +44,7 @@ const RESTRICTED_DECIDER_ROLES = new Set(["viewer", "auditor", "hr"]);
 export function ExpenseClaims() {
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { settings } = useTenantSettings();
   const canDecide = !RESTRICTED_DECIDER_ROLES.has((user?.role || "").toLowerCase().trim());
 
   const [claims, setClaims] = useState<ExpenseClaim[]>([]);
@@ -59,6 +61,15 @@ export function ExpenseClaims() {
     expenseAccountId: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Once the tenant's real base currency loads, default the picker to it
+  // instead of leaving it pinned to the initial "USD" guess - most users
+  // never touch this field, so leaving it wrong would silently misdenominate
+  // every claim. Only snaps it while the field is still at that initial
+  // default, so it never clobbers a currency the user already chose.
+  useEffect(() => {
+    setForm((f) => (f.currency === "USD" ? { ...f, currency: settings.baseCurrency } : f));
+  }, [settings.baseCurrency]);
 
   const fetchClaims = useCallback(async () => {
     setIsLoading(true);
