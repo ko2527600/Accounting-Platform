@@ -1,6 +1,7 @@
 import { prisma } from '../config/db';
 import * as fiscalPeriodRepository from '../repository/fiscalPeriodRepository';
 import { FiscalPeriodRecord, CreateFiscalPeriodData } from '../repository/fiscalPeriodRepository';
+import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
 
 export class FiscalPeriodServiceError extends Error {
   statusCode: number;
@@ -20,7 +21,7 @@ export async function getFiscalPeriodById(tenantId: string, id: string): Promise
   return fiscalPeriodRepository.getFiscalPeriodById(prisma, tenantId, id);
 }
 
-export async function createFiscalPeriod(tenantId: string, input: any): Promise<FiscalPeriodRecord> {
+export async function createFiscalPeriod(tenantId: string, input: any, actor?: AuditActor): Promise<FiscalPeriodRecord> {
   const { name, fiscalYear, periodNumber, startDate, endDate } = input;
 
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -48,8 +49,9 @@ export async function createFiscalPeriod(tenantId: string, input: any): Promise<
 
   const data: CreateFiscalPeriodData = { name, fiscalYear: year, periodNumber: period, startDate: start, endDate: end };
 
+  let created: FiscalPeriodRecord;
   try {
-    return await fiscalPeriodRepository.createFiscalPeriod(prisma, tenantId, data);
+    created = await fiscalPeriodRepository.createFiscalPeriod(prisma, tenantId, data);
   } catch (error: any) {
     if (error.code === 'P2002') {
       throw new FiscalPeriodServiceError(
@@ -59,9 +61,20 @@ export async function createFiscalPeriod(tenantId: string, input: any): Promise<
     }
     throw error;
   }
+
+  await recordAuditLog({
+    action: 'FISCAL_PERIOD.CREATED',
+    entity: 'FiscalPeriod',
+    entityId: created.id,
+    tenantId,
+    actor,
+    details: `Fiscal period ${created.name} (FY${created.fiscalYear} P${created.periodNumber}) created.`,
+  });
+
+  return created;
 }
 
-export async function closeFiscalPeriod(tenantId: string, id: string, closedBy?: string): Promise<FiscalPeriodRecord> {
+export async function closeFiscalPeriod(tenantId: string, id: string, closedBy?: string, actor?: AuditActor): Promise<FiscalPeriodRecord> {
   const existing = await fiscalPeriodRepository.getFiscalPeriodById(prisma, tenantId, id);
   if (!existing) {
     throw new FiscalPeriodServiceError(`Fiscal period with ID "${id}" not found.`, 404);
@@ -69,10 +82,21 @@ export async function closeFiscalPeriod(tenantId: string, id: string, closedBy?:
   if (existing.status !== 'OPEN') {
     throw new FiscalPeriodServiceError(`Only an OPEN period can be closed (current status: ${existing.status}).`, 400);
   }
-  return fiscalPeriodRepository.setFiscalPeriodStatus(prisma, id, 'CLOSED', closedBy);
+  const updated = await fiscalPeriodRepository.setFiscalPeriodStatus(prisma, id, 'CLOSED', closedBy);
+
+  await recordAuditLog({
+    action: 'FISCAL_PERIOD.CLOSED',
+    entity: 'FiscalPeriod',
+    entityId: id,
+    tenantId,
+    actor,
+    changes: diffFields(existing, updated, ['status']),
+  });
+
+  return updated;
 }
 
-export async function lockFiscalPeriod(tenantId: string, id: string): Promise<FiscalPeriodRecord> {
+export async function lockFiscalPeriod(tenantId: string, id: string, actor?: AuditActor): Promise<FiscalPeriodRecord> {
   const existing = await fiscalPeriodRepository.getFiscalPeriodById(prisma, tenantId, id);
   if (!existing) {
     throw new FiscalPeriodServiceError(`Fiscal period with ID "${id}" not found.`, 404);
@@ -80,7 +104,18 @@ export async function lockFiscalPeriod(tenantId: string, id: string): Promise<Fi
   if (existing.status !== 'CLOSED') {
     throw new FiscalPeriodServiceError(`Only a CLOSED period can be locked (current status: ${existing.status}).`, 400);
   }
-  return fiscalPeriodRepository.setFiscalPeriodStatus(prisma, id, 'LOCKED');
+  const updated = await fiscalPeriodRepository.setFiscalPeriodStatus(prisma, id, 'LOCKED');
+
+  await recordAuditLog({
+    action: 'FISCAL_PERIOD.LOCKED',
+    entity: 'FiscalPeriod',
+    entityId: id,
+    tenantId,
+    actor,
+    changes: diffFields(existing, updated, ['status']),
+  });
+
+  return updated;
 }
 
 /**

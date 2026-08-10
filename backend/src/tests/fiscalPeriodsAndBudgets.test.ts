@@ -234,6 +234,69 @@ describe('Fiscal Periods & Budgets API (period locking, real variance recompute)
     expect(duplicateBudget.status).toBe(409);
   });
 
+  it('records FISCAL_PERIOD.CREATED/.CLOSED/.LOCKED and BUDGET.CREATED/.UPDATED/.DELETED audit log entries', async () => {
+    const period = await request(app)
+      .post('/api/v1/fiscal-periods')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ name: 'March 2026', fiscalYear: 2026, periodNumber: 3, startDate: '2026-03-01', endDate: '2026-03-31' });
+    expect(period.status).toBe(201);
+    const periodId = period.body.data.fiscalPeriod.id;
+
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'FiscalPeriod', entityId: periodId, action: 'FISCAL_PERIOD.CREATED' } })
+    ).toBeTruthy();
+
+    const closed = await request(app)
+      .patch(`/api/v1/fiscal-periods/${periodId}/close`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(closed.status).toBe(200);
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'FiscalPeriod', entityId: periodId, action: 'FISCAL_PERIOD.CLOSED' } })
+    ).toBeTruthy();
+
+    const locked = await request(app)
+      .patch(`/api/v1/fiscal-periods/${periodId}/lock`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(locked.status).toBe(200);
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'FiscalPeriod', entityId: periodId, action: 'FISCAL_PERIOD.LOCKED' } })
+    ).toBeTruthy();
+
+    const budget = await request(app)
+      .post('/api/v1/budgets')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ accountId: revenueAccountId, fiscalPeriodId: periodId, budgetAmount: 200 });
+    expect(budget.status).toBe(201);
+    const budgetId = budget.body.data.budget.id;
+
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'Budget', entityId: budgetId, action: 'BUDGET.CREATED' } })
+    ).toBeTruthy();
+
+    const updated = await request(app)
+      .put(`/api/v1/budgets/${budgetId}`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ budgetAmount: 300 });
+    expect(updated.status).toBe(200);
+    const updatedLog = await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'Budget', entityId: budgetId, action: 'BUDGET.UPDATED' } });
+    expect(updatedLog).toBeTruthy();
+    expect(Number((updatedLog!.changes as any).budgetAmount.to)).toBe(300);
+
+    const deleted = await request(app)
+      .delete(`/api/v1/budgets/${budgetId}`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(deleted.status).toBe(200);
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'Budget', entityId: budgetId, action: 'BUDGET.DELETED' } })
+    ).toBeTruthy();
+  });
+
   it('does not let one tenant see or fetch another tenant\'s fiscal periods/budgets', async () => {
     const tenant2List = await request(app)
       .get('/api/v1/fiscal-periods')

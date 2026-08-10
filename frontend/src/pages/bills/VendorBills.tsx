@@ -6,6 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2 } from "lucide-react";
 
 interface Vendor {
@@ -57,6 +58,12 @@ interface PurchaseLine {
   unitCost: string;
 }
 
+interface FundOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
 interface DebitNote {
   id: string;
   debitNoteNumber: string;
@@ -68,10 +75,12 @@ interface DebitNote {
 
 export function VendorBills() {
   const { showToast } = useToast();
+  const { settings } = useTenantSettings();
   const [bills, setBills] = useState<VendorBill[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [items, setItems] = useState<InventoryItemOption[]>([]);
+  const [funds, setFunds] = useState<FundOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modals
@@ -89,6 +98,7 @@ export function VendorBills() {
   const [billAmount, setBillAmount] = useState("450");
   const [currency, setCurrency] = useState("USD");
   const [selectedWarehouse, setSelectedWarehouse] = useState("");
+  const [selectedFundId, setSelectedFundId] = useState("");
   const [purchaseLines, setPurchaseLines] = useState<PurchaseLine[]>([{ itemId: "", quantity: "", unitCost: "" }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -110,11 +120,12 @@ export function VendorBills() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [billRes, venRes, whRes, itemsRes] = await Promise.all([
+      const [billRes, venRes, whRes, itemsRes, fundsRes] = await Promise.all([
         api.get("/bills"),
         api.get("/bills/vendors"),
         api.get("/inventory/warehouses"),
         api.get("/inventory/items"),
+        api.get("/funds"),
       ]);
 
       if (billRes.data.success) setBills(billRes.data.data.bills);
@@ -123,6 +134,7 @@ export function VendorBills() {
       if (itemsRes.data.success) {
         setItems(itemsRes.data.data.items.map((it: any) => ({ id: it.id, sku: it.sku, name: it.name, costPrice: Number(it.costPrice) })));
       }
+      if (fundsRes.data.success) setFunds(fundsRes.data.data.funds.filter((f: any) => f.isActive));
     } catch (err) {
       console.error("Failed to load bills data:", err);
     } finally {
@@ -161,8 +173,9 @@ export function VendorBills() {
     setIsItemized(false);
     setSelectedVendor("");
     setBillAmount("450");
-    setCurrency("USD");
+    setCurrency(settings.baseCurrency);
     setSelectedWarehouse("");
+    setSelectedFundId("");
     setPurchaseLines([{ itemId: "", quantity: "", unitCost: "" }]);
   };
 
@@ -195,8 +208,9 @@ export function VendorBills() {
             items: purchaseLines
               .filter((l) => l.itemId && Number(l.quantity) > 0)
               .map((l) => ({ itemId: l.itemId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) })),
+            ...(selectedFundId ? { fundId: selectedFundId } : {}),
           }
-        : { vendorId: selectedVendor, amount: Number(billAmount), currency };
+        : { vendorId: selectedVendor, amount: Number(billAmount), currency, ...(selectedFundId ? { fundId: selectedFundId } : {}) };
 
       const res = await api.post("/bills", payload);
 
@@ -293,7 +307,11 @@ export function VendorBills() {
     }
   };
 
-  const formatCurrency = (amt: number, curr = "USD") => {
+  // Defaults to the tenant's real configured base currency (not a hardcoded
+  // "USD") for aggregate figures like the AP/Paid summary tiles that don't
+  // pass an explicit currency. Individual bill rows still pass `b.currency`
+  // explicitly - that's the real per-bill native currency, correct as-is.
+  const formatCurrency = (amt: number, curr = settings.baseCurrency) => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: curr }).format(amt);
   };
 
@@ -500,10 +518,28 @@ export function VendorBills() {
             </button>
           </div>
 
+          {funds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Fund (optional)</label>
+              <select
+                className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                value={selectedFundId}
+                onChange={(e) => setSelectedFundId(e.target.value)}
+              >
+                <option value="">No fund</option>
+                {funds.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           {!isItemized ? (
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-1">Bill Amount ($)</label>
+                <label className="block text-sm font-medium mb-1">Bill Amount</label>
                 <Input
                   type="number"
                   required={!isItemized}

@@ -18,10 +18,11 @@ router.use(tenantContextMiddleware);
  */
 router.get('/', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { accountId, startDate, endDate, search, page, limit } = req.query;
+    const { accountId, fundId, startDate, endDate, search, page, limit } = req.query;
 
     const filter = {
       ...(accountId ? { accountId: accountId as string } : {}),
+      ...(fundId ? { fundId: fundId as string } : {}),
       ...(startDate ? { startDate: startDate as string } : {}),
       ...(endDate ? { endDate: endDate as string } : {}),
       ...(search ? { search: search as string } : {}),

@@ -1,6 +1,7 @@
 import { useState, useMemo } from "react";
 import { Plus, Search, Edit } from "lucide-react";
 import { useAccounts } from "../../hooks/useAccounts";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 import type { Account, AccountType } from "../../types/accounting";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -29,6 +30,7 @@ const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue',
 
 export function ChartOfAccounts() {
   const { accounts, createAccount, updateAccount } = useAccounts();
+  const { settings } = useTenantSettings();
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<AccountType | "All">("All");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -61,10 +63,17 @@ export function ChartOfAccounts() {
     setIsModalOpen(true);
   };
 
-  const formatCurrency = (amount: number, currency: string) => {
+  // Always formats in the tenant's actual base currency (Settings > Currency
+  // & Regional) rather than each account's own stored `currency` field -
+  // that field is never surfaced to the user anywhere (no picker exists on
+  // create or edit), so it silently drifted to a hardcoded "USD" default
+  // regardless of what the tenant actually configured. The ledger is
+  // single-currency by design, so every account should display in the same
+  // currency as every other report in the app.
+  const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency,
+      currency: settings.baseCurrency,
     }).format(amount);
   };
 
@@ -150,7 +159,7 @@ export function ChartOfAccounts() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right font-medium">
-                    {formatCurrency(account.balance, account.currency)}
+                    {formatCurrency(account.balance)}
                   </TableCell>
                   <TableCell>
                     <Button 

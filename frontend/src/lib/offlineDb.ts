@@ -25,6 +25,11 @@ export interface OfflinePendingSaleLine {
   unitPrice: number;
 }
 
+export interface OfflineWarehouseOption {
+  id: string;
+  name: string;
+}
+
 export type PendingSaleStatus = "pending" | "syncing" | "failed";
 
 export interface OfflinePendingSale {
@@ -49,10 +54,24 @@ interface PosOfflineDbSchema extends DBSchema {
     value: OfflinePendingSale;
     indexes: { "by-till": string };
   };
+  // Last-known open till per warehouse and the last-known warehouse roster -
+  // without these, a page reload/reopen *during* an outage (as opposed to
+  // losing connectivity mid-session, which just leaves React state alone)
+  // would strand the cashier on the "Open Till" screen with no warehouse to
+  // even pick, even though a till may genuinely already be open server-side.
+  tillSnapshot: {
+    key: string; // warehouseId
+    value: { warehouseId: string; till: unknown; savedAt: number };
+  };
+  warehousesSnapshot: {
+    key: string; // fixed singleton key
+    value: { id: string; warehouses: OfflineWarehouseOption[]; savedAt: number };
+  };
 }
 
 const DB_NAME = "ledgio-pos-offline";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
+const WAREHOUSES_SNAPSHOT_KEY = "list";
 
 let dbPromise: Promise<IDBPDatabase<PosOfflineDbSchema>> | null = null;
 
@@ -60,9 +79,19 @@ function getDb(): Promise<IDBPDatabase<PosOfflineDbSchema>> {
   if (!dbPromise) {
     dbPromise = openDB<PosOfflineDbSchema>(DB_NAME, DB_VERSION, {
       upgrade(db) {
-        db.createObjectStore("catalogSnapshot", { keyPath: "warehouseId" });
-        const pendingStore = db.createObjectStore("pendingSales", { keyPath: "clientTxnId" });
-        pendingStore.createIndex("by-till", "tillId");
+        if (!db.objectStoreNames.contains("catalogSnapshot")) {
+          db.createObjectStore("catalogSnapshot", { keyPath: "warehouseId" });
+        }
+        if (!db.objectStoreNames.contains("pendingSales")) {
+          const pendingStore = db.createObjectStore("pendingSales", { keyPath: "clientTxnId" });
+          pendingStore.createIndex("by-till", "tillId");
+        }
+        if (!db.objectStoreNames.contains("tillSnapshot")) {
+          db.createObjectStore("tillSnapshot", { keyPath: "warehouseId" });
+        }
+        if (!db.objectStoreNames.contains("warehousesSnapshot")) {
+          db.createObjectStore("warehousesSnapshot", { keyPath: "id" });
+        }
       },
     });
   }
@@ -79,6 +108,34 @@ export async function getCatalogSnapshot(warehouseId: string): Promise<OfflineCa
   const snapshot = await db.get("catalogSnapshot", warehouseId);
   return snapshot?.items ?? [];
 }
+
+export async function saveWarehousesSnapshot(warehouses: OfflineWarehouseOption[]): Promise<void> {
+  const db = await getDb();
+  await db.put("warehousesSnapshot", { id: WAREHOUSES_SNAPSHOT_KEY, warehouses, savedAt: Date.now() });
+}
+
+export async function getWarehousesSnapshot(): Promise<OfflineWarehouseOption[]> {
+  const db = await getDb();
+  const snapshot = await db.get("warehousesSnapshot", WAREHOUSES_SNAPSHOT_KEY);
+  return snapshot?.warehouses ?? [];
+}
+
+export async function saveTillSnapshot(warehouseId: string, till: unknown): Promise<void> {
+  const db = await getDb();
+  await db.put("tillSnapshot", { warehouseId, till, savedAt: Date.now() });
+}
+
+export async function getTillSnapshot(warehouseId: string): Promise<unknown | null> {
+  const db = await getDb();
+  const snapshot = await db.get("tillSnapshot", warehouseId);
+  return snapshot?.till ?? null;
+}
+
+export async function clearTillSnapshot(warehouseId: string): Promise<void> {
+  const db = await getDb();
+  await db.delete("tillSnapshot", warehouseId);
+}
+
 
 export async function enqueuePendingSale(sale: OfflinePendingSale): Promise<void> {
   const db = await getDb();

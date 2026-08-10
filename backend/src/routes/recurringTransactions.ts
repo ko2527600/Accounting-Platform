@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as recurringTransactionService from '../services/recurringTransactionService';
 import { RecurringTransactionServiceError } from '../services/recurringTransactionService';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -57,7 +58,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const recurringTransaction = await recurringTransactionService.createRecurringTransaction(tenantId, req.body);
+    const recurringTransaction = await recurringTransactionService.createRecurringTransaction(tenantId, req.body, actorFromRequest(req));
     res.status(201).json({ success: true, message: 'Recurring transaction created successfully', data: { recurringTransaction } });
   } catch (error: any) {
     handleError(res, error, 'Failed to create recurring transaction.');
@@ -71,7 +72,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const recurringTransaction = await recurringTransactionService.updateRecurringTransaction(tenantId, req.params.id, req.body);
+    const recurringTransaction = await recurringTransactionService.updateRecurringTransaction(tenantId, req.params.id, req.body, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Recurring transaction updated successfully', data: { recurringTransaction } });
   } catch (error: any) {
     handleError(res, error, 'Failed to update recurring transaction.');
@@ -85,7 +86,7 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
 router.delete('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    await recurringTransactionService.deleteRecurringTransaction(tenantId, req.params.id);
+    await recurringTransactionService.deleteRecurringTransaction(tenantId, req.params.id, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Recurring transaction deleted successfully' });
   } catch (error: any) {
     handleError(res, error, 'Failed to delete recurring transaction.');

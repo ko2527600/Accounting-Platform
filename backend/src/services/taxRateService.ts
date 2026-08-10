@@ -1,6 +1,9 @@
 import { prisma } from '../config/db';
+import { withCurrentTenantDb } from '../database/tenantClient';
 import * as taxRateRepository from '../repository/taxRateRepository';
+import * as accountRepository from '../repository/accountRepository';
 import { TaxRateRecord, CreateTaxRateData, TaxRateComponent } from '../repository/taxRateRepository';
+import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
 
 export class TaxRateServiceError extends Error {
   statusCode: number;
@@ -47,7 +50,14 @@ function validateComponents(components: unknown, parentRate: number): TaxRateCom
       throw new TaxRateServiceError(`Component ${i + 1} ("${c.name}"): rate must be a number greater than 0 and less than or equal to 1.`, 400);
     }
     sum += rate;
-    return { name: c.name.trim(), rate };
+    // Never write an explicit accountId: null - keeps a component's
+    // serialized shape exactly {name, rate} when no account is set, rather
+    // than {name, rate, accountId: null}.
+    return {
+      name: c.name.trim(),
+      rate,
+      ...(c.accountId ? { accountId: String(c.accountId) } : {}),
+    };
   });
 
   if (Math.abs(sum - parentRate) > 0.0005) {
@@ -60,6 +70,41 @@ function validateComponents(components: unknown, parentRate: number): TaxRateCom
   return validated;
 }
 
+/**
+ * Confirms every GL account referenced by a tax rate (the whole-rate
+ * accountId and/or each component's accountId) actually exists in the
+ * tenant's own Chart of Accounts. Kept separate from validateComponents
+ * (which is pure structural validation, no DB dependency, unit-testable
+ * as-is) since this needs a real tenant-schema lookup - mirrors how
+ * journalEntryService.createJournalEntry validates every line's accountId
+ * via the same accountRepository.getAccountById helper.
+ *
+ * Depends on an active tenant context (withCurrentTenantDb throws without
+ * one) - safe today since taxRateService is only ever called from
+ * routes/taxRates.ts and routes/invoices.ts, both behind
+ * tenantContextMiddleware, same tradeoff journalEntryService already accepts.
+ */
+async function validateAccountIds(
+  accountId: string | null | undefined,
+  components: TaxRateComponent[] | null
+): Promise<void> {
+  const ids = new Set<string>();
+  if (accountId) ids.add(accountId);
+  for (const c of components || []) {
+    if (c.accountId) ids.add(c.accountId);
+  }
+  if (ids.size === 0) return;
+
+  await withCurrentTenantDb(prisma, async (client) => {
+    for (const id of ids) {
+      const account = await accountRepository.getAccountById(client, id);
+      if (!account) {
+        throw new TaxRateServiceError(`Account with ID "${id}" does not exist.`, 400);
+      }
+    }
+  });
+}
+
 export async function listTaxRates(tenantId: string): Promise<TaxRateRecord[]> {
   return taxRateRepository.listTaxRates(prisma, tenantId);
 }
@@ -68,7 +113,7 @@ export async function getTaxRateById(tenantId: string, id: string): Promise<TaxR
   return taxRateRepository.getTaxRateById(prisma, tenantId, id);
 }
 
-export async function createTaxRate(tenantId: string, input: any): Promise<TaxRateRecord> {
+export async function createTaxRate(tenantId: string, input: any, actor?: AuditActor): Promise<TaxRateRecord> {
   const { name, code, rate, description, accountId, isActive, effectiveFrom, effectiveTo, components } = input;
 
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -92,6 +137,8 @@ export async function createTaxRate(tenantId: string, input: any): Promise<TaxRa
     throw new TaxRateServiceError(`Tax rate code "${code.trim()}" already exists.`, 409);
   }
 
+  await validateAccountIds(accountId, validatedComponents);
+
   const data: CreateTaxRateData = {
     name,
     code,
@@ -104,10 +151,21 @@ export async function createTaxRate(tenantId: string, input: any): Promise<TaxRa
     components: validatedComponents,
   };
 
-  return taxRateRepository.createTaxRate(prisma, tenantId, data);
+  const created = await taxRateRepository.createTaxRate(prisma, tenantId, data);
+
+  await recordAuditLog({
+    action: 'TAX_RATE.CREATED',
+    entity: 'TaxRate',
+    entityId: created.id,
+    tenantId,
+    actor,
+    details: `Tax rate ${created.code} - ${created.name} (${(Number(created.rate) * 100).toFixed(2)}%) created.`,
+  });
+
+  return created;
 }
 
-export async function updateTaxRate(tenantId: string, id: string, input: any): Promise<TaxRateRecord> {
+export async function updateTaxRate(tenantId: string, id: string, input: any, actor?: AuditActor): Promise<TaxRateRecord> {
   const existing = await taxRateRepository.getTaxRateById(prisma, tenantId, id);
   if (!existing) {
     throw new TaxRateServiceError(`Tax rate with ID "${id}" not found.`, 404);
@@ -159,14 +217,28 @@ export async function updateTaxRate(tenantId: string, id: string, input: any): P
     data.effectiveTo = newTo;
   }
 
+  const effectiveAccountId = data.accountId !== undefined ? data.accountId : existing.accountId;
+  const effectiveComponents = data.components !== undefined ? data.components : existing.components;
+  await validateAccountIds(effectiveAccountId, effectiveComponents);
+
   const updated = await taxRateRepository.updateTaxRate(prisma, tenantId, id, data);
   if (!updated) {
     throw new TaxRateServiceError(`Failed to update tax rate with ID "${id}".`, 500);
   }
+
+  await recordAuditLog({
+    action: 'TAX_RATE.UPDATED',
+    entity: 'TaxRate',
+    entityId: updated.id,
+    tenantId,
+    actor,
+    changes: diffFields(existing, updated, ['name', 'code', 'rate', 'accountId', 'isActive', 'effectiveFrom', 'effectiveTo']),
+  });
+
   return updated;
 }
 
-export async function deleteTaxRate(tenantId: string, id: string): Promise<void> {
+export async function deleteTaxRate(tenantId: string, id: string, actor?: AuditActor): Promise<void> {
   const existing = await taxRateRepository.getTaxRateById(prisma, tenantId, id);
   if (!existing) {
     throw new TaxRateServiceError(`Tax rate with ID "${id}" not found.`, 404);
@@ -181,6 +253,15 @@ export async function deleteTaxRate(tenantId: string, id: string): Promise<void>
   }
 
   await taxRateRepository.deleteTaxRate(prisma, tenantId, id);
+
+  await recordAuditLog({
+    action: 'TAX_RATE.DELETED',
+    entity: 'TaxRate',
+    entityId: id,
+    tenantId,
+    actor,
+    details: `Tax rate ${existing.code} - ${existing.name} deleted.`,
+  });
 }
 
 /**

@@ -1,13 +1,15 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { Percent, Trash2, PlusCircle, Layers, Sparkles } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
 import { api } from "../../lib/api";
+import { useAccounts } from "../../hooks/useAccounts";
 
 interface TaxRateComponent {
   name: string;
   rate: number;
+  accountId?: string;
 }
 
 interface TaxRate {
@@ -18,34 +20,56 @@ interface TaxRate {
   isActive: boolean;
   effectiveFrom: string;
   effectiveTo: string | null;
+  accountId?: string | null;
   components: TaxRateComponent[] | null;
 }
 
 interface ComponentRow {
   name: string;
   ratePercent: string;
+  accountId: string;
 }
 
 const GHANA_VAT_PRESET: ComponentRow[] = [
-  { name: "VAT", ratePercent: "15" },
-  { name: "NHIL", ratePercent: "2.5" },
-  { name: "GETFund Levy", ratePercent: "2.5" },
+  { name: "VAT", ratePercent: "15", accountId: "" },
+  { name: "NHIL", ratePercent: "2.5", accountId: "" },
+  { name: "GETFund Levy", ratePercent: "2.5", accountId: "" },
 ];
 
 export function TaxRates() {
+  const { accounts } = useAccounts();
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
 
   const [isLayered, setIsLayered] = useState(false);
-  const [componentRows, setComponentRows] = useState<ComponentRow[]>([{ name: "", ratePercent: "" }]);
+  const [componentRows, setComponentRows] = useState<ComponentRow[]>([{ name: "", ratePercent: "", accountId: "" }]);
 
   const [form, setForm] = useState({
     name: "",
     code: "",
     ratePercent: "",
+    accountId: "",
     effectiveFrom: new Date().toISOString().split("T")[0],
   });
+
+  // Liability-type accounts (where a tax-collected-on-behalf-of-government
+  // levy typically belongs) sorted first as a visual hint - not a hard
+  // filter, since a tenant may legitimately want to post to any account.
+  const sortedAccounts = useMemo(() => {
+    return [...accounts].sort((a, b) => {
+      const aLiability = a.type === "Liability" ? 0 : 1;
+      const bLiability = b.type === "Liability" ? 0 : 1;
+      if (aLiability !== bLiability) return aLiability - bLiability;
+      return a.code.localeCompare(b.code);
+    });
+  }, [accounts]);
+
+  const accountLabelById = useMemo(() => {
+    const map = new Map<string, string>();
+    accounts.forEach((a) => map.set(a.id, `${a.code} - ${a.name}`));
+    return map;
+  }, [accounts]);
 
   const fetchTaxRates = useCallback(async () => {
     setIsLoading(true);
@@ -71,7 +95,7 @@ export function TaxRates() {
     setForm({ ...form, name: form.name || "Ghana Standard VAT", code: form.code || "GH-VAT-STD" });
   };
 
-  const addComponentRow = () => setComponentRows([...componentRows, { name: "", ratePercent: "" }]);
+  const addComponentRow = () => setComponentRows([...componentRows, { name: "", ratePercent: "", accountId: "" }]);
   const removeComponentRow = (idx: number) => setComponentRows(componentRows.filter((_, i) => i !== idx));
   const updateComponentRow = (idx: number, field: keyof ComponentRow, value: string) => {
     const next = [...componentRows];
@@ -87,7 +111,11 @@ export function TaxRates() {
     const components = isLayered
       ? componentRows
           .filter((r) => r.name.trim() && Number(r.ratePercent) > 0)
-          .map((r) => ({ name: r.name.trim(), rate: Number(r.ratePercent) / 100 }))
+          .map((r) => ({
+            name: r.name.trim(),
+            rate: Number(r.ratePercent) / 100,
+            ...(r.accountId ? { accountId: r.accountId } : {}),
+          }))
       : undefined;
 
     try {
@@ -96,11 +124,12 @@ export function TaxRates() {
         code: form.code,
         rate,
         effectiveFrom: form.effectiveFrom,
+        ...(!isLayered && form.accountId ? { accountId: form.accountId } : {}),
         ...(components ? { components } : {}),
       });
-      setForm({ name: "", code: "", ratePercent: "", effectiveFrom: new Date().toISOString().split("T")[0] });
+      setForm({ name: "", code: "", ratePercent: "", accountId: "", effectiveFrom: new Date().toISOString().split("T")[0] });
       setIsLayered(false);
-      setComponentRows([{ name: "", ratePercent: "" }]);
+      setComponentRows([{ name: "", ratePercent: "", accountId: "" }]);
       setMessage("✅ Tax rate created.");
       fetchTaxRates();
     } catch (err: any) {
@@ -165,10 +194,23 @@ export function TaxRates() {
                   <tr key={tr.id} className="border-b border-secondary-100 dark:border-secondary-800">
                     <td className="py-2">
                       <div>{tr.name}</div>
-                      {tr.components && tr.components.length > 0 && (
-                        <div className="text-secondary-400 mt-0.5">
-                          {tr.components.map((c) => `${c.name} ${(c.rate * 100).toFixed(2)}%`).join(" + ")}
+                      {tr.components && tr.components.length > 0 ? (
+                        <div className="text-secondary-400 mt-0.5 space-y-0.5">
+                          {tr.components.map((c, i) => (
+                            <div key={i}>
+                              {c.name} {(c.rate * 100).toFixed(2)}%
+                              {c.accountId && (
+                                <span className="text-secondary-400"> &rarr; {accountLabelById.get(c.accountId) || "Unknown account"}</span>
+                              )}
+                            </div>
+                          ))}
                         </div>
+                      ) : (
+                        tr.accountId && (
+                          <div className="text-secondary-400 mt-0.5">
+                            &rarr; {accountLabelById.get(tr.accountId) || "Unknown account"}
+                          </div>
+                        )
                       )}
                     </td>
                     <td className="py-2 font-mono">{tr.code}</td>
@@ -258,6 +300,25 @@ export function TaxRates() {
                   />
                 </div>
               )}
+              {!isLayered && (
+                <div className="space-y-2">
+                  <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                    Post collected tax to (optional)
+                  </label>
+                  <select
+                    className="w-full h-9 rounded-md border border-secondary-200 dark:border-secondary-800 bg-white dark:bg-secondary-900 px-3 text-sm"
+                    value={form.accountId}
+                    onChange={(e) => setForm({ ...form, accountId: e.target.value })}
+                  >
+                    <option value="">No account (post to Revenue)</option>
+                    {sortedAccounts.map((a) => (
+                      <option key={a.id} value={a.id}>
+                        {a.code} - {a.name} ({a.type})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
             </div>
 
             <button
@@ -290,6 +351,18 @@ export function TaxRates() {
                       />
                     </div>
                     <span className="text-xs text-secondary-500">%</span>
+                    <select
+                      className="w-48 flex-shrink-0 h-9 rounded-md border border-secondary-200 dark:border-secondary-800 bg-white dark:bg-secondary-900 px-2 text-xs"
+                      value={row.accountId}
+                      onChange={(e) => updateComponentRow(idx, "accountId", e.target.value)}
+                    >
+                      <option value="">No account (post to Revenue)</option>
+                      {sortedAccounts.map((a) => (
+                        <option key={a.id} value={a.id}>
+                          {a.code} - {a.name}
+                        </option>
+                      ))}
+                    </select>
                     <button
                       type="button"
                       onClick={() => removeComponentRow(idx)}

@@ -22,6 +22,10 @@ export interface OnboardTenantDTO {
   termsAccepted?: boolean;
   tier?: number;
   baseCurrency?: string;
+  // "BUSINESS" | "NONPROFIT" - chosen once at onboarding, drives which nav
+  // sections the frontend shows. Any unrecognized/omitted value defaults
+  // safely to BUSINESS (matches tier's default-on-absence style).
+  orgType?: string;
 }
 
 export interface OnboardTenantResult {
@@ -33,6 +37,7 @@ export interface OnboardTenantResult {
     acceptedTermsVersion: string | null;
     termsAcceptedAt: Date | null;
     tier: number;
+    orgType: string;
     createdAt: Date;
   };
   admin: {
@@ -155,6 +160,7 @@ export async function onboardTenant(
   }
 
   const tier = dto.tier !== undefined ? Number(dto.tier) : 1;
+  const orgType = dto.orgType === 'NONPROFIT' ? 'NONPROFIT' : 'BUSINESS';
 
   const schemaName = sanitizeSchemaName(slug);
 
@@ -180,6 +186,7 @@ export async function onboardTenant(
       termsAcceptedAt: new Date(),
       tier,
       baseCurrency: dto.baseCurrency,
+      orgType,
     });
   } catch (err: any) {
     if (err.message && err.message.includes('unique constraint')) {
@@ -258,6 +265,7 @@ export async function onboardTenant(
     role: adminUser.role,
     tenantId: tenantRecord.id,
     name: adminUser.name,
+    orgType: tenantRecord.orgType,
   });
 
   // 7. Warm Redis cache with newly created tenant
@@ -282,6 +290,7 @@ export async function onboardTenant(
       acceptedTermsVersion: tenantRecord.acceptedTermsVersion,
       termsAcceptedAt: tenantRecord.termsAcceptedAt,
       tier: tenantRecord.tier,
+      orgType: tenantRecord.orgType,
       createdAt: tenantRecord.createdAt,
     },
     admin: {

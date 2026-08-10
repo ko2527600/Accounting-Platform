@@ -177,6 +177,49 @@ describe('Recurring Transactions API + cron generator', () => {
     expect(new Date(rt.nextRun).getTime()).toBeGreaterThan(Date.now());
   });
 
+  it('records RECURRING_TXN.CREATED/.UPDATED/.DELETED audit log entries', async () => {
+    const created = await request(app)
+      .post('/api/v1/recurring-transactions')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({
+        name: 'Audit Test Subscription',
+        frequency: 'MONTHLY',
+        startDate: '2030-01-01',
+        templateData: {
+          lines: [
+            { accountId: expenseAccountId, debit: 50, credit: 0 },
+            { accountId: cashAccountId, debit: 0, credit: 50 },
+          ],
+        },
+      });
+    expect(created.status).toBe(201);
+    const rtId = created.body.data.recurringTransaction.id;
+
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'RecurringTransaction', entityId: rtId, action: 'RECURRING_TXN.CREATED' } })
+    ).toBeTruthy();
+
+    const updated = await request(app)
+      .put(`/api/v1/recurring-transactions/${rtId}`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ name: 'Audit Test Subscription Renamed' });
+    expect(updated.status).toBe(200);
+    const updatedLog = await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'RecurringTransaction', entityId: rtId, action: 'RECURRING_TXN.UPDATED' } });
+    expect(updatedLog).toBeTruthy();
+    expect((updatedLog!.changes as any).name).toEqual({ from: 'Audit Test Subscription', to: 'Audit Test Subscription Renamed' });
+
+    const deleted = await request(app)
+      .delete(`/api/v1/recurring-transactions/${rtId}`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(deleted.status).toBe(200);
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'RecurringTransaction', entityId: rtId, action: 'RECURRING_TXN.DELETED' } })
+    ).toBeTruthy();
+  });
+
   it('running the sweep again immediately does not double-generate (nextRun already advanced past now)', async () => {
     const before = await request(app)
       .get('/api/v1/journal-entries')

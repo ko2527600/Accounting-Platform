@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { ShieldCheck, History, RefreshCw, Download, X } from "lucide-react";
 
 interface AuditLogItem {
@@ -23,12 +25,34 @@ interface AuditLogItem {
 interface AuditLogFilters {
   action: string;
   entity: string;
+  entityId: string;
   userEmail: string;
+  ipAddress: string;
   dateFrom: string;
   dateTo: string;
 }
 
-const EMPTY_FILTERS: AuditLogFilters = { action: "", entity: "", userEmail: "", dateFrom: "", dateTo: "" };
+const EMPTY_FILTERS: AuditLogFilters = {
+  action: "",
+  entity: "",
+  entityId: "",
+  userEmail: "",
+  ipAddress: "",
+  dateFrom: "",
+  dateTo: "",
+};
+
+const FILTER_KEYS = Object.keys(EMPTY_FILTERS) as (keyof AuditLogFilters)[];
+
+/** Reads filters out of the URL's query params - only known keys, everything else ignored. */
+function filtersFromSearchParams(params: URLSearchParams): AuditLogFilters {
+  const filters = { ...EMPTY_FILTERS };
+  for (const key of FILTER_KEYS) {
+    const value = params.get(key);
+    if (value) filters[key] = value;
+  }
+  return filters;
+}
 
 function ChangesCell({ changes }: { changes?: Record<string, { from: unknown; to: unknown }> | null }) {
   if (!changes || Object.keys(changes).length === 0) {
@@ -51,23 +75,31 @@ function ChangesCell({ changes }: { changes?: Record<string, { from: unknown; to
 
 export function AuditLogs() {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [logs, setLogs] = useState<AuditLogItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [actionOptions, setActionOptions] = useState<string[]>([]);
+  const [entityOptions, setEntityOptions] = useState<string[]>([]);
 
   // Draft filter inputs (what the user is typing) vs. applied filters (what
   // was actually last submitted) - kept separate so typing doesn't refetch
-  // on every keystroke.
-  const [draftFilters, setDraftFilters] = useState<AuditLogFilters>(EMPTY_FILTERS);
-  const [appliedFilters, setAppliedFilters] = useState<AuditLogFilters>(EMPTY_FILTERS);
+  // on every keystroke. Seeded from the URL on first render so a filtered
+  // view survives a refresh or can be shared as a link.
+  const initialFilters = filtersFromSearchParams(searchParams);
+  const [draftFilters, setDraftFilters] = useState<AuditLogFilters>(initialFilters);
+  const [appliedFilters, setAppliedFilters] = useState<AuditLogFilters>(initialFilters);
   const [isExporting, setIsExporting] = useState(false);
 
   const buildParams = useCallback((currentPage: number, filters: AuditLogFilters) => {
     const params: Record<string, string | number> = { page: currentPage, limit: 20 };
     if (filters.action.trim()) params.action = filters.action.trim();
     if (filters.entity.trim()) params.entity = filters.entity.trim();
+    if (filters.entityId.trim()) params.entityId = filters.entityId.trim();
     if (filters.userEmail.trim()) params.userEmail = filters.userEmail.trim();
+    if (filters.ipAddress.trim()) params.ipAddress = filters.ipAddress.trim();
     if (filters.dateFrom) params.dateFrom = filters.dateFrom;
     if (filters.dateTo) params.dateTo = filters.dateTo;
     return params;
@@ -93,15 +125,44 @@ export function AuditLogs() {
     fetchAuditLogs(page, appliedFilters);
   }, [fetchAuditLogs, page, appliedFilters]);
 
-  const applyFilters = () => {
-    setAppliedFilters(draftFilters);
+  useEffect(() => {
+    api.get("/audit-logs/meta/values")
+      .then((response) => {
+        if (response.data.success) {
+          setActionOptions(response.data.data.actions || []);
+          setEntityOptions(response.data.data.entities || []);
+        }
+      })
+      .catch(() => { /* autocomplete is a nice-to-have, fail silently */ });
+  }, []);
+
+  const applyFilters = (overrides?: Partial<AuditLogFilters>) => {
+    const next = { ...draftFilters, ...overrides };
+    setDraftFilters(next);
+    setAppliedFilters(next);
     setPage(1);
+    const params: Record<string, string> = {};
+    for (const key of FILTER_KEYS) {
+      if (next[key].trim()) params[key] = next[key].trim();
+    }
+    setSearchParams(params);
   };
 
   const clearFilters = () => {
     setDraftFilters(EMPTY_FILTERS);
     setAppliedFilters(EMPTY_FILTERS);
     setPage(1);
+    setSearchParams({});
+  };
+
+  const applyMyActivity = () => applyFilters({ userEmail: user?.email || "" });
+  const applyToday = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    applyFilters({ dateFrom: today, dateTo: today });
+  };
+  const applyFailedLoginsToday = () => {
+    const today = new Date().toISOString().slice(0, 10);
+    applyFilters({ action: "AUTH.LOGIN_FAILED", dateFrom: today, dateTo: today });
   };
 
   const hasActiveFilters = Object.values(appliedFilters).some((v) => v.trim() !== "");
@@ -165,24 +226,58 @@ export function AuditLogs() {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {/* Quick-filter presets - jump straight to a common view without
+              filling in the form. No "Deletions" preset: deletion actions
+              don't follow one consistent name pattern across every module
+              (not all are "*.DELETED"), so there's no reliable single filter
+              value for it yet. */}
+          <div className="flex flex-wrap gap-2 mb-3">
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={applyMyActivity} disabled={!user?.email}>
+              My Activity
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={applyToday}>
+              Today
+            </Button>
+            <Button variant="outline" size="sm" className="h-7 text-xs" onClick={applyFailedLoginsToday}>
+              Failed Logins Today
+            </Button>
+          </div>
+
           {/* Filter Bar */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-4 p-3 rounded-lg bg-secondary-50 dark:bg-secondary-900 border border-secondary-200 dark:border-secondary-800">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-secondary-50 dark:bg-secondary-900 border border-secondary-200 dark:border-secondary-800">
             <div>
               <label className="block text-[11px] font-medium text-secondary-500 mb-1">Action</label>
               <Input
                 placeholder="e.g. JOURNAL_ENTRY"
                 className="h-9 text-xs"
+                list="audit-action-options"
                 value={draftFilters.action}
                 onChange={(e) => setDraftFilters((f) => ({ ...f, action: e.target.value }))}
               />
+              <datalist id="audit-action-options">
+                {actionOptions.map((a) => <option key={a} value={a} />)}
+              </datalist>
             </div>
             <div>
               <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity</label>
               <Input
                 placeholder="e.g. Invoice"
                 className="h-9 text-xs"
+                list="audit-entity-options"
                 value={draftFilters.entity}
                 onChange={(e) => setDraftFilters((f) => ({ ...f, entity: e.target.value }))}
+              />
+              <datalist id="audit-entity-options">
+                {entityOptions.map((e) => <option key={e} value={e} />)}
+              </datalist>
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity ID</label>
+              <Input
+                placeholder="exact record ID"
+                className="h-9 text-xs"
+                value={draftFilters.entityId}
+                onChange={(e) => setDraftFilters((f) => ({ ...f, entityId: e.target.value }))}
               />
             </div>
             <div>
@@ -192,6 +287,15 @@ export function AuditLogs() {
                 className="h-9 text-xs"
                 value={draftFilters.userEmail}
                 onChange={(e) => setDraftFilters((f) => ({ ...f, userEmail: e.target.value }))}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-secondary-500 mb-1">IP Address</label>
+              <Input
+                placeholder="e.g. 197.251"
+                className="h-9 text-xs"
+                value={draftFilters.ipAddress}
+                onChange={(e) => setDraftFilters((f) => ({ ...f, ipAddress: e.target.value }))}
               />
             </div>
             <div>
@@ -212,8 +316,8 @@ export function AuditLogs() {
                 onChange={(e) => setDraftFilters((f) => ({ ...f, dateTo: e.target.value }))}
               />
             </div>
-            <div className="col-span-2 md:col-span-5 flex gap-2 pt-1">
-              <Button variant="primary" className="h-8 text-xs" onClick={applyFilters}>
+            <div className="col-span-2 md:col-span-4 flex gap-2 pt-1">
+              <Button variant="primary" className="h-8 text-xs" onClick={() => applyFilters()}>
                 Apply Filters
               </Button>
               {hasActiveFilters && (
@@ -259,7 +363,17 @@ export function AuditLogs() {
                         </span>
                       </TableCell>
                       <TableCell className="font-medium text-secondary-900 dark:text-secondary-50">
-                        {log.entity} {log.entityId ? `#${log.entityId.slice(0, 8)}` : ""}
+                        {log.entity}{" "}
+                        {log.entityId && (
+                          <button
+                            type="button"
+                            title="Filter to this record's full history"
+                            className="text-secondary-500 hover:text-primary-600 hover:underline font-normal"
+                            onClick={() => applyFilters({ entityId: log.entityId })}
+                          >
+                            #{log.entityId.slice(0, 8)}
+                          </button>
+                        )}
                       </TableCell>
                       <TableCell className="text-xs text-secondary-600 dark:text-secondary-400">
                         {log.userEmail || log.userId || "System / Middleware"}

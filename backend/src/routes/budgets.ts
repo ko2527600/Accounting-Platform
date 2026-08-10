@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as budgetService from '../services/budgetService';
 import { BudgetServiceError } from '../services/budgetService';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -59,7 +60,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const budget = await budgetService.createBudget(tenantId, req.body);
+    const budget = await budgetService.createBudget(tenantId, req.body, actorFromRequest(req));
     res.status(201).json({ success: true, message: 'Budget created successfully', data: { budget } });
   } catch (error: any) {
     handleError(res, error, 'Failed to create budget.');
@@ -73,7 +74,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const budget = await budgetService.updateBudget(tenantId, req.params.id, req.body);
+    const budget = await budgetService.updateBudget(tenantId, req.params.id, req.body, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Budget updated successfully', data: { budget } });
   } catch (error: any) {
     handleError(res, error, 'Failed to update budget.');
@@ -87,7 +88,7 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
 router.delete('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    await budgetService.deleteBudget(tenantId, req.params.id);
+    await budgetService.deleteBudget(tenantId, req.params.id, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Budget deleted successfully' });
   } catch (error: any) {
     handleError(res, error, 'Failed to delete budget.');

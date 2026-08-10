@@ -26,6 +26,19 @@ export interface JournalLine {
   description?: string;
   debit: number;
   credit: number;
+  fundId?: string;
+}
+
+export interface Fund {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  description: string | null;
+  isRestricted: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface JournalEntry {

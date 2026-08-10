@@ -6,7 +6,8 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, RefreshCw } from "lucide-react";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -20,6 +21,12 @@ interface TaxRate {
   name: string;
   code: string;
   rate: string;
+}
+
+interface Fund {
+  id: string;
+  name: string;
+  code: string;
 }
 
 interface InvoiceItem {
@@ -68,11 +75,32 @@ interface MomoRequest {
   createdAt: string;
 }
 
+interface TellerRequest {
+  id: string;
+  transactionId: string;
+  network: string;
+  phoneNumber: string;
+  amount: number;
+  status: "PENDING" | "SUCCESSFUL" | "FAILED";
+  failureReason: string | null;
+  createdAt: string;
+}
+
+const TELLER_NETWORKS: { value: string; label: string }[] = [
+  { value: "VDF", label: "Telecel Cash" },
+  { value: "ATL", label: "AirtelTigo Money (Airtel)" },
+  { value: "TGO", label: "AirtelTigo Money (Tigo)" },
+  { value: "ZPY", label: "Zeepay" },
+  { value: "GMY", label: "G-Money" },
+];
+
 export function Invoices() {
   const { showToast } = useToast();
+  const { settings } = useTenantSettings();
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [funds, setFunds] = useState<Fund[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modals
@@ -86,6 +114,7 @@ export function Invoices() {
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [selectedTaxRateId, setSelectedTaxRateId] = useState("");
+  const [selectedFundId, setSelectedFundId] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
@@ -106,18 +135,38 @@ export function Invoices() {
   const [isSendingMomo, setIsSendingMomo] = useState(false);
   const [checkingReferenceId, setCheckingReferenceId] = useState<string | null>(null);
 
+  // Mobile Money (TheTeller: Telecel/AirtelTigo/Zeepay/G-Money) collection modal
+  const [tellerInvoice, setTellerInvoice] = useState<Invoice | null>(null);
+  const [tellerRequests, setTellerRequests] = useState<TellerRequest[]>([]);
+  const [tellerPhone, setTellerPhone] = useState("");
+  const [tellerNetwork, setTellerNetwork] = useState("VDF");
+  const [isSendingTeller, setIsSendingTeller] = useState(false);
+  const [checkingTellerTxnId, setCheckingTellerTxnId] = useState<string | null>(null);
+
+  // Once the tenant's real base currency loads, default the new-invoice
+  // currency picker to it instead of leaving it pinned to the initial "USD"
+  // guess - most users never touch this field, so leaving it wrong would
+  // silently misdenominate every invoice. Only snaps it while the field is
+  // still at that initial default, so it never clobbers a currency the user
+  // already chose.
+  useEffect(() => {
+    setCurrency((c) => (c === "USD" ? settings.baseCurrency : c));
+  }, [settings.baseCurrency]);
+
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [invRes, custRes, taxRes] = await Promise.all([
+      const [invRes, custRes, taxRes, fundsRes] = await Promise.all([
         api.get("/invoices"),
         api.get("/invoices/customers"),
         api.get("/tax-rates"),
+        api.get("/funds"),
       ]);
 
       if (invRes.data.success) setInvoices(invRes.data.data.invoices);
       if (custRes.data.success) setCustomers(custRes.data.data.customers);
       if (taxRes.data.success) setTaxRates(taxRes.data.data.taxRates.filter((t: any) => t.isActive));
+      if (fundsRes.data.success) setFunds(fundsRes.data.data.funds.filter((f: any) => f.isActive));
     } catch (err) {
       console.error("Failed to load invoice data:", err);
     } finally {
@@ -157,6 +206,7 @@ export function Invoices() {
         currency,
         items,
         ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
+        ...(selectedFundId ? { fundId: selectedFundId } : {}),
       });
 
       if (res.data.success) {
@@ -268,7 +318,79 @@ export function Invoices() {
     }
   };
 
-  const formatCurrency = (amt: number, curr = "USD") => {
+  const openTellerModal = async (invoice: Invoice) => {
+    setTellerInvoice(invoice);
+    setTellerPhone("");
+    setTellerNetwork("VDF");
+    setTellerRequests([]);
+    try {
+      const res = await api.get(`/teller/invoices/${invoice.id}/requests`);
+      if (res.data.success) setTellerRequests(res.data.data.requests);
+    } catch (err) {
+      console.error("Failed to load Mobile Money request history:", err);
+    }
+  };
+
+  const handleSendTellerRequest = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!tellerInvoice) return;
+    setIsSendingTeller(true);
+    try {
+      const res = await api.post(`/teller/invoices/${tellerInvoice.id}/request`, {
+        phoneNumber: tellerPhone,
+        network: tellerNetwork,
+      });
+      if (res.data.success) {
+        setTellerRequests((prev) => [res.data.data.request, ...prev]);
+        setTellerPhone("");
+        // TheTeller can resolve synchronously in this same response, unlike
+        // MTN MoMo's always-pending-until-checked flow.
+        if (res.data.data.request.status === "SUCCESSFUL") {
+          showToast("Payment confirmed immediately - invoice marked PAID.", "success");
+          setTellerInvoice(null);
+          fetchData();
+        } else {
+          showToast("Mobile Money payment request sent. The customer must approve it on their phone.", "success");
+        }
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to send Mobile Money payment request.", "error");
+    } finally {
+      setIsSendingTeller(false);
+    }
+  };
+
+  const handleCheckTellerStatus = async (transactionId: string) => {
+    setCheckingTellerTxnId(transactionId);
+    try {
+      const res = await api.post(`/teller/requests/${transactionId}/check-status`);
+      if (res.data.success) {
+        setTellerRequests((prev) =>
+          prev.map((r) => (r.transactionId === transactionId ? res.data.data.request : r))
+        );
+        if (res.data.data.request.status === "SUCCESSFUL") {
+          showToast("Payment confirmed - invoice marked PAID.", "success");
+          setTellerInvoice(null);
+          fetchData();
+        } else if (res.data.data.request.status === "FAILED") {
+          showToast("Payment was not successful. See the reason below.", "error");
+        } else {
+          showToast("Still pending - the customer hasn't approved the prompt yet.", "info");
+        }
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to check Mobile Money payment status.", "error");
+    } finally {
+      setCheckingTellerTxnId(null);
+    }
+  };
+
+  // Defaults to the tenant's real configured base currency (not a hardcoded
+  // "USD") for aggregate figures like the AR/Paid summary tiles that don't
+  // pass an explicit currency. Individual invoice rows still pass
+  // `inv.currency` explicitly - that's the real per-invoice native currency,
+  // correct as-is.
+  const formatCurrency = (amt: number, curr = settings.baseCurrency) => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: curr }).format(amt);
   };
 
@@ -405,6 +527,12 @@ export function Invoices() {
                           Collect via MoMo
                         </Button>
                       )}
+                      {inv.status !== "PAID" && inv.status !== "DRAFT" && (
+                        <Button variant="outline" size="sm" onClick={() => openTellerModal(inv)} className="text-xs">
+                          <Wallet className="mr-1 h-3 w-3" />
+                          Collect via Mobile Money (Other Networks)
+                        </Button>
+                      )}
                       {inv.status !== "DRAFT" && (
                         <Button variant="outline" size="sm" onClick={() => openCreditNoteModal(inv)} className="text-xs">
                           <Undo2 className="mr-1 h-3 w-3" />
@@ -487,6 +615,24 @@ export function Invoices() {
               </select>
             </div>
           </div>
+
+          {funds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Fund (optional)</label>
+              <select
+                className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                value={selectedFundId}
+                onChange={(e) => setSelectedFundId(e.target.value)}
+              >
+                <option value="">No fund</option>
+                {funds.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium mb-1">Line Items</label>
@@ -675,6 +821,99 @@ export function Invoices() {
             <Button type="button" variant="outline" onClick={() => setMomoInvoice(null)}>Close</Button>
             <Button type="submit" variant="primary" disabled={isSendingMomo}>
               {isSendingMomo ? "Sending..." : "Send Payment Request"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Collect via Mobile Money (Other Networks / TheTeller) Modal */}
+      <Modal
+        isOpen={!!tellerInvoice}
+        onClose={() => setTellerInvoice(null)}
+        title={`Collect via Mobile Money (Other Networks) - ${tellerInvoice?.invoiceNumber ?? ""}`}
+        description="For Telecel Cash, AirtelTigo Money, Zeepay, or G-Money numbers. Use Collect via MoMo above for MTN numbers."
+      >
+        <form onSubmit={handleSendTellerRequest} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">Network</label>
+            <select
+              required
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+              value={tellerNetwork}
+              onChange={(e) => setTellerNetwork(e.target.value)}
+            >
+              {TELLER_NETWORKS.map((n) => (
+                <option key={n.value} value={n.value}>{n.label}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Customer Phone Number ({tellerInvoice ? formatCurrency(Number(tellerInvoice.total), tellerInvoice.currency) : ""})
+            </label>
+            <Input
+              required
+              placeholder="0244000000"
+              value={tellerPhone}
+              onChange={(e) => setTellerPhone(e.target.value)}
+            />
+          </div>
+
+          {tellerRequests.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Payment Requests</label>
+              <div className="space-y-2 max-h-48 overflow-y-auto text-xs">
+                {tellerRequests.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between border-b border-secondary-100 dark:border-secondary-800 py-1.5">
+                    <div>
+                      <div className="text-secondary-900 dark:text-secondary-50">
+                        {r.phoneNumber} ({TELLER_NETWORKS.find((n) => n.value === r.network)?.label || r.network})
+                      </div>
+                      <div className="text-secondary-500">{new Date(r.createdAt).toLocaleString()}</div>
+                      {r.status === "FAILED" && r.failureReason && (
+                        <div className="text-red-500 mt-0.5">{r.failureReason}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === "PENDING" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                          Pending
+                        </span>
+                      )}
+                      {r.status === "SUCCESSFUL" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          Successful
+                        </span>
+                      )}
+                      {r.status === "FAILED" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                          Failed
+                        </span>
+                      )}
+                      {r.status === "PENDING" && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="text-xs"
+                          disabled={checkingTellerTxnId === r.transactionId}
+                          onClick={() => handleCheckTellerStatus(r.transactionId)}
+                        >
+                          <RefreshCw className="mr-1 h-3 w-3" />
+                          {checkingTellerTxnId === r.transactionId ? "Checking..." : "Check Status"}
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setTellerInvoice(null)}>Close</Button>
+            <Button type="submit" variant="primary" disabled={isSendingTeller}>
+              {isSendingTeller ? "Sending..." : "Send Payment Request"}
             </Button>
           </div>
         </form>

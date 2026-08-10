@@ -61,11 +61,12 @@ router.get('/trial-balance', requireRole('Viewer'), async (req: Request, res: Re
  */
 router.get('/profit-loss', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { startDate, endDate, asOfDate } = req.query;
+    const { startDate, endDate, asOfDate, fundId } = req.query;
     const report = await reportingService.getProfitAndLoss(
       startDate ? (startDate as string) : undefined,
       endDate ? (endDate as string) : undefined,
-      asOfDate ? (asOfDate as string) : undefined
+      asOfDate ? (asOfDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
     );
     res.status(200).json({
       success: true,
@@ -93,10 +94,11 @@ router.get('/profit-loss', requireRole('Viewer'), async (req: Request, res: Resp
  */
 router.get('/balance-sheet', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { asOfDate, endDate } = req.query;
+    const { asOfDate, endDate, fundId } = req.query;
     const report = await reportingService.getBalanceSheet(
       asOfDate ? (asOfDate as string) : undefined,
-      endDate ? (endDate as string) : undefined
+      endDate ? (endDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
     );
     res.status(200).json({
       success: true,
@@ -130,10 +132,11 @@ router.get('/balance-sheet/export', requireRole('Viewer'), async (req: Request, 
       return;
     }
 
-    const { asOfDate, endDate } = req.query;
+    const { asOfDate, endDate, fundId } = req.query;
     const report = await reportingService.getBalanceSheet(
       asOfDate ? (asOfDate as string) : undefined,
-      endDate ? (endDate as string) : undefined
+      endDate ? (endDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
     );
 
     const { tenantId, tenantName } = requireTenantContext();
@@ -178,11 +181,12 @@ router.get('/profit-loss/export', requireRole('Viewer'), async (req: Request, re
       return;
     }
 
-    const { startDate, endDate, asOfDate } = req.query;
+    const { startDate, endDate, asOfDate, fundId } = req.query;
     const report = await reportingService.getProfitAndLoss(
       startDate ? (startDate as string) : undefined,
       endDate ? (endDate as string) : undefined,
-      asOfDate ? (asOfDate as string) : undefined
+      asOfDate ? (asOfDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
     );
 
     const { tenantId, tenantName } = requireTenantContext();

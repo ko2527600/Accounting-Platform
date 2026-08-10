@@ -22,7 +22,7 @@ export interface BalanceSheetReport {
   isLoading: boolean;
 }
 
-export function useBalanceSheet(): BalanceSheetReport {
+export function useBalanceSheet(fundId?: string): BalanceSheetReport {
   const [asOfDate, setAsOfDate] = useState<string | null>(null);
   const [assetAccounts, setAssetAccounts] = useState<BalanceSheetAccountRow[]>([]);
   const [liabilityAccounts, setLiabilityAccounts] = useState<BalanceSheetAccountRow[]>([]);
@@ -40,7 +40,7 @@ export function useBalanceSheet(): BalanceSheetReport {
     const fetchBalanceSheet = async () => {
       setIsLoading(true);
       try {
-        const response = await api.get('/reports/balance-sheet');
+        const response = await api.get('/reports/balance-sheet', { params: fundId ? { fundId } : {} });
         if (response.data.success) {
           const data = response.data.data;
 
@@ -69,7 +69,7 @@ export function useBalanceSheet(): BalanceSheetReport {
     };
 
     fetchBalanceSheet();
-  }, []);
+  }, [fundId]);
 
   return {
     asOfDate,

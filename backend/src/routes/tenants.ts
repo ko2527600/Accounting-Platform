@@ -163,6 +163,8 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       return res.status(400).json({ success: false, error: 'Tenant ID context required.' });
     }
 
+    const before = await tenantRepository.findTenantById(prisma, tenantId);
+
     const updated = await prisma.tenant.update({
       where: { id: tenantId },
       data: {
@@ -170,6 +172,14 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         ...(slug && { slug: slug.trim().toLowerCase() }),
         ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
       },
+    });
+
+    await recordAuditLog({
+      action: 'TENANT_SETTINGS.UPDATED',
+      entity: 'Tenant',
+      entityId: tenantId,
+      actor: actorFromRequest(req),
+      changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency']),
     });
 
     return res.status(200).json({

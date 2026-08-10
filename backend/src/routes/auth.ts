@@ -81,6 +81,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
 
     // Check if tenant exists (by ID or Slug) to satisfy foreign key constraints
     let associatedTenantId: string | null = null;
+    let associatedTenantOrgType: string | undefined;
     if (tenantId) {
       const tenant = await prisma.tenant.findFirst({
         where: {
@@ -92,6 +93,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       });
       if (tenant) {
         associatedTenantId = tenant.id;
+        associatedTenantOrgType = tenant.orgType;
       }
     }
 
@@ -112,6 +114,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
       name: user.name,
       role: user.role,
       tenantId: user.tenantId || undefined,
+      orgType: associatedTenantOrgType,
     };
     const token = generateJwtToken(tokenPayload);
 
@@ -125,6 +128,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
           name: user.name,
           role: user.role,
           tenantId: user.tenantId,
+          orgType: associatedTenantOrgType,
           createdAt: user.createdAt,
         },
         token,
@@ -357,6 +361,12 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Org type rides on the token so nav filtering never needs an extra DB
+    // round trip on later requests - only fetched here at login time.
+    const loginTenant = user.tenantId
+      ? await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { orgType: true } })
+      : null;
+
     // Generate JWT token
     const tokenPayload = {
       id: user.id,
@@ -364,6 +374,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       name: user.name,
       role: user.role,
       tenantId: user.tenantId || undefined,
+      orgType: loginTenant?.orgType,
     };
     const token = generateJwtToken(tokenPayload);
 
@@ -386,6 +397,7 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
           phone: user.phone,
           role: user.role,
           tenantId: user.tenantId,
+          orgType: loginTenant?.orgType,
           createdAt: user.createdAt,
         },
         token,
@@ -458,6 +470,10 @@ router.get('/me', authenticateJwt, async (req: Request, res: Response): Promise<
           phone: user.phone,
           role: user.role,
           tenantId: user.tenantId,
+          // Rides on the already-verified JWT rather than a fresh tenant
+          // lookup - orgType is immutable after onboarding, so the token's
+          // value can never be stale.
+          orgType: req.user.orgType,
           createdAt: user.createdAt,
         },
       },
@@ -639,6 +655,7 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
 
     const invitation = await prisma.invitation.findUnique({
       where: { token },
+      include: { tenant: true },
     });
 
     if (!invitation || invitation.status !== 'PENDING' || invitation.expiresAt < new Date()) {
@@ -713,6 +730,7 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
       name: user.name,
       role: user.role,
       tenantId: user.tenantId || undefined,
+      orgType: invitation.tenant.orgType,
     };
     const jwtToken = generateJwtToken(tokenPayload);
 
@@ -726,6 +744,7 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
           name: user.name,
           role: user.role,
           tenantId: user.tenantId,
+          orgType: invitation.tenant.orgType,
         },
         token: jwtToken,
       },

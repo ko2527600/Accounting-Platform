@@ -25,6 +25,12 @@ model Tenant {
   termsAcceptedAt      DateTime? @map("terms_accepted_at")
   tier                 Int       @default(1)
   baseCurrency         String    @default("USD") @map("base_currency")
+  // "BUSINESS" | "NONPROFIT" - chosen once at onboarding, drives which nav
+  // sections the frontend shows (hides POS/Inventory for nonprofits, shows
+  // Funds). Immutable after onboarding this pass - not editable via
+  // PUT /tenants/current. Plain string, not a Prisma enum, matching how
+  // `tier`/`baseCurrency` aren't enums either.
+  orgType              String    @default("BUSINESS") @map("org_type")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -212,6 +218,7 @@ model AuditLog {
   @@index([entity])
   @@index([userId])
   @@index([tenantId])
+  @@index([tenantId, createdAt])
   @@map("audit_logs")
 }
 
@@ -309,19 +316,27 @@ model Invoice {
   baseCurrencyAmount Decimal? @map("base_currency_amount") @db.Decimal(15, 2)
   status             String   @default("DRAFT")
   journalId          String?  @map("journal_id")
+  // Optional restricted/unrestricted fund this invoice's revenue belongs to
+  // (fund accounting for nonprofit tenants) - flows onto every journal line
+  // posted at payment time (see invoicePaymentService.markInvoicePaid), so
+  // the whole payment stays within one fund by construction.
+  fundId             String?  @map("fund_id")
   createdAt          DateTime @default(now()) @map("created_at")
 
   customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
   taxRate      TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+  fund         Fund?                @relation(fields: [fundId], references: [id], onDelete: SetNull)
   items        InvoiceItem[]
   creditNotes  CreditNote[]
-  momoRequests MomoPaymentRequest[]
+  momoRequests   MomoPaymentRequest[]
+  tellerRequests TellerPaymentRequest[]
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
   @@index([customerId])
   @@index([status])
   @@index([taxRateId])
+  @@index([fundId])
   @@map("invoices")
 }
 
@@ -354,6 +369,42 @@ model MomoPaymentRequest {
   @@index([invoiceId])
   @@index([status])
   @@map("momo_payment_requests")
+}
+
+// A real TheTeller (PaySwitch) mobile money debit attempt against an
+// invoice - covers the networks MTN's own direct MoMo integration above
+// doesn't: Telecel Cash, AirtelTigo Money, Zeepay, G-Money, selected via
+// `network` (MTN is deliberately excluded here - use MomoPaymentRequest for
+// MTN, so the same real-world network never produces two differently-shaped
+// payment-request rows across two tables). Unlike MTN's always-202-then-poll
+// flow, TheTeller's process endpoint can return a synchronous
+// approved/declined result in the same HTTP response - but a real
+// USSD-prompt approval flow means a pending outcome is still realistically
+// possible, so this is tracked and polled exactly like MoMo for UX
+// consistency and as a hedge against an undocumented pending state.
+// transactionId is TheTeller's own caller-generated 12-digit numeric
+// reference (their `transaction_id`), not a UUID like MTN's referenceId.
+model TellerPaymentRequest {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  invoiceId     String   @map("invoice_id")
+  network       String   @map("network")
+  phoneNumber   String   @map("phone_number")
+  amount        Decimal  @db.Decimal(15, 2)
+  currency      String   @default("GHS")
+  transactionId String   @unique @map("transaction_id")
+  status        String   @default("PENDING")
+  responseCode  String?  @map("response_code")
+  failureReason String?  @map("failure_reason")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("teller_payment_requests")
 }
 
 // A correction/refund against an already-issued Invoice (returned goods,
@@ -445,8 +496,14 @@ model VendorBill {
   landedCostForBillId String?   @map("landed_cost_for_bill_id")
   landedCostAppliedAt DateTime? @map("landed_cost_applied_at")
 
+  // Optional restricted/unrestricted fund this bill's expense belongs to
+  // (fund accounting for nonprofit tenants) - flows onto both journal lines
+  // posted at payment time (see routes/bills.ts POST /:id/pay).
+  fundId String? @map("fund_id")
+
   vendor     Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   warehouse  Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  fund       Fund?            @relation(fields: [fundId], references: [id], onDelete: SetNull)
   lines      VendorBillLine[]
   debitNotes DebitNote[]
 
@@ -459,6 +516,7 @@ model VendorBill {
   @@index([status])
   @@index([warehouseId])
   @@index([landedCostForBillId])
+  @@index([fundId])
   @@map("vendor_bills")
 }
 
@@ -858,6 +916,32 @@ model TaxRate {
   @@index([tenantId])
   @@index([isActive, effectiveFrom, effectiveTo])
   @@map("tax_rates")
+}
+
+// Restricted/unrestricted fund for nonprofit-tenant fund accounting (e.g.
+// "Building Fund", "General Fund"). Invoice.fundId/VendorBill.fundId are
+// real FKs to this table (same shared schema). journal_entry_lines.fund_id
+// / ledgers.fund_id (per-tenant schema, see tenantMigrations.ts v7) are NOT
+// real FKs - cross-schema - and are instead validated at write time via
+// fundService.validateFundId, the same pattern TaxRate.accountId already
+// uses in the opposite direction.
+model Fund {
+  id           String   @id @default(uuid())
+  tenantId     String   @map("tenant_id")
+  name         String
+  code         String
+  description  String?
+  isRestricted Boolean  @default(true) @map("is_restricted")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  invoices    Invoice[]
+  vendorBills VendorBill[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId])
+  @@map("funds")
 }
 
 enum PeriodStatus {

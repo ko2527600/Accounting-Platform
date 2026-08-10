@@ -11,6 +11,8 @@ import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
 import * as fxRateService from '../services/fxRateService';
 import { FxRateServiceError } from '../services/fxRateService';
+import * as fundService from '../services/fundService';
+import { FundServiceError } from '../services/fundService';
 import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
 import { assertWarehouseAccess, WarehouseAccessError } from '../services/warehouseAccessService';
 import { receiveInventoryForBill, allocateLandedCostToBill } from '../services/vendorBillReceivingService';
@@ -105,11 +107,21 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { vendorId, dueDate, currency = 'USD', items, warehouseId } = req.body;
+    const { vendorId, dueDate, currency = 'USD', items, warehouseId, fundId } = req.body;
 
     if (!vendorId) {
       res.status(400).json({ success: false, error: 'Vendor ID is required.' });
       return;
+    }
+
+    // Optional restricted/unrestricted fund this bill's expense belongs to
+    // (fund accounting for nonprofit tenants).
+    if (fundId) {
+      const fund = await fundService.getFundById(tenantId, fundId);
+      if (!fund) {
+        res.status(400).json({ success: false, error: `Fund with ID "${fundId}" not found.` });
+        return;
+      }
     }
 
     const isItemized = Array.isArray(items) && items.length > 0;
@@ -175,6 +187,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           currency,
           status: 'UNPAID',
           warehouseId: isItemized ? warehouseId : null,
+          fundId: fundId || null,
           ...(isItemized && {
             lines: {
               create: items.map((l: any) => ({
@@ -232,7 +245,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       res.status(404).json({ success: false, error: error.message });
       return;
     }
-    if (error instanceof FxRateServiceError) {
+    if (error instanceof FxRateServiceError || error instanceof FundServiceError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
@@ -365,8 +378,8 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
         lines: [
-          { accountId: expenseAcc.id, debit: postingAmount, credit: 0, description: `Expense - ${bill.billNumber}` },
-          { accountId: cashAcc.id, debit: 0, credit: postingAmount, description: `Cash Payment - ${bill.billNumber}` },
+          { accountId: expenseAcc.id, debit: postingAmount, credit: 0, description: `Expense - ${bill.billNumber}`, fundId: bill.fundId || undefined },
+          { accountId: cashAcc.id, debit: 0, credit: postingAmount, description: `Cash Payment - ${bill.billNumber}`, fundId: bill.fundId || undefined },
         ],
       }, actor);
       journalId = journal.id;

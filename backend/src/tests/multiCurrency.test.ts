@@ -209,4 +209,76 @@ describe('Multi-currency transaction-time conversion (Invoice/VendorBill -> Ledg
 
     process.env.FX_RATE_API_KEY = originalKey;
   });
+
+  it('scales a per-levy tax destination line into the base currency correctly when a foreign-currency invoice is paid', async () => {
+    const vatAcc = await request(app)
+      .post('/api/v1/accounts')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ code: '2010', name: 'FX VAT Payable', type: 'LIABILITY' });
+    const vatAccountId = vatAcc.body.data.account.id;
+
+    const taxRate = await request(app)
+      .post('/api/v1/tax-rates')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({
+        name: 'FX Layered VAT',
+        code: 'FX-VAT-1',
+        rate: 0.15,
+        effectiveFrom: '2020-01-01',
+        components: [{ name: 'VAT', rate: 0.15, accountId: vatAccountId }],
+      });
+    expect(taxRate.status).toBe(201);
+
+    mockedAxios.get.mockResolvedValue({
+      data: { conversion_rates: { USD: 0.5 } }, // 1 EUR = 0.5 USD for this test
+    });
+
+    const invoiceRes = await request(app)
+      .post('/api/v1/invoices')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({
+        customerId,
+        currency: 'EUR',
+        taxRateId: taxRate.body.data.taxRate.id,
+        items: [{ description: 'Layered FX consulting', quantity: 1, unitPrice: 1000 }],
+      });
+    expect(invoiceRes.status).toBe(201);
+    const invoice = invoiceRes.body.data.invoice;
+    expect(Number(invoice.subtotal)).toBeCloseTo(1000, 2); // EUR
+    expect(Number(invoice.tax)).toBeCloseTo(150, 2); // EUR
+    expect(Number(invoice.total)).toBeCloseTo(1150, 2); // EUR
+    // Converted (EUR -> USD @ 0.5) base-currency equivalent of the WHOLE total.
+    expect(Number(invoice.baseCurrencyAmount)).toBeCloseTo(575, 2);
+
+    const beforeLedger = await request(app)
+      .get('/api/v1/ledgers/summary')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    const revenueBefore = Number(
+      beforeLedger.body.data.accounts.find((a: any) => a.code === '4010')?.closingBalance || 0
+    );
+
+    const payRes = await request(app)
+      .post(`/api/v1/invoices/${invoice.id}/pay`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(payRes.status).toBe(200);
+
+    const afterLedger = await request(app)
+      .get('/api/v1/ledgers/summary')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    const vatAccountLedger = afterLedger.body.data.accounts.find((a: any) => a.code === '2010');
+    const revenueAfter = Number(afterLedger.body.data.accounts.find((a: any) => a.code === '4010')?.closingBalance || 0);
+
+    // VAT's native-currency amount (150 EUR) scaled by the same fxScale
+    // (0.5) the whole invoice was converted at - 75 USD, not 150.
+    expect(Number(vatAccountLedger.closingBalance)).toBeCloseTo(-75, 2);
+    // Revenue only picks up the converted subtotal (500 USD), the rest
+    // having gone to the VAT liability account above.
+    expect(revenueAfter - revenueBefore).toBeCloseTo(-500, 2);
+  });
 });

@@ -157,7 +157,8 @@ export async function getProfitAndLoss(
   prisma: PrismaClient,
   startDate?: string,
   endDate?: string,
-  asOfDate?: string
+  asOfDate?: string,
+  fundId?: string
 ): Promise<ProfitLossResult> {
   const effectiveEndDate = endDate || asOfDate;
 
@@ -175,6 +176,11 @@ export async function getProfitAndLoss(
   if (effectiveEndDate) {
     ledgerConditions.push(`l.transaction_date <= $${paramIdx++}::date`);
     params.push(effectiveEndDate);
+  }
+
+  if (fundId) {
+    ledgerConditions.push(`l.fund_id = $${paramIdx++}::uuid`);
+    params.push(fundId);
   }
 
   const joinWhere = ledgerConditions.length > 0 ? `AND ${ledgerConditions.join(' AND ')}` : '';
@@ -594,12 +600,26 @@ export async function getKpiDashboard(
 export async function getBalanceSheet(
   prisma: PrismaClient,
   asOfDate?: string,
-  endDate?: string
+  endDate?: string,
+  fundId?: string
 ): Promise<BalanceSheetResult> {
   const effectiveAsOfDate = asOfDate || endDate;
 
-  const joinWhere = effectiveAsOfDate ? `AND l.transaction_date <= $1::date` : '';
-  const params: any[] = effectiveAsOfDate ? [effectiveAsOfDate] : [];
+  const ledgerConditions: string[] = [];
+  const params: any[] = [];
+  let paramIdx = 1;
+
+  if (effectiveAsOfDate) {
+    ledgerConditions.push(`l.transaction_date <= $${paramIdx++}::date`);
+    params.push(effectiveAsOfDate);
+  }
+
+  if (fundId) {
+    ledgerConditions.push(`l.fund_id = $${paramIdx++}::uuid`);
+    params.push(fundId);
+  }
+
+  const joinWhere = ledgerConditions.length > 0 ? `AND ${ledgerConditions.join(' AND ')}` : '';
 
   const sql = `
     SELECT

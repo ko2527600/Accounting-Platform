@@ -3,6 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import * as budgetRepository from '../repository/budgetRepository';
 import * as fiscalPeriodRepository from '../repository/fiscalPeriodRepository';
 import { BudgetRecord } from '../repository/budgetRepository';
+import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
 
 export class BudgetServiceError extends Error {
   statusCode: number;
@@ -77,7 +78,7 @@ export async function getBudgetById(tenantId: string, id: string): Promise<Budge
   return recomputed;
 }
 
-export async function createBudget(tenantId: string, input: any): Promise<BudgetRecord> {
+export async function createBudget(tenantId: string, input: any, actor?: AuditActor): Promise<BudgetRecord> {
   const { accountId, fiscalPeriodId, budgetAmount, notes } = input;
 
   if (!accountId || typeof accountId !== 'string') {
@@ -96,17 +97,29 @@ export async function createBudget(tenantId: string, input: any): Promise<Budget
     throw new BudgetServiceError(`Fiscal period with ID "${fiscalPeriodId}" not found.`, 400);
   }
 
+  let created: BudgetRecord;
   try {
-    return await budgetRepository.createBudget(prisma, tenantId, { accountId, fiscalPeriodId, budgetAmount: amount, notes });
+    created = await budgetRepository.createBudget(prisma, tenantId, { accountId, fiscalPeriodId, budgetAmount: amount, notes });
   } catch (error: any) {
     if (error.code === 'P2002') {
       throw new BudgetServiceError('A budget already exists for this account in this fiscal period.', 409);
     }
     throw error;
   }
+
+  await recordAuditLog({
+    action: 'BUDGET.CREATED',
+    entity: 'Budget',
+    entityId: created.id,
+    tenantId,
+    actor,
+    details: `Budget of ${created.budgetAmount} created for account ${created.accountId} in fiscal period ${created.fiscalPeriodId}.`,
+  });
+
+  return created;
 }
 
-export async function updateBudget(tenantId: string, id: string, input: any): Promise<BudgetRecord> {
+export async function updateBudget(tenantId: string, id: string, input: any, actor?: AuditActor): Promise<BudgetRecord> {
   const existing = await budgetRepository.getBudgetById(prisma, tenantId, id);
   if (!existing) {
     throw new BudgetServiceError(`Budget with ID "${id}" not found.`, 404);
@@ -115,12 +128,33 @@ export async function updateBudget(tenantId: string, id: string, input: any): Pr
   if (isNaN(amount)) {
     throw new BudgetServiceError('budgetAmount must be a number.', 400);
   }
-  return budgetRepository.updateBudgetAmount(prisma, id, amount, input.notes);
+  const updated = await budgetRepository.updateBudgetAmount(prisma, id, amount, input.notes);
+
+  await recordAuditLog({
+    action: 'BUDGET.UPDATED',
+    entity: 'Budget',
+    entityId: id,
+    tenantId,
+    actor,
+    changes: diffFields(existing, updated, ['budgetAmount', 'notes']),
+  });
+
+  return updated;
 }
 
-export async function deleteBudget(tenantId: string, id: string): Promise<void> {
+export async function deleteBudget(tenantId: string, id: string, actor?: AuditActor): Promise<void> {
+  const existing = await budgetRepository.getBudgetById(prisma, tenantId, id);
   const deleted = await budgetRepository.deleteBudget(prisma, tenantId, id);
   if (!deleted) {
     throw new BudgetServiceError(`Budget with ID "${id}" not found.`, 404);
   }
+
+  await recordAuditLog({
+    action: 'BUDGET.DELETED',
+    entity: 'Budget',
+    entityId: id,
+    tenantId,
+    actor,
+    details: existing ? `Budget of ${existing.budgetAmount} for account ${existing.accountId} deleted.` : `Budget ${id} deleted.`,
+  });
 }

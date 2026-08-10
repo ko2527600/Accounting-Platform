@@ -135,11 +135,36 @@ export function getVisibleHrefs(role: string | undefined): Set<string> | null {
   return allowed ? new Set(allowed) : null;
 }
 
-/** Filters navigationGroups down to what a given role can actually see, dropping any now-empty group. */
-export function getVisibleNavGroups(role: string | undefined): NavGroup[] {
+/**
+ * Filters navigationGroups down to what a given role/org-type can actually
+ * see, dropping any now-empty group. Org-type filtering runs first (a
+ * nonprofit tenant never sees POS/Inventory, and gets a Funds item under
+ * Finance & Banking), then the existing role-based filtering applies on top
+ * of that already-narrowed set - so e.g. a nonprofit's Shop Manager role
+ * (an unlikely but plausible mixed-mode org) never sees POS/Inventory items
+ * even before role filtering kicks in.
+ */
+export function getVisibleNavGroups(role: string | undefined, orgType?: string): NavGroup[] {
+  let groups = navigationGroups;
+
+  if (orgType === "NONPROFIT") {
+    groups = groups
+      .map((group) => {
+        if (group.sectionTitle === "INVENTORY & GODOWNS") return null;
+        if (group.sectionTitle === "SALES & PURCHASES") {
+          return { ...group, items: group.items.filter((item) => item.href !== "/pos") };
+        }
+        if (group.sectionTitle === "FINANCE & BANKING") {
+          return { ...group, items: [...group.items, { name: "Funds", href: "/settings/funds", icon: Landmark }] };
+        }
+        return group;
+      })
+      .filter((group): group is NavGroup => group !== null);
+  }
+
   const visibleHrefs = getVisibleHrefs(role);
-  if (!visibleHrefs) return navigationGroups;
-  return navigationGroups
+  if (!visibleHrefs) return groups;
+  return groups
     .map((group) => ({ ...group, items: group.items.filter((item) => visibleHrefs.has(item.href)) }))
     .filter((group) => group.items.length > 0);
 }

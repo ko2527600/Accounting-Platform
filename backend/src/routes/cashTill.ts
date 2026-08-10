@@ -331,8 +331,8 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
  * POST /api/v1/tills/sales/sync-failures
  * Records that a locally-queued offline sale definitively failed to sync
  * (e.g. a real stock conflict discovered only once connectivity returned -
- * there's no offline stock reservation, so this is a genuine possible
- * outcome, not a bug). Deliberately creates no CashSale row - no sale was
+ * there's no server-side offline stock reservation, so this is a genuine
+ * possible outcome, not a bug). Deliberately creates no CashSale row - no sale was
  * ever actually completed server-side. This is a best-effort, fire-and-forget
  * call from the frontend once its sync loop gives up retrying a given sale,
  * so a manager on ANY device (not just the terminal that queued it) has
