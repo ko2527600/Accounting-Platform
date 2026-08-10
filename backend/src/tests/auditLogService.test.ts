@@ -8,7 +8,10 @@ describe('auditLogService', () => {
   const tenantId = `audit-svc-tenant-${runId}`;
 
   afterAll(async () => {
-    await prisma.auditLog.deleteMany({ where: { tenantId } });
+    // audit_logs is DB-enforced append-only (see the
+    // enforce_audit_log_append_only migration) - this always rejects, and
+    // test rows are just left in place like every other suite's cleanup.
+    await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
   });
 
   describe('recordAuditLog', () => {
@@ -58,7 +61,7 @@ describe('auditLogService', () => {
       expect(row.ipAddress).toBeNull();
       expect(row.changes).toBeNull();
 
-      await prisma.auditLog.deleteMany({ where: { action: 'NO_TENANT_TEST', tenantId: null } });
+      await prisma.auditLog.deleteMany({ where: { action: 'NO_TENANT_TEST', tenantId: null } }).catch(() => {});
     });
 
     it('never throws when the DB write fails, and logs the failure instead', async () => {

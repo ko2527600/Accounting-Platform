@@ -19,6 +19,7 @@ import { LegalHubPage } from "./pages/legal/LegalHubPage";
 import { LegalDocumentPage } from "./pages/legal/LegalDocumentPage";
 import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
+import { OnboardingWizard } from "./pages/onboarding/OnboardingWizard";
 import { Settings } from "./pages/settings/Settings";
 import { TaxRates } from "./pages/settings/TaxRates";
 import { Funds } from "./pages/settings/Funds";
@@ -182,6 +183,7 @@ function App() {
             {/* Protected Routes */}
             <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
+            <Route path="/onboarding" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><OnboardingWizard /></MainLayout></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/tax-rates" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/funds" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Funds /></MainLayout></ProtectedRoute>} />

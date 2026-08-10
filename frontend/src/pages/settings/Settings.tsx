@@ -1,11 +1,18 @@
 import { useState, useEffect } from "react";
-import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2 } from "lucide-react";
+import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
 import { api } from "../../lib/api";
+import { downloadBlobResponse } from "../../lib/downloadBlob";
+
+interface ExportManifestEntry {
+  key: string;
+  label: string;
+  description: string;
+}
 
 export function Settings() {
   const { user } = useAuth();
@@ -41,7 +48,12 @@ export function Settings() {
   const [smsMsg, setSmsMsg] = useState<string | null>(null);
   const [testEmailMsg, setTestEmailMsg] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export">("profile");
+
+  const isAdmin = user?.role === "Admin" || user?.role === "Owner";
+  const [exportManifest, setExportManifest] = useState<ExportManifestEntry[]>([]);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [downloadingExport, setDownloadingExport] = useState<"csv" | "json" | null>(null);
 
   useEffect(() => {
     if (settings.companyName) {
@@ -158,6 +170,28 @@ export function Settings() {
     }
   };
 
+  useEffect(() => {
+    if (activeTab !== "export" || !isAdmin || exportManifest.length > 0) return;
+    api
+      .get("/data-export/manifest")
+      .then((res) => setExportManifest(res.data.data))
+      .catch(() => setExportError("Failed to load the list of exported tables."));
+  }, [activeTab, isAdmin, exportManifest.length]);
+
+  const handleDownloadExport = async (format: "csv" | "json") => {
+    setDownloadingExport(format);
+    setExportError(null);
+    try {
+      const res = await api.get(`/data-export/${format}`, { responseType: "blob" });
+      const extension = format === "csv" ? "zip" : "json";
+      downloadBlobResponse(res, `ledgio-export-${Date.now()}.${extension}`);
+    } catch (err) {
+      setExportError(`Failed to download the ${format.toUpperCase()} export.`);
+    } finally {
+      setDownloadingExport(null);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 text-secondary-500">
@@ -214,6 +248,15 @@ export function Settings() {
           <Mail className="mr-2 h-4 w-4 text-blue-500" />
           Email Reports
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab("export")}
+            className={`pb-3 text-sm font-medium transition-colors border-b-2 flex items-center ${activeTab === "export" ? "border-primary-600 text-primary-600" : "border-transparent text-secondary-500 hover:text-secondary-700"}`}
+          >
+            <Download className="mr-2 h-4 w-4 text-emerald-500" />
+            Data Export
+          </button>
+        )}
       </div>
 
       {/* Profile Settings */}
@@ -410,6 +453,63 @@ export function Settings() {
             </Button>
             <Button type="button" variant="primary" onClick={handleSaveSchedule}>
               Save Schedule Settings
+            </Button>
+          </CardFooter>
+        </Card>
+      )}
+
+      {/* Full Data Export - no pricing-tier gate, no cooldown, everything a business needs to leave with its data */}
+      {activeTab === "export" && isAdmin && (
+        <Card className="border-emerald-200 bg-emerald-50/20 dark:bg-emerald-950/10">
+          <CardHeader>
+            <CardTitle className="text-emerald-900 dark:text-emerald-300 flex items-center">
+              <Download className="mr-2 h-5 w-5 text-emerald-600" />
+              Export All Your Data
+            </CardTitle>
+            <CardDescription>
+              Download every table Ledgio stores for your business - full data, not a partial sample, available anytime
+              with no additional charge and no waiting period. Your data belongs to you.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {exportError && (
+              <div className="p-2.5 bg-red-100 text-red-950 rounded text-xs">{exportError}</div>
+            )}
+            <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-emerald-200 dark:border-emerald-900/50">
+              <p className="text-xs font-semibold text-secondary-700 dark:text-secondary-300 mb-2">
+                What's included ({exportManifest.length || "..."} tables)
+              </p>
+              <ul className="text-[11px] text-secondary-500 space-y-1 max-h-56 overflow-y-auto pr-2">
+                {exportManifest.map((t) => (
+                  <li key={t.key}>
+                    <span className="font-medium text-secondary-700 dark:text-secondary-300">{t.label}</span>
+                    {" - "}
+                    {t.description}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </CardContent>
+          <CardFooter className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="primary"
+              onClick={() => handleDownloadExport("csv")}
+              disabled={downloadingExport !== null}
+              className="flex items-center"
+            >
+              <FileArchive className="mr-2 h-4 w-4" />
+              {downloadingExport === "csv" ? "Preparing..." : "Download CSV (ZIP)"}
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => handleDownloadExport("json")}
+              disabled={downloadingExport !== null}
+              className="flex items-center"
+            >
+              <FileJson className="mr-2 h-4 w-4" />
+              {downloadingExport === "json" ? "Preparing..." : "Download JSON"}
             </Button>
           </CardFooter>
         </Card>

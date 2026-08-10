@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
@@ -9,7 +10,7 @@ import { api } from "../../lib/api";
 import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -105,6 +106,7 @@ const TELLER_NETWORKS: { value: string; label: string }[] = [
 export function Invoices() {
   const { showToast } = useToast();
   const { settings } = useTenantSettings();
+  const navigate = useNavigate();
   // Local-first: renders straight from the IndexedDB mirror (kept fresh by
   // the bootstrap + live push - see useSyncEngineLifecycle) instead of
   // waiting on a network fetch every time this page mounts.
@@ -546,6 +548,15 @@ export function Invoices() {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate(`/audit-logs?entityId=${inv.id}&entity=Invoice`)}
+                        className="text-xs"
+                        title="View this invoice's change history"
+                      >
+                        <History className="h-3 w-3" />
+                      </Button>
                       {inv.status !== "PAID" && (
                         <Button variant="outline" size="sm" onClick={() => handlePayInvoice(inv.id)} className="text-xs">
                           Record Payment

@@ -4,7 +4,7 @@ import { requireTenantContext } from '../context/tenantContext';
 import * as journalService from './journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
 import * as approvalWorkflowService from './approvalWorkflowService';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from './syncChangeLogService';
 
 export class InvoicePaymentServiceError extends Error {
@@ -142,6 +142,17 @@ export async function markInvoicePaid(
       payload: invoiceToSyncPayload(invoiceUpdated),
     });
 
+    // Same transaction as the invoice's PAID status write, for the same
+    // reason as recordChange above.
+    await recordAuditLogTx(client, {
+      action: 'INVOICE.PAID',
+      entity: 'Invoice',
+      entityId: invoiceUpdated.id,
+      actor,
+      changes: diffFields(invoice, invoiceUpdated, ['status', 'journalId']),
+      details: `Invoice ${invoice.invoiceNumber} marked PAID (${postingAmount}).`,
+    });
+
     return invoiceUpdated;
   });
 
@@ -155,15 +166,6 @@ export async function markInvoicePaid(
       sequence: syncSeq,
     });
   }
-
-  await recordAuditLog({
-    action: 'INVOICE.PAID',
-    entity: 'Invoice',
-    entityId: invoiceId,
-    actor,
-    changes: diffFields(invoice, updated, ['status', 'journalId']),
-    details: `Invoice ${invoice.invoiceNumber} marked PAID (${postingAmount}).`,
-  });
 
   return updated;
 }

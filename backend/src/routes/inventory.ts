@@ -6,7 +6,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
-import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
+import { recordAuditLog, recordAuditLogTx, actorFromRequest } from '../services/auditLogService';
 import { applyStockAdjustment } from '../services/stockAdjustmentService';
 import { generateStockTakeSheetPdf } from '../services/pdfGenerationService';
 
@@ -537,16 +537,18 @@ router.post('/adjustments', requireRole('Accountant'), async (req: Request, res:
         adjustedByName,
       });
 
-      return { adjustment, warehouse, item, newQty, previousQty };
-    });
+      // Same transaction as the stock write above, so the audit trail can
+      // never desync from the quantity change it describes.
+      await recordAuditLogTx(client, {
+        action: 'STOCK_ADJUSTMENT.RECORDED',
+        entity: 'StockAdjustment',
+        entityId: adjustment.id,
+        actor: actorFromRequest(req),
+        changes: { quantityOnHand: { from: previousQty, to: newQty } },
+        details: `${item.name} in ${warehouse.name}: ${mode} ${qty} (${reason}).`,
+      });
 
-    await recordAuditLog({
-      action: 'STOCK_ADJUSTMENT.RECORDED',
-      entity: 'StockAdjustment',
-      entityId: result.adjustment.id,
-      actor: actorFromRequest(req),
-      changes: { quantityOnHand: { from: result.previousQty, to: result.newQty } },
-      details: `${result.item.name} in ${result.warehouse.name}: ${mode} ${qty} (${reason}).`,
+      return { adjustment, warehouse, item, newQty, previousQty };
     });
 
     res.status(201).json({

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -7,7 +8,7 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2 } from "lucide-react";
+import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2, History } from "lucide-react";
 
 interface Vendor {
   id: string;
@@ -76,6 +77,7 @@ interface DebitNote {
 export function VendorBills() {
   const { showToast } = useToast();
   const { settings } = useTenantSettings();
+  const navigate = useNavigate();
   const [bills, setBills] = useState<VendorBill[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
@@ -442,6 +444,15 @@ export function VendorBills() {
                       )}
                     </TableCell>
                     <TableCell className="text-right space-x-2 whitespace-nowrap">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => navigate(`/audit-logs?entityId=${b.id}&entity=VendorBill`)}
+                        className="text-xs"
+                        title="View this bill's change history"
+                      >
+                        <History className="h-3 w-3" />
+                      </Button>
                       {b.billType === "STANDARD" && b.lines && b.lines.length > 0 && (
                         <Button variant="outline" size="sm" onClick={() => openLandedCostModal(b)} className="text-xs">
                           + Landed Cost

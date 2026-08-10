@@ -22,6 +22,7 @@ import {
   Gauge,
   Wallet,
   TrendingUp,
+  Rocket,
 } from "lucide-react";
 
 export interface NavItem {
@@ -42,6 +43,7 @@ export const navigationGroups: NavGroup[] = [
     sectionTitle: "OVERVIEW",
     items: [
       { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
+      { name: "Guided Setup", href: "/onboarding", icon: Rocket },
     ],
   },
   {

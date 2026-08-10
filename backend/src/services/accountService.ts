@@ -3,7 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { getTenantContext } from '../context/tenantContext';
 import * as accountRepository from '../repository/accountRepository';
 import { AccountRecord, AccountType, CreateAccountData } from '../repository/accountRepository';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 import { recordChange, notifyChange } from './syncChangeLogService';
 
 // Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
@@ -148,6 +148,17 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
         payload: accountSyncPayload(account),
       });
 
+      // Same transaction as the account row itself, for the same reason as
+      // recordChange above - and only on this genuine-creation path, never
+      // on an idempotency replay (which didn't actually create anything).
+      await recordAuditLogTx(client, {
+        action: 'ACCOUNT.CREATED',
+        entity: 'Account',
+        entityId: account.id,
+        actor,
+        details: `Account ${account.code} - ${account.name} (${account.type}) created.`,
+      });
+
       return account;
     });
   } catch (raceError: any) {
@@ -179,14 +190,6 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
       sequence: syncSeq,
     });
   }
-
-  await recordAuditLog({
-    action: 'ACCOUNT.CREATED',
-    entity: 'Account',
-    entityId: created.id,
-    actor,
-    details: `Account ${created.code} - ${created.name} (${created.type}) created.`,
-  });
 
   return created;
 }
@@ -299,6 +302,14 @@ export async function updateAccount(
       payload: accountSyncPayload(updated),
     });
 
+    await recordAuditLogTx(client, {
+      action: 'ACCOUNT.UPDATED',
+      entity: 'Account',
+      entityId: updated.id,
+      actor,
+      changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId', 'isCashEquivalent']),
+    });
+
     return updated;
   });
 
@@ -313,14 +324,6 @@ export async function updateAccount(
     });
   }
 
-  await recordAuditLog({
-    action: 'ACCOUNT.UPDATED',
-    entity: 'Account',
-    entityId: updated.id,
-    actor,
-    changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId', 'isCashEquivalent']),
-  });
-
   return updated;
 }
 
@@ -329,7 +332,6 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
     throw new AccountServiceError('Account ID is required.', 400);
   }
 
-  let deletedAccount: AccountRecord | null = null;
   let syncSeq: bigint | null = null;
 
   const deleted = await withCurrentTenantDb(prisma, async (client) => {
@@ -338,7 +340,6 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
     if (!existing) {
       throw new AccountServiceError(`Account with ID "${id}" not found.`, 404);
     }
-    deletedAccount = existing;
 
     // 2. Check child accounts existence
     const childCount = await accountRepository.getChildAccountsCount(client, id);
@@ -372,6 +373,14 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
         entityId: id,
         operation: 'DELETE',
       });
+
+      await recordAuditLogTx(client, {
+        action: 'ACCOUNT.DELETED',
+        entity: 'Account',
+        entityId: id,
+        actor,
+        details: `Account ${existing.code} - ${existing.name} deleted.`,
+      });
     }
 
     return wasDeleted;
@@ -384,16 +393,6 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
       entityId: id,
       operation: 'DELETE',
       sequence: syncSeq,
-    });
-  }
-
-  if (deleted) {
-    await recordAuditLog({
-      action: 'ACCOUNT.DELETED',
-      entity: 'Account',
-      entityId: id,
-      actor,
-      details: deletedAccount ? `Account ${(deletedAccount as AccountRecord).code} - ${(deletedAccount as AccountRecord).name} deleted.` : undefined,
     });
   }
 

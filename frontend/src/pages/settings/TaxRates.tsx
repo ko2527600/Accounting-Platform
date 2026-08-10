@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Percent, Trash2, PlusCircle, Layers, Sparkles } from "lucide-react";
+import { Percent, Trash2, PlusCircle, Layers, Sparkles, ShieldCheck } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
@@ -28,6 +28,13 @@ interface ComponentRow {
   name: string;
   ratePercent: string;
   accountId: string;
+}
+
+interface ComplianceUpdate {
+  source: string;
+  area: string;
+  description: string;
+  verifiedAt: string;
 }
 
 const GHANA_VAT_PRESET: ComponentRow[] = [
@@ -86,6 +93,14 @@ export function TaxRates() {
   useEffect(() => {
     fetchTaxRates();
   }, [fetchTaxRates]);
+
+  const [complianceUpdate, setComplianceUpdate] = useState<ComplianceUpdate | null>(null);
+  useEffect(() => {
+    api
+      .get("/compliance/last-update")
+      .then((res) => setComplianceUpdate(res.data?.data || null))
+      .catch(() => setComplianceUpdate(null));
+  }, []);
 
   const componentsTotalPercent = componentRows.reduce((sum, r) => sum + (Number(r.ratePercent) || 0), 0);
 
@@ -159,6 +174,21 @@ export function TaxRates() {
       {message && (
         <div className="p-3 bg-secondary-50 dark:bg-secondary-900 border border-secondary-200 dark:border-secondary-800 rounded-lg text-xs">
           {message}
+        </div>
+      )}
+
+      {complianceUpdate && (
+        <div className="flex items-start gap-2 p-3 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-200 dark:border-emerald-900 rounded-lg text-xs text-emerald-900 dark:text-emerald-300">
+          <ShieldCheck className="h-4 w-4 mt-0.5 flex-shrink-0 text-emerald-600" />
+          <div>
+            <span className="font-semibold">
+              Last compliance update: {new Date(complianceUpdate.verifiedAt).toLocaleDateString(undefined, { year: "numeric", month: "long", day: "numeric" })}
+            </span>
+            <span className="text-emerald-700 dark:text-emerald-400">
+              {" "}
+              - {complianceUpdate.area} verified against {complianceUpdate.source}.
+            </span>
+          </div>
         </div>
       )}
 
