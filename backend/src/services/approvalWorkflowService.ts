@@ -1,7 +1,7 @@
 import { prisma } from '../config/db';
 import * as approvalWorkflowRepository from '../repository/approvalWorkflowRepository';
 import { ApprovalWorkflowRecord } from '../repository/approvalWorkflowRepository';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
 export class ApprovalWorkflowServiceError extends Error {
   statusCode: number;
@@ -43,21 +43,25 @@ export async function createApprovalWorkflow(tenantId: string, requestedBy: stri
     throw new ApprovalWorkflowServiceError('An approval workflow is already pending for this entity.', 409);
   }
 
-  const created = await approvalWorkflowRepository.createApprovalWorkflow(prisma, tenantId, {
-    entityType,
-    entityId,
-    requiredLevel: level,
-    requestedBy,
-    approverIds,
-  });
+  const created = await prisma.$transaction(async (tx) => {
+    const created = await approvalWorkflowRepository.createApprovalWorkflow(tx as any, tenantId, {
+      entityType,
+      entityId,
+      requiredLevel: level,
+      requestedBy,
+      approverIds,
+    });
 
-  await recordAuditLog({
-    action: 'APPROVAL_WORKFLOW.CREATED',
-    entity: 'ApprovalWorkflow',
-    entityId: created.id,
-    tenantId,
-    actor,
-    details: `Approval workflow requested for ${entityType} ${entityId} (${level} level(s) required).`,
+    await recordAuditLogTx(tx as any, {
+      action: 'APPROVAL_WORKFLOW.CREATED',
+      entity: 'ApprovalWorkflow',
+      entityId: created.id,
+      tenantId,
+      actor,
+      details: `Approval workflow requested for ${entityType} ${entityId} (${level} level(s) required).`,
+    });
+
+    return created;
   });
 
   return created;
@@ -94,40 +98,48 @@ export async function decideApprovalStep(
   }
 
   if (decision === 'REJECT') {
-    await approvalWorkflowRepository.decideApprovalStep(prisma, step.id, 'REJECTED', comments);
-    const rejected = await approvalWorkflowRepository.updateWorkflowProgress(prisma, workflowId, {
-      status: 'REJECTED',
-      completedAt: new Date(),
-    });
+    const rejected = await prisma.$transaction(async (tx) => {
+      await approvalWorkflowRepository.decideApprovalStep(tx as any, step.id, 'REJECTED', comments);
+      const rejected = await approvalWorkflowRepository.updateWorkflowProgress(tx as any, workflowId, {
+        status: 'REJECTED',
+        completedAt: new Date(),
+      });
 
-    await recordAuditLog({
-      action: 'APPROVAL_WORKFLOW.DECIDED',
-      entity: 'ApprovalWorkflow',
-      entityId: workflowId,
-      tenantId,
-      actor,
-      changes: diffFields(workflow, rejected, ['status', 'currentLevel']),
-      details: `Level ${level} rejected.${comments ? ` "${comments}"` : ''}`,
+      await recordAuditLogTx(tx as any, {
+        action: 'APPROVAL_WORKFLOW.DECIDED',
+        entity: 'ApprovalWorkflow',
+        entityId: workflowId,
+        tenantId,
+        actor,
+        changes: diffFields(workflow, rejected, ['status', 'currentLevel']),
+        details: `Level ${level} rejected.${comments ? ` "${comments}"` : ''}`,
+      });
+
+      return rejected;
     });
 
     return rejected;
   }
 
-  await approvalWorkflowRepository.decideApprovalStep(prisma, step.id, 'APPROVED', comments);
   const isFinalLevel = level === workflow.requiredLevel;
-  const updated = await approvalWorkflowRepository.updateWorkflowProgress(prisma, workflowId, {
-    currentLevel: level,
-    ...(isFinalLevel ? { status: 'APPROVED', completedAt: new Date() } : {}),
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    await approvalWorkflowRepository.decideApprovalStep(tx as any, step.id, 'APPROVED', comments);
+    const updated = await approvalWorkflowRepository.updateWorkflowProgress(tx as any, workflowId, {
+      currentLevel: level,
+      ...(isFinalLevel ? { status: 'APPROVED', completedAt: new Date() } : {}),
+    });
 
-  await recordAuditLog({
-    action: 'APPROVAL_WORKFLOW.DECIDED',
-    entity: 'ApprovalWorkflow',
-    entityId: workflowId,
-    tenantId,
-    actor,
-    changes: diffFields(workflow, updated, ['status', 'currentLevel']),
-    details: `Level ${level} approved.${comments ? ` "${comments}"` : ''}`,
+    await recordAuditLogTx(tx as any, {
+      action: 'APPROVAL_WORKFLOW.DECIDED',
+      entity: 'ApprovalWorkflow',
+      entityId: workflowId,
+      tenantId,
+      actor,
+      changes: diffFields(workflow, updated, ['status', 'currentLevel']),
+      details: `Level ${level} approved.${comments ? ` "${comments}"` : ''}`,
+    });
+
+    return updated;
   });
 
   return updated;

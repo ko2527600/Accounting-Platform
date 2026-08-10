@@ -9,7 +9,7 @@ import * as tellerService from '../services/tellerService';
 import { TellerServiceError, TellerNetwork } from '../services/tellerService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
 import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
-import { actorFromRequest, recordAuditLog } from '../services/auditLogService';
+import { actorFromRequest, recordAuditLogTx } from '../services/auditLogService';
 
 const router = Router();
 
@@ -106,7 +106,7 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     });
 
     const request = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).tellerPaymentRequest.create({
+      const request = await (client as any).tellerPaymentRequest.create({
         data: {
           tenantId,
           invoiceId,
@@ -120,14 +120,16 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
           failureReason: result.status === 'FAILED' ? result.reason || 'Payment failed or was declined.' : null,
         },
       });
-    });
 
-    await recordAuditLog({
-      action: 'TELLER_PAYMENT_REQUEST.SENT',
-      entity: 'Invoice',
-      entityId: invoiceId,
-      actor: actorFromRequest(req),
-      details: `TheTeller (${network}) payment request sent to ${phoneNumber.trim()} for invoice ${invoice.invoiceNumber} (${amount} ${invoice.currency}).`,
+      await recordAuditLogTx(client, {
+        action: 'TELLER_PAYMENT_REQUEST.SENT',
+        entity: 'Invoice',
+        entityId: invoiceId,
+        actor: actorFromRequest(req),
+        details: `TheTeller (${network}) payment request sent to ${phoneNumber.trim()} for invoice ${invoice.invoiceNumber} (${amount} ${invoice.currency}).`,
+      });
+
+      return request;
     });
 
     // A real behavioral difference from MTN: TheTeller's process response

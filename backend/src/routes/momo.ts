@@ -9,7 +9,7 @@ import * as momoService from '../services/momoService';
 import { MomoServiceError } from '../services/momoService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
 import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
-import { actorFromRequest, recordAuditLog } from '../services/auditLogService';
+import { actorFromRequest, recordAuditLogTx } from '../services/auditLogService';
 
 const router = Router();
 
@@ -119,7 +119,7 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     });
 
     const request = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).momoPaymentRequest.create({
+      const request = await (client as any).momoPaymentRequest.create({
         data: {
           tenantId,
           invoiceId,
@@ -131,14 +131,16 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
           status: 'PENDING',
         },
       });
-    });
 
-    await recordAuditLog({
-      action: 'MOMO_PAYMENT_REQUEST.SENT',
-      entity: 'Invoice',
-      entityId: invoiceId,
-      actor: actorFromRequest(req),
-      details: `MTN MoMo payment request sent to ${phoneNumber.trim()} for invoice ${invoice.invoiceNumber} (${amount} ${invoice.currency}).`,
+      await recordAuditLogTx(client, {
+        action: 'MOMO_PAYMENT_REQUEST.SENT',
+        entity: 'Invoice',
+        entityId: invoiceId,
+        actor: actorFromRequest(req),
+        details: `MTN MoMo payment request sent to ${phoneNumber.trim()} for invoice ${invoice.invoiceNumber} (${amount} ${invoice.currency}).`,
+      });
+
+      return request;
     });
 
     res.status(201).json({

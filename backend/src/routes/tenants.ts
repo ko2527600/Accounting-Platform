@@ -8,7 +8,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { BroadcastService } from '../services/broadcastService';
 import { CLOSED_ROLES, isLocationScopedRole } from '../services/warehouseAccessService';
-import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
+import { recordAuditLog, recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
 
 const router = Router();
 
@@ -165,21 +165,25 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
 
     const before = await tenantRepository.findTenantById(prisma, tenantId);
 
-    const updated = await prisma.tenant.update({
-      where: { id: tenantId },
-      data: {
-        ...(newName && { name: newName }),
-        ...(slug && { slug: slug.trim().toLowerCase() }),
-        ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
-      },
-    });
+    const updated = await prisma.$transaction(async (tx) => {
+      const updated = await tx.tenant.update({
+        where: { id: tenantId },
+        data: {
+          ...(newName && { name: newName }),
+          ...(slug && { slug: slug.trim().toLowerCase() }),
+          ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
+        },
+      });
 
-    await recordAuditLog({
-      action: 'TENANT_SETTINGS.UPDATED',
-      entity: 'Tenant',
-      entityId: tenantId,
-      actor: actorFromRequest(req),
-      changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency']),
+      await recordAuditLogTx(tx, {
+        action: 'TENANT_SETTINGS.UPDATED',
+        entity: 'Tenant',
+        entityId: tenantId,
+        actor: actorFromRequest(req),
+        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency']),
+      });
+
+      return updated;
     });
 
     return res.status(200).json({
@@ -262,16 +266,29 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
 
     // Upsert or create invitation
-    const invitation = await prisma.invitation.create({
-      data: {
-        email: email.trim().toLowerCase(),
+    const invitation = await prisma.$transaction(async (tx) => {
+      const invitation = await tx.invitation.create({
+        data: {
+          email: email.trim().toLowerCase(),
+          tenantId,
+          role: assignedRole,
+          warehouseIds: isLocationScopedRole(assignedRole) ? requestedWarehouseIds : [],
+          token,
+          status: 'PENDING',
+          expiresAt,
+        },
+      });
+
+      await recordAuditLogTx(tx, {
+        action: 'INVITATION.SENT',
+        entity: 'Invitation',
+        entityId: invitation.id,
         tenantId,
-        role: assignedRole,
-        warehouseIds: isLocationScopedRole(assignedRole) ? requestedWarehouseIds : [],
-        token,
-        status: 'PENDING',
-        expiresAt,
-      },
+        actor: actorFromRequest(req),
+        details: `Invited ${invitation.email} as ${invitation.role}.`,
+      });
+
+      return invitation;
     });
 
     const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
@@ -314,15 +331,6 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
     console.log(`Role: ${invitation.role}`);
     console.log(`Invite URL: ${inviteUrl}`);
     console.log(`======================================================\n`);
-
-    await recordAuditLog({
-      action: 'INVITATION.SENT',
-      entity: 'Invitation',
-      entityId: invitation.id,
-      tenantId,
-      actor: actorFromRequest(req),
-      details: `Invited ${invitation.email} as ${invitation.role}.`,
-    });
 
     return res.status(201).json({
       success: true,
@@ -417,23 +425,23 @@ router.put('/members/:id/warehouse-access', authenticateJwt, tenantContextMiddle
     const previousAccess = await prisma.warehouseAccess.findMany({ where: { tenantId, userId: id }, select: { warehouseId: true } });
     const previousWarehouseIds = previousAccess.map((a) => a.warehouseId);
 
-    await prisma.$transaction([
-      prisma.warehouseAccess.deleteMany({ where: { tenantId, userId: id } }),
-      ...(warehouseIds.length > 0
-        ? [prisma.warehouseAccess.createMany({
-            data: warehouseIds.map((warehouseId: string) => ({ tenantId, userId: id, warehouseId })),
-          })]
-        : []),
-    ]);
+    await prisma.$transaction(async (tx) => {
+      await tx.warehouseAccess.deleteMany({ where: { tenantId, userId: id } });
+      if (warehouseIds.length > 0) {
+        await tx.warehouseAccess.createMany({
+          data: warehouseIds.map((warehouseId: string) => ({ tenantId, userId: id, warehouseId })),
+        });
+      }
 
-    await recordAuditLog({
-      action: 'WAREHOUSE_ACCESS.UPDATED',
-      entity: 'WarehouseAccess',
-      entityId: id,
-      tenantId,
-      actor: actorFromRequest(req),
-      changes: { warehouseIds: { from: previousWarehouseIds, to: warehouseIds } },
-      details: `Shop access updated for team member ${member.email}.`,
+      await recordAuditLogTx(tx, {
+        action: 'WAREHOUSE_ACCESS.UPDATED',
+        entity: 'WarehouseAccess',
+        entityId: id,
+        tenantId,
+        actor: actorFromRequest(req),
+        changes: { warehouseIds: { from: previousWarehouseIds, to: warehouseIds } },
+        details: `Shop access updated for team member ${member.email}.`,
+      });
     });
 
     return res.status(200).json({ success: true, message: 'Warehouse access updated.', data: { warehouseIds } });
@@ -484,16 +492,20 @@ router.put('/members/:id/role', authenticateJwt, tenantContextMiddleware, requir
     }
 
     const previousRole = member.role;
-    const updated = await prisma.user.update({ where: { id }, data: { role } });
+    const updated = await prisma.$transaction(async (tx) => {
+      const updated = await tx.user.update({ where: { id }, data: { role } });
 
-    await recordAuditLog({
-      action: 'TEAM_MEMBER.ROLE_CHANGED',
-      entity: 'User',
-      entityId: id,
-      tenantId,
-      actor: actorFromRequest(req),
-      changes: { role: { from: previousRole, to: role } },
-      details: `Role changed for team member ${member.email} (${previousRole} -> ${role}).`,
+      await recordAuditLogTx(tx, {
+        action: 'TEAM_MEMBER.ROLE_CHANGED',
+        entity: 'User',
+        entityId: id,
+        tenantId,
+        actor: actorFromRequest(req),
+        changes: { role: { from: previousRole, to: role } },
+        details: `Role changed for team member ${member.email} (${previousRole} -> ${role}).`,
+      });
+
+      return updated;
     });
 
     return res.status(200).json({
@@ -543,15 +555,17 @@ router.delete('/members/:id', authenticateJwt, tenantContextMiddleware, requireR
       }
     }
 
-    await prisma.user.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      await tx.user.delete({ where: { id } });
 
-    await recordAuditLog({
-      action: 'TEAM_MEMBER.REMOVED',
-      entity: 'User',
-      entityId: id,
-      tenantId,
-      actor: actorFromRequest(req),
-      details: `Team member removed: ${member.name} (${member.email}), role ${member.role}.`,
+      await recordAuditLogTx(tx, {
+        action: 'TEAM_MEMBER.REMOVED',
+        entity: 'User',
+        entityId: id,
+        tenantId,
+        actor: actorFromRequest(req),
+        details: `Team member removed: ${member.name} (${member.email}), role ${member.role}.`,
+      });
     });
 
     return res.status(200).json({ success: true, message: 'Team member removed.' });

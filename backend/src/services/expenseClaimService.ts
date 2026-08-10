@@ -6,7 +6,7 @@ import * as accountRepository from '../repository/accountRepository';
 import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import * as approvalWorkflowRepository from '../repository/approvalWorkflowRepository';
 import * as journalService from './journalEntryService';
-import { recordAuditLog, AuditActor } from './auditLogService';
+import { recordAuditLogTx, AuditActor } from './auditLogService';
 
 export class ExpenseClaimServiceError extends Error {
   statusCode: number;
@@ -96,17 +96,21 @@ export async function submitExpenseClaim(
     requiredLevel: level,
   });
 
-  const updated = await expenseClaimRepository.updateExpenseClaim(prisma, claim.id, {
-    approvalWorkflowId: workflow.id,
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await expenseClaimRepository.updateExpenseClaim(tx as any, claim.id, {
+      approvalWorkflowId: workflow.id,
+    });
 
-  await recordAuditLog({
-    action: 'EXPENSE_CLAIM.SUBMITTED',
-    entity: 'ExpenseClaim',
-    entityId: claim.id,
-    tenantId,
-    actor,
-    details: `Expense claim ${claimNumber} filed for ${numericAmount} ${claim.currency} (${category.trim()}).`,
+    await recordAuditLogTx(tx as any, {
+      action: 'EXPENSE_CLAIM.SUBMITTED',
+      entity: 'ExpenseClaim',
+      entityId: claim.id,
+      tenantId,
+      actor,
+      details: `Expense claim ${claimNumber} filed for ${numericAmount} ${claim.currency} (${category.trim()}).`,
+    });
+
+    return updated;
   });
 
   return updated;
@@ -153,16 +157,20 @@ export async function decideExpenseClaim(
     ? updatedWorkflow.status
     : 'PENDING_APPROVAL';
 
-  const updated = await expenseClaimRepository.updateExpenseClaim(prisma, claimId, { status: newStatus });
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await expenseClaimRepository.updateExpenseClaim(tx as any, claimId, { status: newStatus });
 
-  await recordAuditLog({
-    action: `EXPENSE_CLAIM.${newStatus === 'PENDING_APPROVAL' ? 'STEP_DECIDED' : newStatus}`,
-    entity: 'ExpenseClaim',
-    entityId: claimId,
-    tenantId,
-    actor,
-    changes: { status: { from: claim.status, to: newStatus } },
-    details: `Expense claim ${claim.claimNumber} step ${decision.toLowerCase()}d${comments ? ` - ${comments}` : ''}.`,
+    await recordAuditLogTx(tx as any, {
+      action: `EXPENSE_CLAIM.${newStatus === 'PENDING_APPROVAL' ? 'STEP_DECIDED' : newStatus}`,
+      entity: 'ExpenseClaim',
+      entityId: claimId,
+      tenantId,
+      actor,
+      changes: { status: { from: claim.status, to: newStatus } },
+      details: `Expense claim ${claim.claimNumber} step ${decision.toLowerCase()}d${comments ? ` - ${comments}` : ''}.`,
+    });
+
+    return updated;
   });
 
   return updated;
@@ -213,20 +221,24 @@ export async function reimburseExpenseClaim(
     actor
   );
 
-  const updated = await expenseClaimRepository.updateExpenseClaim(prisma, claimId, {
-    status: 'REIMBURSED',
-    journalId: journal.id,
-    reimbursedAt: new Date(),
-  });
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await expenseClaimRepository.updateExpenseClaim(tx as any, claimId, {
+      status: 'REIMBURSED',
+      journalId: journal.id,
+      reimbursedAt: new Date(),
+    });
 
-  await recordAuditLog({
-    action: 'EXPENSE_CLAIM.REIMBURSED',
-    entity: 'ExpenseClaim',
-    entityId: claimId,
-    tenantId,
-    actor,
-    changes: { status: { from: 'APPROVED', to: 'REIMBURSED' } },
-    details: `Expense claim ${claim.claimNumber} reimbursed (${amount} ${claim.currency}).`,
+    await recordAuditLogTx(tx as any, {
+      action: 'EXPENSE_CLAIM.REIMBURSED',
+      entity: 'ExpenseClaim',
+      entityId: claimId,
+      tenantId,
+      actor,
+      changes: { status: { from: 'APPROVED', to: 'REIMBURSED' } },
+      details: `Expense claim ${claim.claimNumber} reimbursed (${amount} ${claim.currency}).`,
+    });
+
+    return updated;
   });
 
   return updated;

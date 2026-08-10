@@ -4,7 +4,7 @@ import * as recurringTransactionRepository from '../repository/recurringTransact
 import { RecurringTransactionRecord, RecurrenceFrequency, CreateRecurringTransactionData } from '../repository/recurringTransactionRepository';
 import { runWithTenantContext } from '../context/tenantContext';
 import * as journalEntryService from './journalEntryService';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
 export class RecurringTransactionServiceError extends Error {
   statusCode: number;
@@ -97,15 +97,19 @@ export async function createRecurringTransaction(tenantId: string, input: any, a
     isActive,
   };
 
-  const created = await recurringTransactionRepository.createRecurringTransaction(prisma, tenantId, data);
+  const created = await prisma.$transaction(async (tx) => {
+    const created = await recurringTransactionRepository.createRecurringTransaction(tx as any, tenantId, data);
 
-  await recordAuditLog({
-    action: 'RECURRING_TXN.CREATED',
-    entity: 'RecurringTransaction',
-    entityId: created.id,
-    tenantId,
-    actor,
-    details: `Recurring transaction "${created.name}" (${created.frequency}) created.`,
+    await recordAuditLogTx(tx as any, {
+      action: 'RECURRING_TXN.CREATED',
+      entity: 'RecurringTransaction',
+      entityId: created.id,
+      tenantId,
+      actor,
+      details: `Recurring transaction "${created.name}" (${created.frequency}) created.`,
+    });
+
+    return created;
   });
 
   return created;
@@ -124,21 +128,25 @@ export async function updateRecurringTransaction(tenantId: string, id: string, i
     throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
   }
 
-  const updated = await recurringTransactionRepository.updateRecurringTransaction(prisma, tenantId, id, {
-    ...input,
-    endDate: input.endDate !== undefined ? new Date(input.endDate) : undefined,
-  });
-  if (!updated) {
-    throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
-  }
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await recurringTransactionRepository.updateRecurringTransaction(tx as any, tenantId, id, {
+      ...input,
+      endDate: input.endDate !== undefined ? new Date(input.endDate) : undefined,
+    });
+    if (!updated) {
+      throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
+    }
 
-  await recordAuditLog({
-    action: 'RECURRING_TXN.UPDATED',
-    entity: 'RecurringTransaction',
-    entityId: id,
-    tenantId,
-    actor,
-    changes: diffFields(existing, updated, ['name', 'description', 'frequency', 'startDate', 'endDate', 'isActive']),
+    await recordAuditLogTx(tx as any, {
+      action: 'RECURRING_TXN.UPDATED',
+      entity: 'RecurringTransaction',
+      entityId: id,
+      tenantId,
+      actor,
+      changes: diffFields(existing, updated, ['name', 'description', 'frequency', 'startDate', 'endDate', 'isActive']),
+    });
+
+    return updated;
   });
 
   return updated;
@@ -146,18 +154,24 @@ export async function updateRecurringTransaction(tenantId: string, id: string, i
 
 export async function deleteRecurringTransaction(tenantId: string, id: string, actor?: AuditActor): Promise<void> {
   const existing = await recurringTransactionRepository.getRecurringTransactionById(prisma, tenantId, id);
-  const deleted = await recurringTransactionRepository.deleteRecurringTransaction(prisma, tenantId, id);
-  if (!deleted) {
+  if (!existing) {
     throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
   }
 
-  await recordAuditLog({
-    action: 'RECURRING_TXN.DELETED',
-    entity: 'RecurringTransaction',
-    entityId: id,
-    tenantId,
-    actor,
-    details: existing ? `Recurring transaction "${existing.name}" deleted.` : `Recurring transaction ${id} deleted.`,
+  await prisma.$transaction(async (tx) => {
+    const deleted = await recurringTransactionRepository.deleteRecurringTransaction(tx as any, tenantId, id);
+    if (!deleted) {
+      throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
+    }
+
+    await recordAuditLogTx(tx as any, {
+      action: 'RECURRING_TXN.DELETED',
+      entity: 'RecurringTransaction',
+      entityId: id,
+      tenantId,
+      actor,
+      details: `Recurring transaction "${existing.name}" deleted.`,
+    });
   });
 }
 

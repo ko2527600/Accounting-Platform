@@ -1,7 +1,7 @@
 import { prisma } from '../config/db';
 import * as fiscalPeriodRepository from '../repository/fiscalPeriodRepository';
 import { FiscalPeriodRecord, CreateFiscalPeriodData } from '../repository/fiscalPeriodRepository';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
 export class FiscalPeriodServiceError extends Error {
   statusCode: number;
@@ -51,7 +51,20 @@ export async function createFiscalPeriod(tenantId: string, input: any, actor?: A
 
   let created: FiscalPeriodRecord;
   try {
-    created = await fiscalPeriodRepository.createFiscalPeriod(prisma, tenantId, data);
+    created = await prisma.$transaction(async (tx) => {
+      const created = await fiscalPeriodRepository.createFiscalPeriod(tx as any, tenantId, data);
+
+      await recordAuditLogTx(tx as any, {
+        action: 'FISCAL_PERIOD.CREATED',
+        entity: 'FiscalPeriod',
+        entityId: created.id,
+        tenantId,
+        actor,
+        details: `Fiscal period ${created.name} (FY${created.fiscalYear} P${created.periodNumber}) created.`,
+      });
+
+      return created;
+    });
   } catch (error: any) {
     if (error.code === 'P2002') {
       throw new FiscalPeriodServiceError(
@@ -61,15 +74,6 @@ export async function createFiscalPeriod(tenantId: string, input: any, actor?: A
     }
     throw error;
   }
-
-  await recordAuditLog({
-    action: 'FISCAL_PERIOD.CREATED',
-    entity: 'FiscalPeriod',
-    entityId: created.id,
-    tenantId,
-    actor,
-    details: `Fiscal period ${created.name} (FY${created.fiscalYear} P${created.periodNumber}) created.`,
-  });
 
   return created;
 }
@@ -82,15 +86,19 @@ export async function closeFiscalPeriod(tenantId: string, id: string, closedBy?:
   if (existing.status !== 'OPEN') {
     throw new FiscalPeriodServiceError(`Only an OPEN period can be closed (current status: ${existing.status}).`, 400);
   }
-  const updated = await fiscalPeriodRepository.setFiscalPeriodStatus(prisma, id, 'CLOSED', closedBy);
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await fiscalPeriodRepository.setFiscalPeriodStatus(tx as any, id, 'CLOSED', closedBy);
 
-  await recordAuditLog({
-    action: 'FISCAL_PERIOD.CLOSED',
-    entity: 'FiscalPeriod',
-    entityId: id,
-    tenantId,
-    actor,
-    changes: diffFields(existing, updated, ['status']),
+    await recordAuditLogTx(tx as any, {
+      action: 'FISCAL_PERIOD.CLOSED',
+      entity: 'FiscalPeriod',
+      entityId: id,
+      tenantId,
+      actor,
+      changes: diffFields(existing, updated, ['status']),
+    });
+
+    return updated;
   });
 
   return updated;
@@ -104,15 +112,19 @@ export async function lockFiscalPeriod(tenantId: string, id: string, actor?: Aud
   if (existing.status !== 'CLOSED') {
     throw new FiscalPeriodServiceError(`Only a CLOSED period can be locked (current status: ${existing.status}).`, 400);
   }
-  const updated = await fiscalPeriodRepository.setFiscalPeriodStatus(prisma, id, 'LOCKED');
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await fiscalPeriodRepository.setFiscalPeriodStatus(tx as any, id, 'LOCKED');
 
-  await recordAuditLog({
-    action: 'FISCAL_PERIOD.LOCKED',
-    entity: 'FiscalPeriod',
-    entityId: id,
-    tenantId,
-    actor,
-    changes: diffFields(existing, updated, ['status']),
+    await recordAuditLogTx(tx as any, {
+      action: 'FISCAL_PERIOD.LOCKED',
+      entity: 'FiscalPeriod',
+      entityId: id,
+      tenantId,
+      actor,
+      changes: diffFields(existing, updated, ['status']),
+    });
+
+    return updated;
   });
 
   return updated;
