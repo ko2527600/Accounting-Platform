@@ -259,6 +259,25 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_fund ON journal_entry_lines(fund_id);
       CREATE INDEX IF NOT EXISTS idx_ledgers_fund ON ledgers(fund_id);
     `
+  },
+  {
+    version: 8,
+    name: '008_add_account_client_txn_id',
+    sql: `
+      -- Client-generated dedup key for offline-queued/retried account
+      -- creation (local-first sync pilot, see STATUS.md) - same
+      -- clientTxnId pattern already proven by CashSale/Invoice, added here
+      -- too since accounts.* lives in this per-tenant schema (raw SQL, not
+      -- Prisma-managed) rather than the shared public schema.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS client_txn_id UUID;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_accounts_client_txn_id') THEN
+          ALTER TABLE accounts ADD CONSTRAINT uq_accounts_client_txn_id UNIQUE (client_txn_id);
+        END IF;
+      END $$;
+    `
   }
 ];
 

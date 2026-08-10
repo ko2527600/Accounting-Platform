@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from "react";
+import { useLiveQuery } from "dexie-react-hooks";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
+import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw } from "lucide-react";
@@ -54,6 +56,12 @@ interface Invoice {
   taxBreakdown: TaxBreakdownLine[] | null;
   total: number;
   status: string;
+  // Present only on a record still in flight through the local-first sync
+  // outbox (see lib/syncEngine.ts) - a real network round-trip hasn't
+  // confirmed it yet, or a real rejection needs the user's attention.
+  _pending?: boolean;
+  _failed?: boolean;
+  _failureReason?: string;
 }
 
 interface CreditNote {
@@ -97,7 +105,13 @@ const TELLER_NETWORKS: { value: string; label: string }[] = [
 export function Invoices() {
   const { showToast } = useToast();
   const { settings } = useTenantSettings();
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
+  // Local-first: renders straight from the IndexedDB mirror (kept fresh by
+  // the bootstrap + live push - see useSyncEngineLifecycle) instead of
+  // waiting on a network fetch every time this page mounts.
+  const localInvoices = useLiveQuery(() => syncDb.invoices.toArray(), []);
+  const invoices: Invoice[] = ((localInvoices ?? []) as unknown as Invoice[])
+    .slice()
+    .sort((a, b) => new Date(b.issueDate ?? 0).getTime() - new Date(a.issueDate ?? 0).getTime());
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [funds, setFunds] = useState<Fund[]>([]);
@@ -153,17 +167,18 @@ export function Invoices() {
     setCurrency((c) => (c === "USD" ? settings.baseCurrency : c));
   }, [settings.baseCurrency]);
 
+  // Only customers/tax rates/funds are fetched live here - invoices
+  // themselves come from the local-first sync mirror above. Those three
+  // aren't part of the sync pilot's scope yet (see STATUS.md).
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [invRes, custRes, taxRes, fundsRes] = await Promise.all([
-        api.get("/invoices"),
+      const [custRes, taxRes, fundsRes] = await Promise.all([
         api.get("/invoices/customers"),
         api.get("/tax-rates"),
         api.get("/funds"),
       ]);
 
-      if (invRes.data.success) setInvoices(invRes.data.data.invoices);
       if (custRes.data.success) setCustomers(custRes.data.data.customers);
       if (taxRes.data.success) setTaxRates(taxRes.data.data.taxRates.filter((t: any) => t.isActive));
       if (fundsRes.data.success) setFunds(fundsRes.data.data.funds.filter((f: any) => f.isActive));
@@ -201,18 +216,21 @@ export function Invoices() {
     }
     setIsSubmitting(true);
     try {
-      const res = await api.post("/invoices", {
-        customerId: selectedCustomer,
-        currency,
-        items,
-        ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
-        ...(selectedFundId ? { fundId: selectedFundId } : {}),
-      });
-
-      if (res.data.success) {
-        setIsInvoiceOpen(false);
-        fetchData();
-      }
+      // Writes locally first (instant) and queues the real request in the
+      // background - see createInvoiceLocalFirst. The live query above
+      // picks up the optimistic row immediately, no explicit refetch needed.
+      const customer = customers.find((c) => c.id === selectedCustomer);
+      await createInvoiceLocalFirst(
+        {
+          customerId: selectedCustomer,
+          currency,
+          items,
+          ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
+          ...(selectedFundId ? { fundId: selectedFundId } : {}),
+        },
+        customer
+      );
+      setIsInvoiceOpen(false);
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to create invoice.", "error");
     } finally {
@@ -222,10 +240,7 @@ export function Invoices() {
 
   const handlePayInvoice = async (id: string) => {
     try {
-      const res = await api.post(`/invoices/${id}/pay`);
-      if (res.data.success) {
-        fetchData();
-      }
+      await payInvoiceLocalFirst(id);
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
     }
@@ -256,7 +271,7 @@ export function Invoices() {
       if (res.data.success) {
         showToast(`Credit note ${res.data.data.creditNote.creditNoteNumber} issued.`, "success");
         setCreditNoteInvoice(null);
-        fetchData();
+        resyncInvoicesFromServer();
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to issue credit note.", "error");
@@ -304,7 +319,7 @@ export function Invoices() {
         if (res.data.data.request.status === "SUCCESSFUL") {
           showToast("Payment confirmed - invoice marked PAID.", "success");
           setMomoInvoice(null);
-          fetchData();
+          resyncInvoicesFromServer();
         } else if (res.data.data.request.status === "FAILED") {
           showToast("Payment was not successful. See the reason below.", "error");
         } else {
@@ -348,7 +363,7 @@ export function Invoices() {
         if (res.data.data.request.status === "SUCCESSFUL") {
           showToast("Payment confirmed immediately - invoice marked PAID.", "success");
           setTellerInvoice(null);
-          fetchData();
+          resyncInvoicesFromServer();
         } else {
           showToast("Mobile Money payment request sent. The customer must approve it on their phone.", "success");
         }
@@ -371,7 +386,7 @@ export function Invoices() {
         if (res.data.data.request.status === "SUCCESSFUL") {
           showToast("Payment confirmed - invoice marked PAID.", "success");
           setTellerInvoice(null);
-          fetchData();
+          resyncInvoicesFromServer();
         } else if (res.data.data.request.status === "FAILED") {
           showToast("Payment was not successful. See the reason below.", "error");
         } else {
@@ -484,7 +499,22 @@ export function Invoices() {
                 {invoices.map((inv) => (
                   <TableRow key={inv.id}>
                     <TableCell className="font-mono font-medium text-primary-600 dark:text-primary-400">
-                      {inv.invoiceNumber}
+                      <div className="flex items-center gap-2">
+                        {inv.invoiceNumber}
+                        {inv._pending && (
+                          <span className="font-sans text-[10px] font-normal text-amber-600 dark:text-amber-400" title="Saving to the cloud...">
+                            Syncing...
+                          </span>
+                        )}
+                        {inv._failed && (
+                          <span
+                            className="font-sans text-[10px] font-normal text-red-600 dark:text-red-400"
+                            title={inv._failureReason || 'This change was rejected and needs your attention.'}
+                          >
+                            Needs attention
+                          </span>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell>
                       <div className="font-medium text-secondary-900 dark:text-secondary-50">{inv.customer?.name}</div>

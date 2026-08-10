@@ -143,8 +143,21 @@ export function ChartOfAccounts() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-col">
-                      <span className="font-medium text-secondary-900 dark:text-secondary-50">
+                      <span className="font-medium text-secondary-900 dark:text-secondary-50 flex items-center gap-2">
                         {account.name}
+                        {(account as any)._pending && (
+                          <span className="text-[10px] font-normal text-amber-600 dark:text-amber-400" title="Saving to the cloud...">
+                            Syncing...
+                          </span>
+                        )}
+                        {(account as any)._failed && (
+                          <span
+                            className="text-[10px] font-normal text-red-600 dark:text-red-400"
+                            title={(account as any)._failureReason || 'This change was rejected and needs your attention.'}
+                          >
+                            Needs attention
+                          </span>
+                        )}
                       </span>
                       {account.description && (
                         <span className="text-xs text-secondary-500 line-clamp-1">

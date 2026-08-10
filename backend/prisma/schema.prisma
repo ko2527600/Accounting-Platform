@@ -322,6 +322,13 @@ model Invoice {
   // the whole payment stays within one fund by construction.
   fundId             String?  @map("fund_id")
   createdAt          DateTime @default(now()) @map("created_at")
+  // Client-generated dedup key for offline-queued/retried invoice creation
+  // (local-first sync pilot, see STATUS.md) - same pattern already proven
+  // by CashSale.clientTxnId, generalized here so a flaky-network sync retry
+  // can safely replay-and-return-existing instead of creating a duplicate
+  // invoice (the old `INV-${Date.now()}-${random}` number alone offered no
+  // such guarantee).
+  clientTxnId        String?  @map("client_txn_id")
 
   customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
   taxRate      TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
@@ -332,6 +339,7 @@ model Invoice {
   tellerRequests TellerPaymentRequest[]
 
   @@unique([tenantId, invoiceNumber])
+  @@unique([tenantId, clientTxnId])
   @@index([tenantId])
   @@index([customerId])
   @@index([status])
@@ -1099,6 +1107,55 @@ model ApprovalStep {
   @@index([approverId])
   @@index([status])
   @@map("approval_steps")
+}
+
+enum SyncOperation {
+  CREATE
+  UPDATE
+  DELETE
+}
+
+// Transactional outbox for the local-first sync pilot (Chart of Accounts +
+// Invoices - see STATUS.md). Every syncable write appends exactly one row
+// here, in the SAME database transaction as the mutation itself, so a
+// change and its log entry always commit or roll back together - this is
+// what lets a client trust "changes since sequence N" as complete, and is
+// also how a hard DELETE (which otherwise leaves no trace anywhere in this
+// schema) becomes visible to a client instead of just vanishing. `sequence`
+// is a per-tenant monotonic counter (not a global one) so two tenants'
+// change volumes never interfere with each other's cursor math; assigned by
+// syncChangeLogService via a row-locked counter read, not a DB identity
+// column, because it must be assignable from inside the SAME transaction as
+// arbitrary other work (including raw SQL against a per-tenant schema).
+model SyncChangeLog {
+  id         String        @id @default(uuid())
+  tenantId   String        @map("tenant_id")
+  entityType String        @map("entity_type")
+  entityId   String        @map("entity_id")
+  operation  SyncOperation
+  // Full current-state snapshot for CREATE/UPDATE (enough for a client to
+  // upsert its local copy without a follow-up fetch); null for DELETE - the
+  // entityId + operation alone is the tombstone.
+  payload    Json?
+  sequence   BigInt
+  occurredAt DateTime      @default(now()) @map("occurred_at")
+
+  @@unique([tenantId, sequence])
+  @@index([tenantId, entityType])
+  @@map("sync_change_log")
+}
+
+// Backs syncChangeLogService's per-tenant sequence allocation (one row per
+// tenant, incremented under a row lock inside the caller's own transaction -
+// see recordChange). A dedicated table rather than a Postgres SEQUENCE
+// because it needs to be incremented transactionally alongside a
+// per-tenant-schema raw-SQL mutation and roll back together with it, which
+// a global SEQUENCE (never transactional/rollback-safe by design) can't do.
+model SyncSequenceCounter {
+  tenantId String @id @map("tenant_id")
+  value    BigInt @default(0)
+
+  @@map("sync_sequence_counters")
 }
 
 // An employee's out-of-pocket expense claim, distinct from a VendorBill

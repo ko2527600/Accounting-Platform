@@ -2,6 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-route
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
+import { TenantSettingsProvider, useTenantSettings } from "./contexts/TenantSettingsContext";
+import { useSyncEngineLifecycle } from "./hooks/useSyncEngineLifecycle";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
@@ -46,7 +48,6 @@ import { CashFlowForecast } from "./pages/reports/CashFlowForecast";
 import { KpiDashboard } from "./pages/reports/KpiDashboard";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
-import { useTenantSettings } from "./hooks/useTenantSettings";
 
 // Pages
 const Dashboard = () => {
@@ -129,8 +130,12 @@ const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "aud
 
 function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode; blockedRoles?: Set<string> }) {
   const { token, isLoading, user } = useAuth();
+  // Also wait on tenant settings (only once a token exists - no point waiting
+  // when we're about to redirect to /login anyway) so pages never paint the
+  // hardcoded USD default before flipping to the tenant's real currency.
+  const { isLoading: settingsLoading } = useTenantSettings();
 
-  if (isLoading) {
+  if (isLoading || (token && settingsLoading)) {
     return <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900">Loading...</div>;
   }
 
@@ -145,11 +150,21 @@ function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode;
   return <>{children}</>;
 }
 
+// Mounted once at the app root (not per-route, unlike ProtectedRoute) so the
+// local-first sync engine's login/logout lifecycle only fires on an actual
+// auth change, never on ordinary navigation between pages.
+function SyncEngineLifecycleMount() {
+  useSyncEngineLifecycle();
+  return null;
+}
+
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
       <ToastProvider>
       <AuthProvider>
+      <TenantSettingsProvider>
+        <SyncEngineLifecycleMount />
         <BrowserRouter>
           <CommandMenu />
           <Routes>
@@ -199,6 +214,7 @@ function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </BrowserRouter>
+      </TenantSettingsProvider>
       </AuthProvider>
       </ToastProvider>
     </ThemeProvider>

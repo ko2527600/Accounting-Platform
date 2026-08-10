@@ -23,6 +23,9 @@ export interface CreateAccountData {
   currency?: string;
   isActive?: boolean;
   isCashEquivalent?: boolean;
+  // Client-generated dedup key for offline-queued/retried account creation
+  // (local-first sync pilot) - see createAccount's P2002-equivalent handling.
+  clientTxnId?: string | null;
 }
 
 function mapAccountRow(row: any): AccountRecord {
@@ -74,8 +77,8 @@ export async function createAccount(
     data.isCashEquivalent !== undefined ? data.isCashEquivalent : defaultIsCashEquivalent(data.type, name);
 
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `INSERT INTO accounts (code, name, type, parent_id, currency, is_active, is_cash_equivalent)
-     VALUES ($1, $2, $3, $4::uuid, $5, $6, $7)
+    `INSERT INTO accounts (code, name, type, parent_id, currency, is_active, is_cash_equivalent, client_txn_id)
+     VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, $8::uuid)
      RETURNING id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at`,
     data.code.trim(),
     name,
@@ -83,9 +86,26 @@ export async function createAccount(
     data.parentId || null,
     data.currency || 'USD',
     data.isActive !== undefined ? data.isActive : true,
-    isCashEquivalent
+    isCashEquivalent,
+    data.clientTxnId || null
   );
 
+  return mapAccountRow(rows[0]);
+}
+
+/** Idempotency fast path: an account already created from this exact client-generated key, if any. */
+export async function getAccountByClientTxnId(
+  prisma: PrismaClient,
+  clientTxnId: string
+): Promise<AccountRecord | null> {
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, created_at, updated_at
+     FROM accounts
+     WHERE client_txn_id = $1::uuid`,
+    clientTxnId
+  );
+
+  if (!rows || rows.length === 0) return null;
   return mapAccountRow(rows[0]);
 }
 

@@ -5,6 +5,7 @@ import * as journalService from './journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
 import * as approvalWorkflowService from './approvalWorkflowService';
 import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordChange, notifyChange, invoiceToSyncPayload } from './syncChangeLogService';
 
 export class InvoicePaymentServiceError extends Error {
   statusCode: number;
@@ -122,12 +123,38 @@ export async function markInvoicePaid(
     journalId = journal.id;
   }
 
+  let syncSeq: bigint | null = null;
   const updated = await withCurrentTenantDb(prisma, async (client) => {
-    return (client as any).invoice.update({
+    const invoiceUpdated = await (client as any).invoice.update({
       where: { id: invoiceId },
       data: { status: 'PAID', journalId },
+      include: { customer: true },
     });
+
+    // The transactional outbox entry - must stay inside this same
+    // transaction (see syncChangeLogService.recordChange) so a client can
+    // never observe a committed payment that never got logged.
+    syncSeq = await recordChange(client, {
+      tenantId,
+      entityType: 'Invoice',
+      entityId: invoiceUpdated.id,
+      operation: 'UPDATE',
+      payload: invoiceToSyncPayload(invoiceUpdated),
+    });
+
+    return invoiceUpdated;
   });
+
+  if (syncSeq !== null) {
+    notifyChange({
+      tenantId,
+      entityType: 'Invoice',
+      entityId: updated.id,
+      operation: 'UPDATE',
+      payload: invoiceToSyncPayload(updated),
+      sequence: syncSeq,
+    });
+  }
 
   await recordAuditLog({
     action: 'INVOICE.PAID',
