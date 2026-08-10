@@ -314,7 +314,8 @@ model Invoice {
   taxRate      TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
   items        InvoiceItem[]
   creditNotes  CreditNote[]
-  momoRequests MomoPaymentRequest[]
+  momoRequests   MomoPaymentRequest[]
+  tellerRequests TellerPaymentRequest[]
 
   @@unique([tenantId, invoiceNumber])
   @@index([tenantId])
@@ -353,6 +354,42 @@ model MomoPaymentRequest {
   @@index([invoiceId])
   @@index([status])
   @@map("momo_payment_requests")
+}
+
+// A real TheTeller (PaySwitch) mobile money debit attempt against an
+// invoice - covers the networks MTN's own direct MoMo integration above
+// doesn't: Telecel Cash, AirtelTigo Money, Zeepay, G-Money, selected via
+// `network` (MTN is deliberately excluded here - use MomoPaymentRequest for
+// MTN, so the same real-world network never produces two differently-shaped
+// payment-request rows across two tables). Unlike MTN's always-202-then-poll
+// flow, TheTeller's process endpoint can return a synchronous
+// approved/declined result in the same HTTP response - but a real
+// USSD-prompt approval flow means a pending outcome is still realistically
+// possible, so this is tracked and polled exactly like MoMo for UX
+// consistency and as a hedge against an undocumented pending state.
+// transactionId is TheTeller's own caller-generated 12-digit numeric
+// reference (their `transaction_id`), not a UUID like MTN's referenceId.
+model TellerPaymentRequest {
+  id            String   @id @default(uuid())
+  tenantId      String   @map("tenant_id")
+  invoiceId     String   @map("invoice_id")
+  network       String   @map("network")
+  phoneNumber   String   @map("phone_number")
+  amount        Decimal  @db.Decimal(15, 2)
+  currency      String   @default("GHS")
+  transactionId String   @unique @map("transaction_id")
+  status        String   @default("PENDING")
+  responseCode  String?  @map("response_code")
+  failureReason String?  @map("failure_reason")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("teller_payment_requests")
 }
 
 // A correction/refund against an already-issued Invoice (returned goods,
