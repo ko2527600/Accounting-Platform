@@ -1,8 +1,29 @@
 import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
+import { getTenantContext } from '../context/tenantContext';
 import * as accountRepository from '../repository/accountRepository';
 import { AccountRecord, AccountType, CreateAccountData } from '../repository/accountRepository';
 import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordChange, notifyChange } from './syncChangeLogService';
+
+// Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
+// race (see createAccount) - never surfaced to a caller directly.
+class DuplicateAccountReplayError extends Error {}
+
+function accountSyncPayload(account: AccountRecord): Record<string, unknown> {
+  return {
+    id: account.id,
+    code: account.code,
+    name: account.name,
+    type: account.type,
+    parentId: account.parentId,
+    currency: account.currency,
+    isActive: account.isActive,
+    isCashEquivalent: account.isCashEquivalent,
+    createdAt: account.createdAt.toISOString(),
+    updatedAt: account.updatedAt.toISOString(),
+  };
+}
 
 export class AccountServiceError extends Error {
   statusCode: number;
@@ -63,26 +84,101 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
 
   const normalizedType = data.type.toUpperCase() as AccountType;
 
-  const created = await withCurrentTenantDb(prisma, async (client) => {
-    // 1. Check duplicate code
-    const existingCode = await accountRepository.getAccountByCode(client, data.code);
-    if (existingCode) {
-      throw new AccountServiceError(`Account code "${data.code.trim()}" already exists.`, 409);
-    }
+  let syncSeq: bigint | null = null;
+  let replayed = false;
 
-    // 2. Check parentId existence if specified
-    if (data.parentId) {
-      const parentAcc = await accountRepository.getAccountById(client, data.parentId);
-      if (!parentAcc) {
-        throw new AccountServiceError(`Parent account with ID "${data.parentId}" not found.`, 400);
+  let created: AccountRecord;
+  try {
+    created = await withCurrentTenantDb(prisma, async (client) => {
+      // 0. Idempotency fast path - a retried offline-queued create (same
+      // clientTxnId) returns the account already created by an earlier
+      // attempt instead of erroring on the now-duplicate code, or worse,
+      // creating a second account. Mirrors CashSale's clientTxnId pattern.
+      if (data.clientTxnId) {
+        const existing = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId);
+        if (existing) {
+          replayed = true;
+          return existing;
+        }
       }
-    }
 
-    return accountRepository.createAccount(client, {
-      ...data,
-      type: normalizedType,
+      // 1. Check duplicate code
+      const existingCode = await accountRepository.getAccountByCode(client, data.code);
+      if (existingCode) {
+        throw new AccountServiceError(`Account code "${data.code.trim()}" already exists.`, 409);
+      }
+
+      // 2. Check parentId existence if specified
+      if (data.parentId) {
+        const parentAcc = await accountRepository.getAccountById(client, data.parentId);
+        if (!parentAcc) {
+          throw new AccountServiceError(`Parent account with ID "${data.parentId}" not found.`, 400);
+        }
+      }
+
+      let account: AccountRecord;
+      try {
+        account = await accountRepository.createAccount(client, {
+          ...data,
+          type: normalizedType,
+        });
+      } catch (error: any) {
+        // A concurrent retry racing on the SAME clientTxnId can lose the
+        // fast-path check above (Read Committed isolation - both can start
+        // before either commits). Once Postgres rejects this INSERT the
+        // whole transaction is poisoned (no further queries can run in it),
+        // so recovery can't happen here inline - throw a sentinel so this
+        // transaction rolls back cleanly, then look the winner up in a
+        // FRESH transaction below (same two-phase pattern cashTill.ts's
+        // DuplicateSaleReplayError uses).
+        if (error.code === '23505' && data.clientTxnId && String(error.message || '').includes('uq_accounts_client_txn_id')) {
+          throw new DuplicateAccountReplayError();
+        }
+        throw error;
+      }
+
+      // The transactional outbox entry - must stay inside this same
+      // transaction (see syncChangeLogService.recordChange) so a client can
+      // never observe a committed account that never got logged.
+      syncSeq = await recordChange(client, {
+        tenantId: getTenantContext()!.tenantId,
+        entityType: 'Account',
+        entityId: account.id,
+        operation: 'CREATE',
+        payload: accountSyncPayload(account),
+      });
+
+      return account;
     });
-  });
+  } catch (raceError: any) {
+    if (raceError instanceof DuplicateAccountReplayError) {
+      // The winning transaction is guaranteed committed by now (Postgres
+      // blocked our INSERT until it resolved) - a fresh transaction here is
+      // safe and will find it.
+      replayed = true;
+      created = await withCurrentTenantDb(prisma, async (client) => {
+        const winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
+        if (!winner) throw raceError; // Should be unreachable - the winner must exist by now.
+        return winner;
+      });
+    } else {
+      throw raceError;
+    }
+  }
+
+  // Best-effort live push, only for a genuinely new change (not an
+  // idempotency-replay of an already-notified create) - must happen AFTER
+  // the transaction above has committed, see notifyChange's own comment.
+  if (syncSeq !== null) {
+    notifyChange({
+      tenantId: getTenantContext()!.tenantId,
+      entityType: 'Account',
+      entityId: created.id,
+      operation: 'CREATE',
+      payload: accountSyncPayload(created),
+      sequence: syncSeq,
+    });
+  }
 
   await recordAuditLog({
     action: 'ACCOUNT.CREATED',
@@ -123,6 +219,7 @@ export async function updateAccount(
   }
 
   let previous: AccountRecord | null = null;
+  let syncSeq: bigint | null = null;
 
   const updated = await withCurrentTenantDb(prisma, async (client) => {
     // 1. Check existing account
@@ -194,8 +291,27 @@ export async function updateAccount(
       throw new AccountServiceError(`Failed to update account with ID "${id}".`, 500);
     }
 
+    syncSeq = await recordChange(client, {
+      tenantId: getTenantContext()!.tenantId,
+      entityType: 'Account',
+      entityId: updated.id,
+      operation: 'UPDATE',
+      payload: accountSyncPayload(updated),
+    });
+
     return updated;
   });
+
+  if (syncSeq !== null) {
+    notifyChange({
+      tenantId: getTenantContext()!.tenantId,
+      entityType: 'Account',
+      entityId: updated.id,
+      operation: 'UPDATE',
+      payload: accountSyncPayload(updated),
+      sequence: syncSeq,
+    });
+  }
 
   await recordAuditLog({
     action: 'ACCOUNT.UPDATED',
@@ -214,6 +330,7 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
   }
 
   let deletedAccount: AccountRecord | null = null;
+  let syncSeq: bigint | null = null;
 
   const deleted = await withCurrentTenantDb(prisma, async (client) => {
     // 1. Check existing account
@@ -232,8 +349,9 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
       );
     }
 
+    let wasDeleted: boolean;
     try {
-      return await accountRepository.deleteAccount(client, id);
+      wasDeleted = await accountRepository.deleteAccount(client, id);
     } catch (error: any) {
       if (error.code === '23503' || (error.message && error.message.includes('foreign key constraint'))) {
         throw new AccountServiceError(
@@ -243,7 +361,31 @@ export async function deleteAccount(id: string, actor?: AuditActor): Promise<boo
       }
       throw error;
     }
+
+    if (wasDeleted) {
+      // No payload - a DELETE tombstone only needs entityId/operation, and
+      // the account's real row is already gone by the time a client fetches
+      // this log entry.
+      syncSeq = await recordChange(client, {
+        tenantId: getTenantContext()!.tenantId,
+        entityType: 'Account',
+        entityId: id,
+        operation: 'DELETE',
+      });
+    }
+
+    return wasDeleted;
   });
+
+  if (syncSeq !== null) {
+    notifyChange({
+      tenantId: getTenantContext()!.tenantId,
+      entityType: 'Account',
+      entityId: id,
+      operation: 'DELETE',
+      sequence: syncSeq,
+    });
+  }
 
   if (deleted) {
     await recordAuditLog({

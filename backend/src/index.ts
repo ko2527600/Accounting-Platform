@@ -2,6 +2,7 @@ import app from './app';
 import { connectDatabase, disconnectDatabase } from './config/db';
 import { connectRedis, disconnectRedis } from './config/redis';
 import { startTelemetry, stopTelemetry } from './config/telemetry';
+import { initSyncSocketServer } from './websocket/syncSocketServer';
 
 const PORT = process.env.PORT || 4000;
 
@@ -17,6 +18,9 @@ const startServer = async () => {
     
     // Initialize Redis connection
     await connectRedis();
+
+    // Initialize the local-first sync pilot's WebSocket push channel
+    initSyncSocketServer(server);
 
     // Initialize Monday 8:00 AM Automated Email Reporting Cron Job
     const { ScheduledEmailCronService } = require('./services/scheduledEmailService');

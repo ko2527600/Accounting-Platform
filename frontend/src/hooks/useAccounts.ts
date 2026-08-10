@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { api } from '../lib/api';
 import { useTenantSettings } from './useTenantSettings';
+import { syncDb, createAccountLocalFirst, updateAccountLocalFirst } from '../lib/syncEngine';
 import type { Account, AccountType, CreateAccountDTO, UpdateAccountDTO } from '../types/accounting';
 
 // Backend account type values (fixed, matching the tenant-schema CHECK
@@ -32,107 +34,84 @@ function accountTypeToBackend(type: AccountType): string {
   return ACCOUNT_TYPE_TO_BACKEND[type] || type.toUpperCase();
 }
 
+// Local-first: the account list itself renders straight from the IndexedDB
+// mirror (syncEngine.ts, kept fresh by the bootstrap + live push - see
+// useSyncEngineLifecycle) via useLiveQuery, so opening this page never waits
+// on a network round-trip. Ledger balances are NOT part of the sync pilot
+// yet (journal entries/ledgers are a later phase - see STATUS.md), so
+// they're still fetched live and merged in on top of the local rows.
 export function useAccounts() {
   const { settings } = useTenantSettings();
-  const [accounts, setAccounts] = useState<Account[]>([]);
+  const [balanceByAccountId, setBalanceByAccountId] = useState<Map<string, number>>(new Map());
   const [isLoading, setIsLoading] = useState(false);
 
-  const fetchAccounts = useCallback(async () => {
+  const localAccounts = useLiveQuery(() => syncDb.accounts.toArray(), []);
+
+  const fetchBalances = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [accountsResponse, summaryResponse] = await Promise.all([
-        api.get('/accounts'),
-        api.get('/ledgers/summary'),
-      ]);
-
-      if (accountsResponse.data.success) {
-        const balanceByAccountId = new Map<string, number>(
-          summaryResponse.data.success
-            ? summaryResponse.data.data.accounts.map((a: any) => [a.id, a.closingBalance])
-            : []
+      const summaryResponse = await api.get('/ledgers/summary');
+      if (summaryResponse.data.success) {
+        setBalanceByAccountId(
+          new Map<string, number>(summaryResponse.data.data.accounts.map((a: any) => [a.id, a.closingBalance]))
         );
-
-        // The backend returns { accounts: [...], tree: [...] }
-        // We might need to map backend Prisma fields to frontend fields if they differ
-        // e.g., mapping type 'ASSET' to 'Asset', isActive to status
-        const mappedAccounts = accountsResponse.data.data.accounts.map((acc: any) => ({
-          ...acc,
-          type: accountTypeToDisplay(acc.type),
-          status: acc.isActive ? 'Active' : 'Archived',
-          balance: balanceByAccountId.get(acc.id) ?? 0,
-        }));
-        setAccounts(mappedAccounts);
-        return mappedAccounts;
       }
     } catch (error) {
-      console.error('Failed to fetch accounts:', error);
+      console.error('Failed to fetch account balances:', error);
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  const createAccount = useCallback(async (data: CreateAccountDTO) => {
-    setIsLoading(true);
-    try {
-      // Map frontend DTO to backend Prisma payload. currency always
-      // follows the tenant's own configured base currency - there's no
-      // per-account currency picker anywhere in the UI, and the ledger is
-      // single-currency by design, so a hardcoded literal here would just
-      // silently drift from whatever the tenant actually set under
-      // Settings > Currency & Regional.
-      const payload: any = {
-        code: data.code,
-        name: data.name,
-        type: accountTypeToBackend(data.type),
-        currency: settings.baseCurrency,
-        isActive: true,
-      };
-      if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
+  useEffect(() => {
+    fetchBalances();
+  }, [fetchBalances]);
 
-      const response = await api.post('/accounts', payload);
-      if (response.data.success) {
-        await fetchAccounts();
-        return response.data.data.account;
-      }
-    } catch (error) {
-      console.error('Failed to create account:', error);
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchAccounts, settings.baseCurrency]);
+  const accounts: Account[] = (localAccounts ?? [])
+    .map((acc) => ({
+      ...acc,
+      type: accountTypeToDisplay(acc.type),
+      status: acc.isActive ? 'Active' : 'Archived',
+      balance: balanceByAccountId.get(acc.id) ?? 0,
+    }))
+    .sort((a, b) => a.code.localeCompare(b.code)) as unknown as Account[];
+
+  const createAccount = useCallback(async (data: CreateAccountDTO) => {
+    // Currency always follows the tenant's own configured base currency -
+    // there's no per-account currency picker anywhere in the UI, and the
+    // ledger is single-currency by design, so a hardcoded literal here
+    // would just silently drift from whatever the tenant actually set
+    // under Settings > Currency & Regional.
+    const payload: any = {
+      code: data.code,
+      name: data.name,
+      type: accountTypeToBackend(data.type),
+      currency: settings.baseCurrency,
+      isActive: true,
+    };
+    if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
+
+    // Writes locally first (instant) and queues the real request in the
+    // background - see createAccountLocalFirst. The live query above picks
+    // up the optimistic row immediately, no explicit refetch needed.
+    return createAccountLocalFirst(payload);
+  }, [settings.baseCurrency]);
 
   const updateAccount = useCallback(async (id: string, data: UpdateAccountDTO) => {
-    setIsLoading(true);
-    try {
-      const payload: any = {};
-      if (data.name) payload.name = data.name;
-      if (data.code) payload.code = data.code;
-      if (data.type) payload.type = accountTypeToBackend(data.type);
-      if (data.status) payload.isActive = data.status === 'Active';
-      if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
-      
-      const response = await api.put(`/accounts/${id}`, payload);
-      if (response.data.success) {
-        await fetchAccounts();
-      }
-    } catch (error) {
-      console.error('Failed to update account:', error);
-      throw error;
-    } finally {
-      setIsLoading(false);
-    }
-  }, [fetchAccounts]);
+    const payload: any = {};
+    if (data.name) payload.name = data.name;
+    if (data.code) payload.code = data.code;
+    if (data.type) payload.type = accountTypeToBackend(data.type);
+    if (data.status) payload.isActive = data.status === 'Active';
+    if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
 
-  // Initial fetch
-  useEffect(() => {
-    fetchAccounts();
-  }, [fetchAccounts]);
+    await updateAccountLocalFirst(id, payload);
+  }, []);
 
   return {
     accounts,
     isLoading,
-    fetchAccounts,
+    fetchAccounts: fetchBalances,
     createAccount,
     updateAccount
   };

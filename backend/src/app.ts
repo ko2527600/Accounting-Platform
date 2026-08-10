@@ -47,6 +47,7 @@ import adminAuditLogsRouter from './routes/adminAuditLogs';
 import momoRouter from './routes/momo';
 import tellerRouter from './routes/teller';
 import expenseClaimsRouter from './routes/expenseClaims';
+import syncRouter from './routes/sync';
 
 dotenv.config();
 
@@ -200,6 +201,7 @@ app.use('/api/v1/teller', tellerRouter);
 
 // Employee Expense Claims (submit/approve/reimburse) endpoints
 app.use('/api/v1/expense-claims', expenseClaimsRouter);
+app.use('/api/v1/sync', syncRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.

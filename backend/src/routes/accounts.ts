@@ -85,6 +85,10 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
+    if (req.body?.clientTxnId !== undefined && (typeof req.body.clientTxnId !== 'string' || !req.body.clientTxnId)) {
+      res.status(400).json({ success: false, error: 'clientTxnId, if provided, must be a non-empty string.' });
+      return;
+    }
     const account = await accountService.createAccount(req.body, actorFromRequest(req));
     res.status(201).json({
       success: true,

@@ -3,6 +3,7 @@ import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { TenantSettingsProvider, useTenantSettings } from "./contexts/TenantSettingsContext";
+import { useSyncEngineLifecycle } from "./hooks/useSyncEngineLifecycle";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
@@ -149,12 +150,21 @@ function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode;
   return <>{children}</>;
 }
 
+// Mounted once at the app root (not per-route, unlike ProtectedRoute) so the
+// local-first sync engine's login/logout lifecycle only fires on an actual
+// auth change, never on ordinary navigation between pages.
+function SyncEngineLifecycleMount() {
+  useSyncEngineLifecycle();
+  return null;
+}
+
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
       <ToastProvider>
       <AuthProvider>
       <TenantSettingsProvider>
+        <SyncEngineLifecycleMount />
         <BrowserRouter>
           <CommandMenu />
           <Routes>

@@ -14,6 +14,8 @@
     "axios": "^1.18.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
+    "dexie": "^4.4.4",
+    "dexie-react-hooks": "^1.1.7",
     "idb": "^8.0.3",
     "lucide-react": "^1.26.0",
     "papaparse": "^5.5.4",

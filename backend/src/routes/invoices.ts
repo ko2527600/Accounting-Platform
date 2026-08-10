@@ -19,6 +19,11 @@ import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService'
 import { JournalEntryServiceError } from '../services/journalEntryService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
 import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
+import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/syncChangeLogService';
+
+// Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
+// race (see the POST / handler) - never surfaced to a caller directly.
+class DuplicateInvoiceReplayError extends Error {}
 
 const router = Router();
 
@@ -104,10 +109,14 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId, fundId } = req.body;
+    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId, fundId, clientTxnId } = req.body;
 
     if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: 'Customer and at least one item are required.' });
+      return;
+    }
+    if (clientTxnId !== undefined && (typeof clientTxnId !== 'string' || !clientTxnId)) {
+      res.status(400).json({ success: false, error: 'clientTxnId, if provided, must be a non-empty string.' });
       return;
     }
 
@@ -192,38 +201,114 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 
     const invoiceNumber = `INV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-    const created = await withCurrentTenantDb(prisma, async (client) => {
-      // Verify the customer actually belongs to this tenant before linking it,
-      // so a caller can't attach an invoice to another tenant's customer record.
-      const customer = await (client as any).customer.findFirst({ where: { id: customerId, tenantId } });
-      if (!customer) {
-        throw new Error('Customer not found.');
-      }
+    let replayed = false;
+    let syncSeq: bigint | null = null;
+    let created: any;
+    try {
+      created = await withCurrentTenantDb(prisma, async (client) => {
+        // Idempotency fast path - a retried offline-queued create (same
+        // clientTxnId) returns the invoice an earlier attempt already made,
+        // instead of creating a second one. Mirrors CashSale's clientTxnId
+        // pattern, generalized here (see STATUS.md, local-first sync pilot).
+        if (clientTxnId) {
+          const existing = await (client as any).invoice.findFirst({
+            where: { tenantId, clientTxnId },
+            include: { customer: true, items: true, taxRate: true },
+          });
+          if (existing) {
+            replayed = true;
+            return existing;
+          }
+        }
 
-      return (client as any).invoice.create({
-        data: {
+        // Verify the customer actually belongs to this tenant before linking it,
+        // so a caller can't attach an invoice to another tenant's customer record.
+        const customer = await (client as any).customer.findFirst({ where: { id: customerId, tenantId } });
+        if (!customer) {
+          throw new Error('Customer not found.');
+        }
+
+        let invoice;
+        try {
+          invoice = await (client as any).invoice.create({
+            data: {
+              tenantId,
+              invoiceNumber,
+              customerId,
+              issueDate,
+              dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+              currency,
+              exchangeRate,
+              subtotal,
+              tax,
+              taxRateId: resolvedTaxRateId,
+              taxBreakdown,
+              total,
+              baseCurrencyAmount,
+              fundId: fundId || null,
+              status: 'SENT',
+              clientTxnId: clientTxnId || null,
+              items: { create: itemData },
+            },
+            include: { customer: true, items: true, taxRate: true },
+          });
+        } catch (error: any) {
+          // A concurrent retry racing on the SAME clientTxnId can lose the
+          // fast-path check above (Read Committed isolation - both can start
+          // before either commits). Once Postgres rejects this INSERT the
+          // whole transaction is poisoned (can't run further queries in it),
+          // so recovery can't happen here inline - throw a sentinel so this
+          // transaction rolls back cleanly, then look the winner up in a
+          // FRESH transaction below (same two-phase pattern cashTill.ts's
+          // DuplicateSaleReplayError uses).
+          if (error.code === 'P2002' && clientTxnId && error.meta?.target?.includes?.('client_txn_id')) {
+            throw new DuplicateInvoiceReplayError();
+          }
+          throw error;
+        }
+
+        // The transactional outbox entry - must stay inside this same
+        // transaction (see syncChangeLogService.recordChange) so a client can
+        // never observe a committed invoice that never got logged.
+        syncSeq = await recordChange(client, {
           tenantId,
-          invoiceNumber,
-          customerId,
-          issueDate,
-          dueDate: dueDate ? new Date(dueDate) : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-          currency,
-          exchangeRate,
-          subtotal,
-          tax,
-          taxRateId: resolvedTaxRateId,
-          taxBreakdown,
-          total,
-          baseCurrencyAmount,
-          fundId: fundId || null,
-          status: 'SENT',
-          items: { create: itemData },
-        },
-        include: { customer: true, items: true, taxRate: true },
-      });
-    });
+          entityType: 'Invoice',
+          entityId: invoice.id,
+          operation: 'CREATE',
+          payload: invoiceToSyncPayload(invoice),
+        });
 
-    res.status(201).json({ success: true, message: 'Invoice created successfully', data: { invoice: created } });
+        return invoice;
+      });
+    } catch (raceError: any) {
+      if (raceError instanceof DuplicateInvoiceReplayError) {
+        // The winning transaction is guaranteed committed by now (Postgres
+        // blocked our INSERT until it resolved) - a fresh transaction here
+        // is safe and will find it.
+        replayed = true;
+        created = await withCurrentTenantDb(prisma, async (client) => {
+          return (client as any).invoice.findFirst({
+            where: { tenantId, clientTxnId },
+            include: { customer: true, items: true, taxRate: true },
+          });
+        });
+      } else {
+        throw raceError;
+      }
+    }
+
+    if (syncSeq !== null) {
+      notifyChange({
+        tenantId,
+        entityType: 'Invoice',
+        entityId: created.id,
+        operation: 'CREATE',
+        payload: invoiceToSyncPayload(created),
+        sequence: syncSeq,
+      });
+    }
+
+    res.status(replayed ? 200 : 201).json({ success: true, message: 'Invoice created successfully', data: { invoice: created } });
   } catch (error: any) {
     console.error('[Invoices] Error creating invoice:', error);
     if (error.message === 'Customer not found.') {
