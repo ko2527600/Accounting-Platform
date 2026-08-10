@@ -38,10 +38,19 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      // Clear invalid token
       localStorage.removeItem('accountgo-token');
-      // If we aren't already on the login page, we could redirect,
-      // but let the React Router ProtectedRoute handle this gracefully based on AuthContext state.
+      localStorage.removeItem('accountgo-tenant-id');
+
+      // A 401 from /auth/login itself just means "wrong credentials" - Login.tsx
+      // already renders that inline from the response body, and there's no real
+      // session to tear down yet. Every other 401 means the current session went
+      // stale (expired/invalid token) - dispatch a DOM event so AuthContext (a React
+      // context this plain module can't call into directly) can force a clean
+      // logout + redirect instead of leaving the app stuck silently re-401ing.
+      const isLoginRequest = typeof error.config?.url === 'string' && error.config.url.includes('/auth/login');
+      if (!isLoginRequest) {
+        window.dispatchEvent(new Event('ledgio:session-expired'));
+      }
     }
     return Promise.reject(error);
   }

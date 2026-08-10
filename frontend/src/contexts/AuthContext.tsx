@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useEffect, useState } from "react";
+import React, { createContext, useContext, useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { useToast } from "./ToastContext";
 
 type User = {
   id: string;
@@ -22,9 +23,14 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const { showToast } = useToast();
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(localStorage.getItem('accountgo-token'));
   const [isLoading, setIsLoading] = useState(true);
+  // Guards against a burst of parallel requests (e.g. the dashboard's several
+  // simultaneous calls) that all 401 in the same tick from showing more than
+  // one "session expired" toast for a single expiry event.
+  const sessionExpiredNoticeShown = useRef(false);
 
   useEffect(() => {
     const verifyToken = async () => {
@@ -55,7 +61,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     verifyToken();
   }, [token]);
 
+  // api.ts's response interceptor dispatches this whenever a request 401s
+  // outside of a plain login-form rejection - meaning the current session went
+  // stale (expired/invalid token). It can't call useAuth()/useToast() directly
+  // since it's a plain module, so it signals via a DOM event instead.
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      if (sessionExpiredNoticeShown.current) return;
+      sessionExpiredNoticeShown.current = true;
+      logout();
+      showToast("Your session has expired. Please log in again.", "info");
+    };
+    window.addEventListener('ledgio:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('ledgio:session-expired', handleSessionExpired);
+  }, [showToast]);
+
   const login = (newToken: string, userData: User) => {
+    sessionExpiredNoticeShown.current = false;
     localStorage.setItem('accountgo-token', newToken);
     if (userData.tenantId) {
       localStorage.setItem('accountgo-tenant-id', userData.tenantId);
