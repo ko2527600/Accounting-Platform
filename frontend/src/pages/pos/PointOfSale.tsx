@@ -7,7 +7,17 @@ import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
 import { useToast } from "../../contexts/ToastContext";
 import { useAuth } from "../../contexts/AuthContext";
-import { saveCatalogSnapshot, removePendingSale, type OfflinePendingSale } from "../../lib/offlineDb";
+import {
+  saveCatalogSnapshot,
+  getCatalogSnapshot,
+  saveWarehousesSnapshot,
+  getWarehousesSnapshot,
+  saveTillSnapshot,
+  getTillSnapshot,
+  clearTillSnapshot,
+  removePendingSale,
+  type OfflinePendingSale,
+} from "../../lib/offlineDb";
 import { useSaleSyncQueue } from "../../lib/saleSyncQueue";
 import { ShoppingCart, Lock, Unlock, Receipt, AlertTriangle, CheckCircle2, XCircle, Search, Plus, Minus, Trash2, Ban, ShieldAlert, WifiOff, RefreshCw } from "lucide-react";
 
@@ -87,6 +97,10 @@ export function PointOfSale() {
   const [till, setTill] = useState<CashTill | null>(null);
   const [items, setItems] = useState<InventoryItemOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  // True whenever till/catalog were restored from the local offline cache
+  // rather than a live server response - e.g. the page was reloaded during
+  // a genuine connectivity outage, not just dropped mid-session.
+  const [isOfflineData, setIsOfflineData] = useState(false);
 
   // Open Till Form
   const [openingCash, setOpeningCash] = useState("");
@@ -128,9 +142,22 @@ export function PointOfSale() {
         const whs = res.data.data.warehouses.map((w: any) => ({ id: w.id, name: w.name }));
         setWarehouses(whs);
         setSelectedWarehouseId((prev) => prev || (whs.length > 0 ? whs[0].id : ""));
+        saveWarehousesSnapshot(whs).catch(() => {});
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load warehouses:", err);
+      if (!err.response) {
+        // Genuinely offline (no response at all) - a fresh page load during
+        // an outage would otherwise have no warehouse to even select, since
+        // this only ever lived in React state before. Restore the last-known
+        // roster so the rest of the offline flow (till/catalog restore) has
+        // a warehouseId to key off.
+        const cached = await getWarehousesSnapshot();
+        if (cached.length > 0) {
+          setWarehouses(cached);
+          setSelectedWarehouseId((prev) => prev || cached[0].id);
+        }
+      }
     }
   }, []);
 
@@ -150,7 +177,14 @@ export function PointOfSale() {
         api.get("/inventory/items"),
       ]);
 
-      setTill(tillRes.data.success ? tillRes.data.data.till : null);
+      const liveTill = tillRes.data.success ? tillRes.data.data.till : null;
+      setTill(liveTill);
+      setIsOfflineData(false);
+      if (liveTill) {
+        saveTillSnapshot(selectedWarehouseId, liveTill).catch(() => {});
+      } else {
+        clearTillSnapshot(selectedWarehouseId).catch(() => {});
+      }
 
       if (itemsRes.data.success) {
         const mapped: InventoryItemOption[] = itemsRes.data.data.items
@@ -171,8 +205,30 @@ export function PointOfSale() {
         // still search/add products to a cart once connectivity drops.
         saveCatalogSnapshot(selectedWarehouseId, mapped).catch(() => {});
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error("Failed to load till/items:", err);
+      if (!err.response) {
+        // Genuinely offline - restore the last-known till/catalog for this
+        // warehouse so a page reload/reopen *during* an outage doesn't
+        // strand the cashier on the "Open Till" screen (till state would
+        // otherwise reset to null on every cold load) or with an empty,
+        // unsearchable catalog. Flagged as cached (not live) via
+        // isOfflineData rather than presented as confirmed current truth -
+        // stock counts in particular won't reflect sales made since the
+        // snapshot was taken, including this device's own still-unsynced
+        // queue (no offline stock reservation exists anywhere in this app).
+        const [cachedTill, cachedItems] = await Promise.all([
+          getTillSnapshot(selectedWarehouseId),
+          getCatalogSnapshot(selectedWarehouseId),
+        ]);
+        if (cachedTill) {
+          setTill(cachedTill as CashTill);
+          setIsOfflineData(true);
+        }
+        if (cachedItems.length > 0) {
+          setItems(cachedItems);
+        }
+      }
     } finally {
       setIsLoading(false);
     }
@@ -199,6 +255,20 @@ export function PointOfSale() {
     setCart([]);
     setItemSearch("");
   }, [fetchTillAndItems]);
+
+  // Once connectivity genuinely returns, refresh with live data - the sync
+  // queue's own "online" handler only re-fetches when it actually synced a
+  // pending sale (via onSynced), so a session that was showing offline-cached
+  // till/catalog data with nothing queued (e.g. just browsing, or every sale
+  // already synced) would otherwise stay stale indefinitely.
+  useEffect(() => {
+    const handleBackOnline = () => {
+      fetchWarehouses();
+      fetchTillAndItems();
+    };
+    window.addEventListener("online", handleBackOnline);
+    return () => window.removeEventListener("online", handleBackOnline);
+  }, [fetchWarehouses, fetchTillAndItems]);
 
   const fetchVoidStats = useCallback(async () => {
     if (!canSelfAuthorizeVoid) return;
@@ -368,6 +438,7 @@ export function PointOfSale() {
         setCloseoutResult(res.data.data.report);
         setIsCloseModalOpen(false);
         setTill(null);
+        clearTillSnapshot(till.warehouseId).catch(() => {});
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to close till.", "error");
@@ -534,6 +605,15 @@ export function PointOfSale() {
               Close Till
             </Button>
           </div>
+
+          {isOfflineData && (
+            <div className="p-3 rounded-lg bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-800 flex items-center text-blue-800 dark:text-blue-300 text-sm">
+              <WifiOff className="h-4 w-4 mr-2 flex-shrink-0" />
+              <span>
+                Showing till and catalog data saved from before this outage - stock counts and today's totals may be out of date. Reconnect to confirm.
+              </span>
+            </div>
+          )}
 
           {pendingSales.length > 0 && (
             <div className="p-3 rounded-lg bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
