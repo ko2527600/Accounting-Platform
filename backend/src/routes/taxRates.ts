@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as taxRateService from '../services/taxRateService';
 import { TaxRateServiceError } from '../services/taxRateService';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -58,7 +59,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const taxRate = await taxRateService.createTaxRate(tenantId, req.body);
+    const taxRate = await taxRateService.createTaxRate(tenantId, req.body, actorFromRequest(req));
     res.status(201).json({ success: true, message: 'Tax rate created successfully', data: { taxRate } });
   } catch (error: any) {
     handleError(res, error, 'Failed to create tax rate.');
@@ -72,7 +73,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const taxRate = await taxRateService.updateTaxRate(tenantId, req.params.id, req.body);
+    const taxRate = await taxRateService.updateTaxRate(tenantId, req.params.id, req.body, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Tax rate updated successfully', data: { taxRate } });
   } catch (error: any) {
     handleError(res, error, 'Failed to update tax rate.');
@@ -86,7 +87,7 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
 router.delete('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    await taxRateService.deleteTaxRate(tenantId, req.params.id);
+    await taxRateService.deleteTaxRate(tenantId, req.params.id, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Tax rate deleted successfully' });
   } catch (error: any) {
     handleError(res, error, 'Failed to delete tax rate.');

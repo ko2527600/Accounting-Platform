@@ -3,6 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import * as taxRateRepository from '../repository/taxRateRepository';
 import * as accountRepository from '../repository/accountRepository';
 import { TaxRateRecord, CreateTaxRateData, TaxRateComponent } from '../repository/taxRateRepository';
+import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
 
 export class TaxRateServiceError extends Error {
   statusCode: number;
@@ -112,7 +113,7 @@ export async function getTaxRateById(tenantId: string, id: string): Promise<TaxR
   return taxRateRepository.getTaxRateById(prisma, tenantId, id);
 }
 
-export async function createTaxRate(tenantId: string, input: any): Promise<TaxRateRecord> {
+export async function createTaxRate(tenantId: string, input: any, actor?: AuditActor): Promise<TaxRateRecord> {
   const { name, code, rate, description, accountId, isActive, effectiveFrom, effectiveTo, components } = input;
 
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -150,10 +151,21 @@ export async function createTaxRate(tenantId: string, input: any): Promise<TaxRa
     components: validatedComponents,
   };
 
-  return taxRateRepository.createTaxRate(prisma, tenantId, data);
+  const created = await taxRateRepository.createTaxRate(prisma, tenantId, data);
+
+  await recordAuditLog({
+    action: 'TAX_RATE.CREATED',
+    entity: 'TaxRate',
+    entityId: created.id,
+    tenantId,
+    actor,
+    details: `Tax rate ${created.code} - ${created.name} (${(Number(created.rate) * 100).toFixed(2)}%) created.`,
+  });
+
+  return created;
 }
 
-export async function updateTaxRate(tenantId: string, id: string, input: any): Promise<TaxRateRecord> {
+export async function updateTaxRate(tenantId: string, id: string, input: any, actor?: AuditActor): Promise<TaxRateRecord> {
   const existing = await taxRateRepository.getTaxRateById(prisma, tenantId, id);
   if (!existing) {
     throw new TaxRateServiceError(`Tax rate with ID "${id}" not found.`, 404);
@@ -213,10 +225,20 @@ export async function updateTaxRate(tenantId: string, id: string, input: any): P
   if (!updated) {
     throw new TaxRateServiceError(`Failed to update tax rate with ID "${id}".`, 500);
   }
+
+  await recordAuditLog({
+    action: 'TAX_RATE.UPDATED',
+    entity: 'TaxRate',
+    entityId: updated.id,
+    tenantId,
+    actor,
+    changes: diffFields(existing, updated, ['name', 'code', 'rate', 'accountId', 'isActive', 'effectiveFrom', 'effectiveTo']),
+  });
+
   return updated;
 }
 
-export async function deleteTaxRate(tenantId: string, id: string): Promise<void> {
+export async function deleteTaxRate(tenantId: string, id: string, actor?: AuditActor): Promise<void> {
   const existing = await taxRateRepository.getTaxRateById(prisma, tenantId, id);
   if (!existing) {
     throw new TaxRateServiceError(`Tax rate with ID "${id}" not found.`, 404);
@@ -231,6 +253,15 @@ export async function deleteTaxRate(tenantId: string, id: string): Promise<void>
   }
 
   await taxRateRepository.deleteTaxRate(prisma, tenantId, id);
+
+  await recordAuditLog({
+    action: 'TAX_RATE.DELETED',
+    entity: 'TaxRate',
+    entityId: id,
+    tenantId,
+    actor,
+    details: `Tax rate ${existing.code} - ${existing.name} deleted.`,
+  });
 }
 
 /**

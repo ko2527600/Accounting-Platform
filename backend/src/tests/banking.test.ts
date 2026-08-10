@@ -152,6 +152,10 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
     expect(bankAccount.currency).toBe('GHS');
     expect(Number(bankAccount.currentBalance)).toBe(125000);
 
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'BankAccount', entityId: bankAccount.id, action: 'BANK_ACCOUNT.CONNECTED' } })
+    ).toBeTruthy();
+
     const accountsRes = await request(app)
       .get('/api/v1/banking/accounts')
       .set('Authorization', `Bearer ${token1}`)
@@ -178,6 +182,10 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
 
     expect(reconcileRes.status).toBe(200);
     expect(reconcileRes.body.data.transaction.status).toBe('RECONCILED');
+
+    const reconciledLog = await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'BankTransaction', entityId: txId, action: 'BANK_TRANSACTION.RECONCILED' } });
+    expect(reconciledLog).toBeTruthy();
+    expect((reconciledLog!.changes as any).status).toEqual({ from: 'UNRECONCILED', to: 'RECONCILED' });
 
     const notFoundRes = await request(app)
       .post('/api/v1/banking/reconcile')

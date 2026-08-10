@@ -215,6 +215,45 @@ describe('Approval Workflows API (multi-level, opt-in posting/payment gate)', ()
     expect(cannotRedecide.status).toBe(400);
   });
 
+  it('records APPROVAL_WORKFLOW.CREATED and .DECIDED audit log entries', async () => {
+    const draft = await request(app)
+      .post('/api/v1/journal-entries')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({
+        description: 'Audit test entry',
+        status: 'DRAFT',
+        lines: [
+          { accountId: cashAccountId, debit: 10, credit: 0 },
+          { accountId: revenueAccountId, debit: 0, credit: 10 },
+        ],
+      });
+    const entryId = draft.body.data.journalEntry.id;
+
+    const workflowRes = await request(app)
+      .post('/api/v1/approval-workflows')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ entityType: 'JournalEntry', entityId: entryId, requiredLevel: 1 });
+    expect(workflowRes.status).toBe(201);
+    const workflowId = workflowRes.body.data.approvalWorkflow.id;
+
+    expect(
+      await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'ApprovalWorkflow', entityId: workflowId, action: 'APPROVAL_WORKFLOW.CREATED' } })
+    ).toBeTruthy();
+
+    const decided = await request(app)
+      .post(`/api/v1/approval-workflows/${workflowId}/steps/1/decide`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ decision: 'APPROVE' });
+    expect(decided.status).toBe(200);
+
+    const decidedLog = await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'ApprovalWorkflow', entityId: workflowId, action: 'APPROVAL_WORKFLOW.DECIDED' } });
+    expect(decidedLog).toBeTruthy();
+    expect((decidedLog!.changes as any).status).toEqual({ from: 'PENDING', to: 'APPROVED' });
+  });
+
   it('does not let one tenant see or decide another tenant\'s approval workflows', async () => {
     const tenant1List = await request(app)
       .get('/api/v1/approval-workflows')

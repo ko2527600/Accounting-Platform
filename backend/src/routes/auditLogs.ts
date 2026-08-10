@@ -5,7 +5,7 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
-import { buildCsv } from '../utils/csvExport';
+import { buildCsv, formatAuditChanges } from '../utils/csvExport';
 
 const router = Router();
 
@@ -24,12 +24,16 @@ function buildAuditLogWhere(
   tenantId: string,
   query: Request['query']
 ): { where: Record<string, any> } | { error: string } {
-  const { action, entity, userEmail, dateFrom, dateTo } = query;
+  const { action, entity, entityId, userEmail, ipAddress, dateFrom, dateTo } = query;
   const where: Record<string, any> = { tenantId };
 
   if (action) where.action = { contains: String(action), mode: 'insensitive' };
   if (entity) where.entity = { contains: String(entity), mode: 'insensitive' };
+  // Exact match, not substring - lets a user jump straight to one record's
+  // full history (e.g. one invoice's changes) via its entityId.
+  if (entityId) where.entityId = String(entityId);
   if (userEmail) where.userEmail = { contains: String(userEmail), mode: 'insensitive' };
+  if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: 'insensitive' };
 
   if (dateFrom || dateTo) {
     if (dateFrom && !DATE_FORMAT.test(String(dateFrom))) {
@@ -101,6 +105,37 @@ router.get('/', requireRole('Auditor'), async (req: Request, res: Response): Pro
   }
 });
 
+/**
+ * GET /api/v1/audit-logs/meta/values
+ * Returns the tenant's own distinct action/entity values actually present in
+ * its audit log - feeds a <datalist> autocomplete on the Action/Entity filter
+ * inputs so a user can discover real values without a hardcoded enum that
+ * would drift from what modules actually emit.
+ */
+router.get('/meta/values', requireRole('Auditor'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+
+    const [actions, entities] = await withCurrentTenantDb(prisma, async (client) => {
+      return Promise.all([
+        (client as any).auditLog.findMany({ where: { tenantId }, distinct: ['action'], select: { action: true }, orderBy: { action: 'asc' } }),
+        (client as any).auditLog.findMany({ where: { tenantId }, distinct: ['entity'], select: { entity: true }, orderBy: { entity: 'asc' } }),
+      ]);
+    });
+
+    res.status(200).json({
+      success: true,
+      data: {
+        actions: actions.map((a: any) => a.action),
+        entities: entities.map((e: any) => e.entity),
+      },
+    });
+  } catch (error: any) {
+    console.error('[AuditLogs] Error fetching meta values:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve audit log meta values.' });
+  }
+});
+
 const EXPORT_ROW_CAP = 5000;
 
 /**
@@ -140,7 +175,7 @@ router.get('/export', requireRole('Auditor'), async (req: Request, res: Response
         log.userId || '',
         log.ipAddress || '',
         log.details || '',
-        log.changes ? JSON.stringify(log.changes) : '',
+        formatAuditChanges(log.changes),
       ])
     );
 

@@ -70,10 +70,24 @@ describe('GET /api/v1/admin/audit-logs (platform-wide, passcode-gated)', () => {
     // in this codebase is a failed login, or directly seed via prisma to keep
     // this test focused on the read endpoint rather than which actions audit).
     await prisma.auditLog.create({
-      data: { tenantId: tenant1Id, action: 'TEST_ACTION', entity: 'TEST_ENTITY', details: 'Tenant 1 event' },
+      data: {
+        tenantId: tenant1Id,
+        action: 'TEST_ACTION',
+        entity: 'TEST_ENTITY',
+        entityId: 'entity-1-fixed-id',
+        ipAddress: '203.0.113.7',
+        details: 'Tenant 1 event',
+      },
     });
     await prisma.auditLog.create({
-      data: { tenantId: tenant2Id, action: 'TEST_ACTION', entity: 'TEST_ENTITY', details: 'Tenant 2 event' },
+      data: {
+        tenantId: tenant2Id,
+        action: 'TEST_ACTION',
+        entity: 'TEST_ENTITY',
+        entityId: 'entity-2-fixed-id',
+        ipAddress: '198.51.100.9',
+        details: 'Tenant 2 event',
+      },
     });
   }, 120000);
 
@@ -187,5 +201,39 @@ describe('GET /api/v1/admin/audit-logs (platform-wide, passcode-gated)', () => {
     expect(csv).toContain('Tenant 1 event');
     expect(csv).toContain('Admin Audit Corp 1');
     expect(csv).not.toContain('Tenant 2 event');
+  });
+
+  it('filters by exact entityId across all tenants', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', entityId: 'entity-1-fixed-id' });
+
+    expect(res.status).toBe(200);
+    const details = res.body.data.logs.map((l: any) => l.details);
+    expect(details).toContain('Tenant 1 event');
+    expect(details).not.toContain('Tenant 2 event');
+  });
+
+  it('filters by ipAddress substring across all tenants', async () => {
+    const res = await request(app)
+      .get('/api/v1/admin/audit-logs')
+      .query({ passcode: 'test-master-passcode', ipAddress: '203.0.113' });
+
+    expect(res.status).toBe(200);
+    const details = res.body.data.logs.map((l: any) => l.details);
+    expect(details).toContain('Tenant 1 event');
+    expect(details).not.toContain('Tenant 2 event');
+  });
+
+  it('GET /admin/audit-logs/meta/values requires the passcode and returns distinct action/entity values platform-wide', async () => {
+    const unauthorized = await request(app).get('/api/v1/admin/audit-logs/meta/values');
+    expect(unauthorized.status).toBe(401);
+
+    const res = await request(app)
+      .get('/api/v1/admin/audit-logs/meta/values')
+      .query({ passcode: 'test-master-passcode' });
+    expect(res.status).toBe(200);
+    expect(res.body.data.actions).toEqual(expect.arrayContaining(['TEST_ACTION']));
+    expect(res.body.data.entities).toEqual(expect.arrayContaining(['TEST_ENTITY']));
   });
 });

@@ -26,7 +26,16 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
 
-const EMPTY_AUDIT_FILTERS = { action: "", entity: "", userEmail: "", tenantId: "", dateFrom: "", dateTo: "" };
+const EMPTY_AUDIT_FILTERS = {
+  action: "",
+  entity: "",
+  entityId: "",
+  userEmail: "",
+  ipAddress: "",
+  tenantId: "",
+  dateFrom: "",
+  dateTo: "",
+};
 
 export function AdminCoreEngine() {
   const navigate = useNavigate();
@@ -83,6 +92,8 @@ export function AdminCoreEngine() {
   // last submitted), so typing doesn't refetch on every keystroke.
   const [draftAuditFilters, setDraftAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
   const [appliedAuditFilters, setAppliedAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [auditActionOptions, setAuditActionOptions] = useState<string[]>([]);
+  const [auditEntityOptions, setAuditEntityOptions] = useState<string[]>([]);
 
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
@@ -181,7 +192,9 @@ export function AdminCoreEngine() {
     const params: Record<string, string | number> = { passcode, limit: 50 };
     if (filters.action.trim()) params.action = filters.action.trim();
     if (filters.entity.trim()) params.entity = filters.entity.trim();
+    if (filters.entityId.trim()) params.entityId = filters.entityId.trim();
     if (filters.userEmail.trim()) params.userEmail = filters.userEmail.trim();
+    if (filters.ipAddress.trim()) params.ipAddress = filters.ipAddress.trim();
     if (filters.tenantId) params.tenantId = filters.tenantId;
     if (filters.dateFrom) params.dateFrom = filters.dateFrom;
     if (filters.dateTo) params.dateTo = filters.dateTo;
@@ -213,6 +226,21 @@ export function AdminCoreEngine() {
       cancelled = true;
     };
   }, [isUnlocked, passcode, appliedAuditFilters]);
+
+  // Distinct action/entity values platform-wide, feeding the filter inputs'
+  // autocomplete - same purpose as the tenant-facing Audit Trail page's.
+  useEffect(() => {
+    if (!isUnlocked) return;
+    api
+      .get("/admin/audit-logs/meta/values", { params: { passcode } })
+      .then((res) => {
+        if (res.data.success) {
+          setAuditActionOptions(res.data.data.actions || []);
+          setAuditEntityOptions(res.data.data.entities || []);
+        }
+      })
+      .catch(() => { /* autocomplete is a nice-to-have, fail silently */ });
+  }, [isUnlocked, passcode]);
 
   const applyAuditFilters = () => setAppliedAuditFilters(draftAuditFilters);
 
@@ -857,18 +885,35 @@ export function AdminCoreEngine() {
                       <label className="block text-[11px] font-medium text-secondary-500 mb-1">Action</label>
                       <Input
                         placeholder="e.g. JOURNAL_ENTRY"
+                        list="admin-audit-action-options"
                         className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
                         value={draftAuditFilters.action}
                         onChange={(e) => setDraftAuditFilters((f) => ({ ...f, action: e.target.value }))}
                       />
+                      <datalist id="admin-audit-action-options">
+                        {auditActionOptions.map((a) => <option key={a} value={a} />)}
+                      </datalist>
                     </div>
                     <div>
                       <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity</label>
                       <Input
                         placeholder="e.g. Invoice"
+                        list="admin-audit-entity-options"
                         className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
                         value={draftAuditFilters.entity}
                         onChange={(e) => setDraftAuditFilters((f) => ({ ...f, entity: e.target.value }))}
+                      />
+                      <datalist id="admin-audit-entity-options">
+                        {auditEntityOptions.map((e) => <option key={e} value={e} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity ID</label>
+                      <Input
+                        placeholder="exact record ID"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.entityId}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, entityId: e.target.value }))}
                       />
                     </div>
                     <div>
@@ -878,6 +923,15 @@ export function AdminCoreEngine() {
                         className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
                         value={draftAuditFilters.userEmail}
                         onChange={(e) => setDraftAuditFilters((f) => ({ ...f, userEmail: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">IP Address</label>
+                      <Input
+                        placeholder="e.g. 197.251"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.ipAddress}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, ipAddress: e.target.value }))}
                       />
                     </div>
                     <div>

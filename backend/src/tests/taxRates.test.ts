@@ -194,6 +194,45 @@ describe('Tax Rates API (CRUD, tenant isolation, real invoice tax calculation)',
     expect(deleteRes.status).toBe(400);
   });
 
+  it('records TAX_RATE.CREATED / .UPDATED / .DELETED audit log entries', async () => {
+    const created = await request(app)
+      .post('/api/v1/tax-rates')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ name: 'Audit Test Rate', code: 'AUDIT-TR', rate: 0.1, effectiveFrom: '2020-01-01' });
+    expect(created.status).toBe(201);
+    const rateId = created.body.data.taxRate.id;
+
+    const createdLog = await prisma.auditLog.findFirst({
+      where: { tenantId: tenant1Id, entity: 'TaxRate', entityId: rateId, action: 'TAX_RATE.CREATED' },
+    });
+    expect(createdLog).toBeTruthy();
+
+    const updated = await request(app)
+      .put(`/api/v1/tax-rates/${rateId}`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ name: 'Audit Test Rate Renamed' });
+    expect(updated.status).toBe(200);
+
+    const updatedLog = await prisma.auditLog.findFirst({
+      where: { tenantId: tenant1Id, entity: 'TaxRate', entityId: rateId, action: 'TAX_RATE.UPDATED' },
+    });
+    expect(updatedLog).toBeTruthy();
+    expect((updatedLog!.changes as any).name).toEqual({ from: 'Audit Test Rate', to: 'Audit Test Rate Renamed' });
+
+    const deleted = await request(app)
+      .delete(`/api/v1/tax-rates/${rateId}`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(deleted.status).toBe(200);
+
+    const deletedLog = await prisma.auditLog.findFirst({
+      where: { tenantId: tenant1Id, entity: 'TaxRate', entityId: rateId, action: 'TAX_RATE.DELETED' },
+    });
+    expect(deletedLog).toBeTruthy();
+  });
+
   describe('Layered tax rate breakdown (Ghana VAT + NHIL + GETFund)', () => {
     it('creates a layered tax rate whose components sum to the total rate', async () => {
       const res = await request(app)

@@ -22,3 +22,17 @@ export function buildCsv(headers: string[], rows: unknown[][]): string {
   }
   return lines.join('\r\n');
 }
+
+/**
+ * Renders an AuditLog `changes` diff ({field: {from, to}}) as the same
+ * "field: from → to" text the in-app Changes column already shows, instead
+ * of a raw JSON blob - one line per field, semicolon-separated.
+ */
+export function formatAuditChanges(changes: unknown): string {
+  if (!changes || typeof changes !== 'object') return '';
+  const entries = Object.entries(changes as Record<string, { from: unknown; to: unknown }>);
+  if (entries.length === 0) return '';
+  return entries
+    .map(([field, diff]) => `${field}: ${diff?.from ?? '—'} → ${diff?.to ?? '—'}`)
+    .join('; ');
+}

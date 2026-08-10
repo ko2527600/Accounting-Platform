@@ -179,7 +179,8 @@ describe('Audit Logs API - filtering and CSV export', () => {
     // into this tenant's export, even though it matched the same filter.
     expect(csv).not.toContain('Tenant 2 SECRET entry');
     expect(csv).not.toContain('Paid invoice INV-1');
-    // The structured changes diff is exported too, not just the free-text details.
-    expect(csv).toContain('"status"');
+    // The structured changes diff is exported too, rendered the same
+    // human-readable "field: from → to" way the in-app UI shows it, not raw JSON.
+    expect(csv).toContain('status: DRAFT → POSTED');
   });
 });

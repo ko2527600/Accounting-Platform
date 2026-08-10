@@ -117,6 +117,13 @@ describe('Ledgio System-Wide End-to-End API Integration Suite', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.tenant.name).toBe(`${testCompany} Updated`);
+
+      const auditLog = await prisma.auditLog.findFirst({
+        where: { tenantId, entity: 'Tenant', entityId: tenantId, action: 'TENANT_SETTINGS.UPDATED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(auditLog).toBeTruthy();
+      expect((auditLog!.changes as any).name).toEqual({ from: testCompany, to: `${testCompany} Updated` });
     });
 
     it('POST /api/v1/tenants/invite - should accept a closed-set role like Accountant', async () => {

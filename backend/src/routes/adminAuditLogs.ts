@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { BroadcastService } from '../services/broadcastService';
-import { buildCsv } from '../utils/csvExport';
+import { buildCsv, formatAuditChanges } from '../utils/csvExport';
 
 const router = Router();
 
@@ -16,12 +16,14 @@ const DATE_FORMAT = /^\d{4}-\d{2}-\d{2}$/;
 function buildAdminAuditLogWhere(
   query: Request['query']
 ): { where: Record<string, any> } | { error: string } {
-  const { action, entity, userEmail, tenantId, dateFrom, dateTo } = query;
+  const { action, entity, entityId, userEmail, ipAddress, tenantId, dateFrom, dateTo } = query;
   const where: Record<string, any> = {};
 
   if (action) where.action = { contains: String(action), mode: 'insensitive' };
   if (entity) where.entity = { contains: String(entity), mode: 'insensitive' };
+  if (entityId) where.entityId = String(entityId);
   if (userEmail) where.userEmail = { contains: String(userEmail), mode: 'insensitive' };
+  if (ipAddress) where.ipAddress = { contains: String(ipAddress), mode: 'insensitive' };
   if (tenantId) where.tenantId = String(tenantId);
 
   if (dateFrom || dateTo) {
@@ -116,6 +118,37 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
   }
 });
 
+/**
+ * GET /api/v1/admin/audit-logs/meta/values
+ * Returns distinct action/entity values present platform-wide (across all
+ * tenants) - feeds a <datalist> autocomplete on the admin console's Action/
+ * Entity filter inputs, same purpose as the tenant-scoped equivalent.
+ */
+router.get('/meta/values', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!verifyAdminPasscode(req)) {
+      res.status(401).json({ success: false, error: 'Unauthorized: valid master passcode required.' });
+      return;
+    }
+
+    const [actions, entities] = await Promise.all([
+      prisma.auditLog.findMany({ distinct: ['action'], select: { action: true }, orderBy: { action: 'asc' } }),
+      prisma.auditLog.findMany({ distinct: ['entity'], select: { entity: true }, orderBy: { entity: 'asc' } }),
+    ]);
+
+    res.status(200).json({
+      success: true,
+      data: {
+        actions: actions.map((a) => a.action),
+        entities: entities.map((e) => e.entity),
+      },
+    });
+  } catch (error: any) {
+    console.error('[AdminAuditLogs] Error fetching meta values:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve audit log meta values.' });
+  }
+});
+
 const EXPORT_ROW_CAP = 5000;
 
 /**
@@ -153,7 +186,7 @@ router.get('/export', async (req: Request, res: Response): Promise<void> => {
         log.userId || '',
         log.ipAddress || '',
         log.details || '',
-        log.changes ? JSON.stringify(log.changes) : '',
+        formatAuditChanges(log.changes),
       ])
     );
 

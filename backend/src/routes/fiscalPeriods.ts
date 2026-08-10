@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as fiscalPeriodService from '../services/fiscalPeriodService';
 import { FiscalPeriodServiceError } from '../services/fiscalPeriodService';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -57,7 +58,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const fiscalPeriod = await fiscalPeriodService.createFiscalPeriod(tenantId, req.body);
+    const fiscalPeriod = await fiscalPeriodService.createFiscalPeriod(tenantId, req.body, actorFromRequest(req));
     res.status(201).json({ success: true, message: 'Fiscal period created successfully', data: { fiscalPeriod } });
   } catch (error: any) {
     handleError(res, error, 'Failed to create fiscal period.');
@@ -72,7 +73,7 @@ router.patch('/:id/close', requireRole('Accountant'), async (req: Request, res: 
   try {
     const { tenantId } = requireTenantContext();
     const closedBy = (req as any).user?.email || (req as any).user?.id;
-    const fiscalPeriod = await fiscalPeriodService.closeFiscalPeriod(tenantId, req.params.id, closedBy);
+    const fiscalPeriod = await fiscalPeriodService.closeFiscalPeriod(tenantId, req.params.id, closedBy, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Fiscal period closed.', data: { fiscalPeriod } });
   } catch (error: any) {
     handleError(res, error, 'Failed to close fiscal period.');
@@ -86,7 +87,7 @@ router.patch('/:id/close', requireRole('Accountant'), async (req: Request, res: 
 router.patch('/:id/lock', requireRole('Admin'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const fiscalPeriod = await fiscalPeriodService.lockFiscalPeriod(tenantId, req.params.id);
+    const fiscalPeriod = await fiscalPeriodService.lockFiscalPeriod(tenantId, req.params.id, actorFromRequest(req));
     res.status(200).json({ success: true, message: 'Fiscal period locked.', data: { fiscalPeriod } });
   } catch (error: any) {
     handleError(res, error, 'Failed to lock fiscal period.');

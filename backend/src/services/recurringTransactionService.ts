@@ -4,6 +4,7 @@ import * as recurringTransactionRepository from '../repository/recurringTransact
 import { RecurringTransactionRecord, RecurrenceFrequency, CreateRecurringTransactionData } from '../repository/recurringTransactionRepository';
 import { runWithTenantContext } from '../context/tenantContext';
 import * as journalEntryService from './journalEntryService';
+import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
 
 export class RecurringTransactionServiceError extends Error {
   statusCode: number;
@@ -61,7 +62,7 @@ export async function getRecurringTransactionById(tenantId: string, id: string):
   return recurringTransactionRepository.getRecurringTransactionById(prisma, tenantId, id);
 }
 
-export async function createRecurringTransaction(tenantId: string, input: any): Promise<RecurringTransactionRecord> {
+export async function createRecurringTransaction(tenantId: string, input: any, actor?: AuditActor): Promise<RecurringTransactionRecord> {
   const { name, description, frequency, startDate, endDate, templateData, isActive } = input;
 
   if (!name || typeof name !== 'string' || !name.trim()) {
@@ -96,15 +97,31 @@ export async function createRecurringTransaction(tenantId: string, input: any): 
     isActive,
   };
 
-  return recurringTransactionRepository.createRecurringTransaction(prisma, tenantId, data);
+  const created = await recurringTransactionRepository.createRecurringTransaction(prisma, tenantId, data);
+
+  await recordAuditLog({
+    action: 'RECURRING_TXN.CREATED',
+    entity: 'RecurringTransaction',
+    entityId: created.id,
+    tenantId,
+    actor,
+    details: `Recurring transaction "${created.name}" (${created.frequency}) created.`,
+  });
+
+  return created;
 }
 
-export async function updateRecurringTransaction(tenantId: string, id: string, input: any): Promise<RecurringTransactionRecord> {
+export async function updateRecurringTransaction(tenantId: string, id: string, input: any, actor?: AuditActor): Promise<RecurringTransactionRecord> {
   if (input.templateData !== undefined) {
     validateTemplateData(input.templateData);
   }
   if (input.frequency !== undefined && !VALID_FREQUENCIES.includes(input.frequency)) {
     throw new RecurringTransactionServiceError(`Invalid frequency "${input.frequency}". Allowed: ${VALID_FREQUENCIES.join(', ')}`, 400);
+  }
+
+  const existing = await recurringTransactionRepository.getRecurringTransactionById(prisma, tenantId, id);
+  if (!existing) {
+    throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
   }
 
   const updated = await recurringTransactionRepository.updateRecurringTransaction(prisma, tenantId, id, {
@@ -114,14 +131,34 @@ export async function updateRecurringTransaction(tenantId: string, id: string, i
   if (!updated) {
     throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
   }
+
+  await recordAuditLog({
+    action: 'RECURRING_TXN.UPDATED',
+    entity: 'RecurringTransaction',
+    entityId: id,
+    tenantId,
+    actor,
+    changes: diffFields(existing, updated, ['name', 'description', 'frequency', 'startDate', 'endDate', 'isActive']),
+  });
+
   return updated;
 }
 
-export async function deleteRecurringTransaction(tenantId: string, id: string): Promise<void> {
+export async function deleteRecurringTransaction(tenantId: string, id: string, actor?: AuditActor): Promise<void> {
+  const existing = await recurringTransactionRepository.getRecurringTransactionById(prisma, tenantId, id);
   const deleted = await recurringTransactionRepository.deleteRecurringTransaction(prisma, tenantId, id);
   if (!deleted) {
     throw new RecurringTransactionServiceError(`Recurring transaction with ID "${id}" not found.`, 404);
   }
+
+  await recordAuditLog({
+    action: 'RECURRING_TXN.DELETED',
+    entity: 'RecurringTransaction',
+    entityId: id,
+    tenantId,
+    actor,
+    details: existing ? `Recurring transaction "${existing.name}" deleted.` : `Recurring transaction ${id} deleted.`,
+  });
 }
 
 export class RecurringTransactionCronService {
