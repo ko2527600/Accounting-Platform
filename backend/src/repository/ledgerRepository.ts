@@ -11,6 +11,7 @@ export interface LedgerRecord {
   balance: number;
   description: string | null;
   createdAt: Date;
+  fundId: string | null;
 }
 
 export interface CreateLedgerData {
@@ -21,6 +22,7 @@ export interface CreateLedgerData {
   credit: number;
   balance?: number;
   description?: string | null;
+  fundId?: string | null;
 }
 
 function mapLedgerRow(row: any): LedgerRecord {
@@ -34,6 +36,7 @@ function mapLedgerRow(row: any): LedgerRecord {
     balance: parseFloat(row.balance),
     description: row.description || null,
     createdAt: new Date(row.created_at),
+    fundId: row.fund_id || null,
   };
 }
 
@@ -46,16 +49,17 @@ export async function createLedgerEntry(
     : new Date().toISOString().split('T')[0];
 
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `INSERT INTO ledgers (account_id, transaction_date, journal_entry_id, debit, credit, balance, description)
-     VALUES ($1::uuid, $2::date, $3::uuid, $4, $5, $6, $7)
-     RETURNING id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at`,
+    `INSERT INTO ledgers (account_id, transaction_date, journal_entry_id, debit, credit, balance, description, fund_id)
+     VALUES ($1::uuid, $2::date, $3::uuid, $4, $5, $6, $7, $8::uuid)
+     RETURNING id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at, fund_id`,
     data.accountId,
     transactionDate,
     data.journalEntryId || null,
     data.debit || 0.00,
     data.credit || 0.00,
     data.balance || 0.00,
-    data.description || null
+    data.description || null,
+    data.fundId || null
   );
 
   return mapLedgerRow(rows[0]);
@@ -66,7 +70,7 @@ export async function getLedgerByAccountId(
   accountId: string
 ): Promise<LedgerRecord[]> {
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at
+    `SELECT id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at, fund_id
      FROM ledgers
      WHERE account_id = $1::uuid
      ORDER BY transaction_date ASC, created_at ASC`,
@@ -149,6 +153,7 @@ export async function postJournalEntryToLedger(
       credit: line.credit,
       balance: newBalance,
       description: line.description || entry.description,
+      fundId: line.fundId,
     });
 
     createdLedgerEntries.push(ledger);
@@ -172,10 +177,12 @@ export interface LedgerTransactionRecord {
   runningBalance?: number;
   description: string | null;
   createdAt: Date;
+  fundId: string | null;
 }
 
 export interface ListLedgerFilter {
   accountId?: string;
+  fundId?: string;
   startDate?: string;
   endDate?: string;
   search?: string;
@@ -258,6 +265,11 @@ export async function listLedgerTransactions(
     params.push(filter.accountId);
   }
 
+  if (filter.fundId && isValidUuid(filter.fundId)) {
+    conditions.push(`l.fund_id = $${paramIndex++}::uuid`);
+    params.push(filter.fundId);
+  }
+
   if (filter.startDate) {
     conditions.push(`l.transaction_date >= $${paramIndex++}::date`);
     params.push(filter.startDate);
@@ -292,7 +304,7 @@ export async function listLedgerTransactions(
   const totalPages = Math.ceil(total / limit) || 1;
 
   const dataSql = `
-    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at,
+    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at, l.fund_id,
            a.code as account_code, a.name as account_name, a.type as account_type,
            je.entry_number
     FROM ledgers l
@@ -319,6 +331,7 @@ export async function listLedgerTransactions(
     balance: parseFloat(row.balance),
     description: row.description || null,
     createdAt: new Date(row.created_at),
+    fundId: row.fund_id || null,
   }));
 
   return {
@@ -372,7 +385,7 @@ export async function getAccountLedgerStatement(
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
   const sql = `
-    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at,
+    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at, l.fund_id,
            je.entry_number
     FROM ledgers l
     LEFT JOIN journal_entries je ON l.journal_entry_id = je.id
@@ -409,6 +422,7 @@ export async function getAccountLedgerStatement(
       runningBalance,
       description: row.description || null,
       createdAt: new Date(row.created_at),
+      fundId: row.fund_id || null,
     };
   });
 

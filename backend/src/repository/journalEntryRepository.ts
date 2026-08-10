@@ -10,6 +10,11 @@ export interface JournalEntryLineRecord {
   credit: number;
   description: string | null;
   createdAt: Date;
+  // Optional restricted/unrestricted fund this line belongs to (fund
+  // accounting for nonprofit tenants). Not a real FK - Fund lives in the
+  // shared public schema, this table lives per-tenant - validated at the
+  // service layer via fundService.validateFundId before every write.
+  fundId: string | null;
 }
 
 export interface JournalEntryRecord {
@@ -30,6 +35,7 @@ export interface CreateJournalEntryLineData {
   debit: number;
   credit: number;
   description?: string;
+  fundId?: string | null;
 }
 
 export interface CreateJournalEntryData {
@@ -65,6 +71,7 @@ function mapJournalEntryLineRow(row: any): JournalEntryLineRecord {
     credit: parseFloat(row.credit),
     description: row.description || null,
     createdAt: new Date(row.created_at),
+    fundId: row.fund_id || null,
   };
 }
 
@@ -92,14 +99,15 @@ export async function createJournalEntry(
   // Insert lines
   for (const line of data.lines) {
     const lineRows: any[] = await prisma.$queryRawUnsafe(
-      `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description)
-       VALUES ($1::uuid, $2::uuid, $3, $4, $5)
-       RETURNING id, journal_entry_id, account_id, debit, credit, description, created_at`,
+      `INSERT INTO journal_entry_lines (journal_entry_id, account_id, debit, credit, description, fund_id)
+       VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6::uuid)
+       RETURNING id, journal_entry_id, account_id, debit, credit, description, created_at, fund_id`,
       entryHeader.id,
       line.accountId,
       line.debit || 0.00,
       line.credit || 0.00,
-      line.description || null
+      line.description || null,
+      line.fundId || null
     );
     insertedLines.push(mapJournalEntryLineRow(lineRows[0]));
   }
@@ -122,7 +130,7 @@ export async function getJournalEntryById(
   if (!headerRows || headerRows.length === 0) return null;
 
   const lineRows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, journal_entry_id, account_id, debit, credit, description, created_at
+    `SELECT id, journal_entry_id, account_id, debit, credit, description, created_at, fund_id
      FROM journal_entry_lines
      WHERE journal_entry_id = $1::uuid
      ORDER BY created_at ASC`,
@@ -154,7 +162,7 @@ export async function getJournalEntryByEntryNumber(
   if (!headerRows || headerRows.length === 0) return null;
 
   const lineRows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, journal_entry_id, account_id, debit, credit, description, created_at
+    `SELECT id, journal_entry_id, account_id, debit, credit, description, created_at, fund_id
      FROM journal_entry_lines
      WHERE journal_entry_id = $1::uuid
      ORDER BY created_at ASC`,
@@ -202,7 +210,7 @@ export async function listJournalEntries(
       je.created_at, je.updated_at, je.reversal_of_entry_id, je.reversed_by_entry_id,
       jel.id as line_id, jel.journal_entry_id, jel.account_id,
       jel.debit, jel.credit, jel.description as line_description,
-      jel.created_at as line_created_at
+      jel.created_at as line_created_at, jel.fund_id as line_fund_id
     FROM journal_entries je
     LEFT JOIN journal_entry_lines jel ON je.id = jel.journal_entry_id
     ${whereClause}
@@ -242,6 +250,7 @@ export async function listJournalEntries(
         credit: row.credit,
         description: row.line_description,
         created_at: row.line_created_at,
+        fund_id: row.line_fund_id,
       });
     }
   }

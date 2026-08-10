@@ -34,6 +34,7 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
   async function cleanupTestData() {
     if (tenantId) {
       await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await prisma.fund.deleteMany({ where: { tenantId } }).catch(() => {});
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
@@ -178,6 +179,71 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
     });
     expect(auditRows).toHaveLength(1);
     expect(auditRows[0].changes).toMatchObject({ status: { from: 'UNPAID', to: 'PAID' } });
+  });
+
+  describe('Fund accounting - posted lines carry the invoice/bill fundId', () => {
+    let fundId: string;
+
+    beforeAll(async () => {
+      const fund = await request(app)
+        .post('/api/v1/funds')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ name: 'Payment Posting Fund', code: `PAYFUND-${Date.now()}` });
+      fundId = fund.body.data.fund.id;
+    });
+
+    it('posts every line (Cash + Revenue) with the invoice\'s fundId when a fund-tagged invoice is paid', async () => {
+      const invoice = await request(app)
+        .post('/api/v1/invoices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ customerId, fundId, items: [{ description: 'Restricted Grant Work', quantity: 1, unitPrice: 200 }] });
+      expect(invoice.status).toBe(201);
+      expect(invoice.body.data.invoice.fundId).toBe(fundId);
+      const invoiceId = invoice.body.data.invoice.id;
+
+      const payRes = await request(app)
+        .post(`/api/v1/invoices/${invoiceId}/pay`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({});
+      expect(payRes.status).toBe(200);
+
+      const journalRes = await request(app)
+        .get(`/api/v1/journal-entries/${payRes.body.data.invoice.journalId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const lines = journalRes.body.data.journalEntry.lines;
+      expect(lines.length).toBeGreaterThanOrEqual(2);
+      expect(lines.every((l: any) => l.fundId === fundId)).toBe(true);
+    });
+
+    it('posts every line (Expense + Cash) with the bill\'s fundId when a fund-tagged vendor bill is paid', async () => {
+      const bill = await request(app)
+        .post('/api/v1/bills')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ vendorId, dueDate: new Date(Date.now() + 86400000).toISOString(), amount: 40, fundId });
+      expect(bill.status).toBe(201);
+      expect(bill.body.data.bill.fundId).toBe(fundId);
+      const billId = bill.body.data.bill.id;
+
+      const payRes = await request(app)
+        .post(`/api/v1/bills/${billId}/pay`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({});
+      expect(payRes.status).toBe(200);
+
+      const journalRes = await request(app)
+        .get(`/api/v1/journal-entries/${payRes.body.data.bill.journalId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const lines = journalRes.body.data.journalEntry.lines;
+      expect(lines.length).toBe(2);
+      expect(lines.every((l: any) => l.fundId === fundId)).toBe(true);
+    });
   });
 
   it('suggests a real account for AI categorization based on the tenant\'s own Chart of Accounts', async () => {

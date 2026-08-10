@@ -91,6 +91,7 @@ export async function markInvoicePaid(
         debit: 0,
         credit: amount,
         description: `${account?.name || 'Tax'} - ${invoice.invoiceNumber}`,
+        fundId: invoice.fundId || undefined,
       };
     });
 
@@ -98,12 +99,15 @@ export async function markInvoicePaid(
 
   let journalId = null;
   if (cashAcc && revenueAcc) {
-    const lines: { accountId: string; debit: number; credit: number; description: string }[] = [
-      { accountId: cashAcc.id, debit: postingAmount, credit: 0, description: `Cash Received - ${invoice.invoiceNumber}` },
+    // Every line carries the invoice's fundId (if any) uniformly - keeps the
+    // whole payment transaction inside one fund by construction, so no
+    // separate "guard against cross-fund posting" logic is needed anywhere.
+    const lines: { accountId: string; debit: number; credit: number; description: string; fundId?: string }[] = [
+      { accountId: cashAcc.id, debit: postingAmount, credit: 0, description: `Cash Received - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined },
       ...taxLines,
     ];
     if (revenueAmount > 0.001) {
-      lines.push({ accountId: revenueAcc.id, debit: 0, credit: revenueAmount, description: `Revenue - ${invoice.invoiceNumber}` });
+      lines.push({ accountId: revenueAcc.id, debit: 0, credit: revenueAmount, description: `Revenue - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
     }
 
     const journal = await journalService.createJournalEntry(

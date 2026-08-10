@@ -97,8 +97,8 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
         lines: [
-          { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${creditNoteNumber}` },
-          { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash refund - ${creditNoteNumber}` },
+          { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${creditNoteNumber}`, fundId: invoice.fundId || undefined },
+          { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash refund - ${creditNoteNumber}`, fundId: invoice.fundId || undefined },
         ],
       },
       actor
@@ -203,8 +203,8 @@ export async function createDebitNote(billId: string, input: IssueNoteInput, act
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
         lines: [
-          { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash refund received - ${debitNoteNumber}` },
-          { accountId: expenseAcc.id, debit: 0, credit: amount, description: `Expense reversal - ${debitNoteNumber}` },
+          { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash refund received - ${debitNoteNumber}`, fundId: bill.fundId || undefined },
+          { accountId: expenseAcc.id, debit: 0, credit: amount, description: `Expense reversal - ${debitNoteNumber}`, fundId: bill.fundId || undefined },
         ],
       },
       actor

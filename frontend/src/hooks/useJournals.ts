@@ -64,7 +64,8 @@ export function useJournals() {
           accountId: line.accountId,
           debit: Number(line.debit) || 0,
           credit: Number(line.credit) || 0,
-          description: line.description
+          description: line.description,
+          fundId: line.fundId || undefined
         }))
       };
 

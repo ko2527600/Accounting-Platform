@@ -19,6 +19,7 @@ import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
 import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
 import { Settings } from "./pages/settings/Settings";
 import { TaxRates } from "./pages/settings/TaxRates";
+import { Funds } from "./pages/settings/Funds";
 import { FiscalPeriods } from "./pages/settings/FiscalPeriods";
 import { RecurringTransactions } from "./pages/settings/RecurringTransactions";
 import { Approvals } from "./pages/approvals/Approvals";
@@ -168,6 +169,7 @@ function App() {
             <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/tax-rates" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
+            <Route path="/settings/funds" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Funds /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
             <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
             <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />

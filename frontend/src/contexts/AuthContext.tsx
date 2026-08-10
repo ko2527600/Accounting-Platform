@@ -8,6 +8,7 @@ type User = {
   phone?: string;
   role: string;
   tenantId?: string;
+  orgType?: string;
 };
 
 type AuthContextType = {

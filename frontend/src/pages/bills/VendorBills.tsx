@@ -57,6 +57,12 @@ interface PurchaseLine {
   unitCost: string;
 }
 
+interface FundOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
 interface DebitNote {
   id: string;
   debitNoteNumber: string;
@@ -72,6 +78,7 @@ export function VendorBills() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
   const [items, setItems] = useState<InventoryItemOption[]>([]);
+  const [funds, setFunds] = useState<FundOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modals
@@ -89,6 +96,7 @@ export function VendorBills() {
   const [billAmount, setBillAmount] = useState("450");
   const [currency, setCurrency] = useState("USD");
   const [selectedWarehouse, setSelectedWarehouse] = useState("");
+  const [selectedFundId, setSelectedFundId] = useState("");
   const [purchaseLines, setPurchaseLines] = useState<PurchaseLine[]>([{ itemId: "", quantity: "", unitCost: "" }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -110,11 +118,12 @@ export function VendorBills() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [billRes, venRes, whRes, itemsRes] = await Promise.all([
+      const [billRes, venRes, whRes, itemsRes, fundsRes] = await Promise.all([
         api.get("/bills"),
         api.get("/bills/vendors"),
         api.get("/inventory/warehouses"),
         api.get("/inventory/items"),
+        api.get("/funds"),
       ]);
 
       if (billRes.data.success) setBills(billRes.data.data.bills);
@@ -123,6 +132,7 @@ export function VendorBills() {
       if (itemsRes.data.success) {
         setItems(itemsRes.data.data.items.map((it: any) => ({ id: it.id, sku: it.sku, name: it.name, costPrice: Number(it.costPrice) })));
       }
+      if (fundsRes.data.success) setFunds(fundsRes.data.data.funds.filter((f: any) => f.isActive));
     } catch (err) {
       console.error("Failed to load bills data:", err);
     } finally {
@@ -163,6 +173,7 @@ export function VendorBills() {
     setBillAmount("450");
     setCurrency("USD");
     setSelectedWarehouse("");
+    setSelectedFundId("");
     setPurchaseLines([{ itemId: "", quantity: "", unitCost: "" }]);
   };
 
@@ -195,8 +206,9 @@ export function VendorBills() {
             items: purchaseLines
               .filter((l) => l.itemId && Number(l.quantity) > 0)
               .map((l) => ({ itemId: l.itemId, quantity: Number(l.quantity), unitCost: Number(l.unitCost) })),
+            ...(selectedFundId ? { fundId: selectedFundId } : {}),
           }
-        : { vendorId: selectedVendor, amount: Number(billAmount), currency };
+        : { vendorId: selectedVendor, amount: Number(billAmount), currency, ...(selectedFundId ? { fundId: selectedFundId } : {}) };
 
       const res = await api.post("/bills", payload);
 
@@ -499,6 +511,24 @@ export function VendorBills() {
               Itemized Purchase (Receives Stock)
             </button>
           </div>
+
+          {funds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Fund (optional)</label>
+              <select
+                className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                value={selectedFundId}
+                onChange={(e) => setSelectedFundId(e.target.value)}
+              >
+                <option value="">No fund</option>
+                {funds.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           {!isItemized ? (
             <div className="grid grid-cols-2 gap-4">

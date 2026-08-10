@@ -18,7 +18,7 @@ export function CommandMenu() {
 
   // Same source of truth (and same role-based filtering) as the sidebar, so
   // Cmd+K never offers a page a user's own sidebar hides from them.
-  const navGroups = getVisibleNavGroups(user?.role);
+  const navGroups = getVisibleNavGroups(user?.role, user?.orgType);
   // "Preferences" (/settings) is blocked for the same roles at the route
   // level (App.tsx's SETTINGS_RESTRICTED_ROLES) - offering it here would be
   // a dead-end navigation that immediately redirects.

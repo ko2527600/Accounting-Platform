@@ -37,6 +37,7 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
   async function cleanupTestData() {
     if (tenant1Id) {
       await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
+      await prisma.fund.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
     }
     console.log("-> cleanup: deleteTenantBySlug 1");
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
@@ -594,6 +595,55 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
       expect(secondVoid.body.data.journalEntry.status).toBe('VOID');
       expect(secondVoid.body.data.reversalEntry).toBeTruthy();
       expect(secondVoid.body.data.reversalEntry.reversalOfEntryId).toBe(firstReversalId);
+    });
+
+    it('should carry fundId through to the reversal when voiding a fund-tagged POSTED entry (regression: reversal must not silently drop the fund tag)', async () => {
+      const fund = await request(app)
+        .post('/api/v1/funds')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ name: 'Void Test Fund', code: `VOIDFUND-${Date.now()}` });
+      const fundId = fund.body.data.fund.id;
+
+      const createRes = await request(app)
+        .post('/api/v1/journal-entries')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          entryNumber: `JE-FUND-VOID-${Date.now()}`,
+          status: 'POSTED',
+          lines: [
+            { accountId: cashAccountId1, debit: 77.0, credit: 0.0, fundId },
+            { accountId: revenueAccountId1, debit: 0.0, credit: 77.0, fundId },
+          ],
+        });
+      expect(createRes.status).toBe(201);
+      const originalId = createRes.body.data.journalEntry.id;
+      expect(createRes.body.data.journalEntry.lines.every((l: any) => l.fundId === fundId)).toBe(true);
+
+      const voidRes = await request(app)
+        .post(`/api/v1/journal-entries/${originalId}/void`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({ reason: 'Fund void regression test' });
+
+      expect(voidRes.status).toBe(200);
+      const reversal = voidRes.body.data.reversalEntry;
+      expect(reversal.lines.every((l: any) => l.fundId === fundId)).toBe(true);
+
+      // The fund-filtered ledger nets to exactly zero after the void - the
+      // reversal's fund-tagged lines genuinely cancel the original out,
+      // proving this isn't just a status flip but a real offsetting posting
+      // within the same fund.
+      const fundLedger = await request(app)
+        .get(`/api/v1/ledgers?fundId=${fundId}`)
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug);
+      expect(fundLedger.status).toBe(200);
+      const fundTransactions = fundLedger.body.data.transactions;
+      expect(fundTransactions.length).toBe(4); // 2 original lines + 2 reversal lines
+      const netDebit = fundTransactions.reduce((sum: number, t: any) => sum + Number(t.debit) - Number(t.credit), 0);
+      expect(netDebit).toBeCloseTo(0, 2);
     });
 
     it('should reject voiding a POSTED entry when the fiscal period covering today is closed', async () => {

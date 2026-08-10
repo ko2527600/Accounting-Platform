@@ -7,7 +7,7 @@ import { Settings } from "lucide-react";
 export function Sidebar() {
   const location = useLocation();
   const { user } = useAuth();
-  const visibleGroups = getVisibleNavGroups(user?.role);
+  const visibleGroups = getVisibleNavGroups(user?.role, user?.orgType);
   const isRestricted = getVisibleHrefs(user?.role) !== null;
 
   return (

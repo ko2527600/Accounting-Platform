@@ -19,7 +19,7 @@ export interface ProfitAndLossReport {
   isLoading: boolean;
 }
 
-export function useProfitAndLoss(): ProfitAndLossReport {
+export function useProfitAndLoss(fundId?: string): ProfitAndLossReport {
   const [revenueAccounts, setRevenueAccounts] = useState<PnLAccountRow[]>([]);
   const [costOfSalesAccounts, setCostOfSalesAccounts] = useState<PnLAccountRow[]>([]);
   const [expenseAccounts, setExpenseAccounts] = useState<PnLAccountRow[]>([]);
@@ -34,7 +34,7 @@ export function useProfitAndLoss(): ProfitAndLossReport {
     const fetchPnL = async () => {
       setIsLoading(true);
       try {
-        const response = await api.get('/reports/profit-loss');
+        const response = await api.get('/reports/profit-loss', { params: fundId ? { fundId } : {} });
         if (response.data.success) {
           const data = response.data.data;
 
@@ -67,7 +67,7 @@ export function useProfitAndLoss(): ProfitAndLossReport {
     };
 
     fetchPnL();
-  }, []);
+  }, [fundId]);
 
   return {
     revenueAccounts,

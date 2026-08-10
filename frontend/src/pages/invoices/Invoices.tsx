@@ -22,6 +22,12 @@ interface TaxRate {
   rate: string;
 }
 
+interface Fund {
+  id: string;
+  name: string;
+  code: string;
+}
+
 interface InvoiceItem {
   description: string;
   quantity: number;
@@ -92,6 +98,7 @@ export function Invoices() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
+  const [funds, setFunds] = useState<Fund[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modals
@@ -105,6 +112,7 @@ export function Invoices() {
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
   const [selectedTaxRateId, setSelectedTaxRateId] = useState("");
+  const [selectedFundId, setSelectedFundId] = useState("");
   const [currency, setCurrency] = useState("USD");
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
@@ -136,15 +144,17 @@ export function Invoices() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [invRes, custRes, taxRes] = await Promise.all([
+      const [invRes, custRes, taxRes, fundsRes] = await Promise.all([
         api.get("/invoices"),
         api.get("/invoices/customers"),
         api.get("/tax-rates"),
+        api.get("/funds"),
       ]);
 
       if (invRes.data.success) setInvoices(invRes.data.data.invoices);
       if (custRes.data.success) setCustomers(custRes.data.data.customers);
       if (taxRes.data.success) setTaxRates(taxRes.data.data.taxRates.filter((t: any) => t.isActive));
+      if (fundsRes.data.success) setFunds(fundsRes.data.data.funds.filter((f: any) => f.isActive));
     } catch (err) {
       console.error("Failed to load invoice data:", err);
     } finally {
@@ -184,6 +194,7 @@ export function Invoices() {
         currency,
         items,
         ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
+        ...(selectedFundId ? { fundId: selectedFundId } : {}),
       });
 
       if (res.data.success) {
@@ -587,6 +598,24 @@ export function Invoices() {
               </select>
             </div>
           </div>
+
+          {funds.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Fund (optional)</label>
+              <select
+                className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                value={selectedFundId}
+                onChange={(e) => setSelectedFundId(e.target.value)}
+              >
+                <option value="">No fund</option>
+                {funds.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name} ({f.code})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-sm font-medium mb-1">Line Items</label>

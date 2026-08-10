@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Download, Printer, FileText, FileType, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { useBalanceSheet } from "../../hooks/useBalanceSheet";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
@@ -8,10 +8,28 @@ import { api } from "../../lib/api";
 import { downloadBlobResponse } from "../../lib/downloadBlob";
 import { useToast } from "../../contexts/ToastContext";
 
+interface FundOption {
+  id: string;
+  name: string;
+  code: string;
+}
+
 export function BalanceSheet() {
   const { settings } = useTenantSettings();
   const { showToast } = useToast();
   const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
+  const [funds, setFunds] = useState<FundOption[]>([]);
+  const [selectedFundId, setSelectedFundId] = useState<string>("");
+
+  useEffect(() => {
+    api.get("/funds").then((res) => {
+      if (res.data.success) setFunds(res.data.data.funds || []);
+    }).catch(() => {
+      // Funds are an optional nonprofit feature - silently show none rather
+      // than blocking the report if this fails for an unconfigured tenant.
+    });
+  }, []);
+
   const {
     assetAccounts,
     liabilityAccounts,
@@ -23,7 +41,7 @@ export function BalanceSheet() {
     totalLiabilitiesAndEquity,
     isBalanced,
     asOfDate,
-  } = useBalanceSheet();
+  } = useBalanceSheet(selectedFundId || undefined);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -53,7 +71,8 @@ export function BalanceSheet() {
   const handleExportFile = async (format: "pdf" | "docx") => {
     setIsExporting(format);
     try {
-      const response = await api.get(`/reports/balance-sheet/export?format=${format}`, { responseType: "blob" });
+      const fundParam = selectedFundId ? `&fundId=${selectedFundId}` : "";
+      const response = await api.get(`/reports/balance-sheet/export?format=${format}${fundParam}`, { responseType: "blob" });
       downloadBlobResponse(response, `Balance_Sheet_${new Date().toISOString().split('T')[0]}.${format}`);
     } catch (err) {
       console.error(`Failed to export Balance Sheet as ${format}:`, err);
@@ -93,6 +112,26 @@ export function BalanceSheet() {
           </Button>
         </div>
       </div>
+
+      {funds.length > 0 && (
+        <div className="print:hidden">
+          <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            Filter by Fund
+          </label>
+          <select
+            value={selectedFundId}
+            onChange={(e) => setSelectedFundId(e.target.value)}
+            className="flex h-10 w-full sm:w-80 rounded-md border border-secondary-300 bg-white px-3 py-2 text-sm text-secondary-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-secondary-700 dark:bg-secondary-950 dark:text-secondary-50"
+          >
+            <option value="">All Funds</option>
+            {funds.map((fund) => (
+              <option key={fund.id} value={fund.id}>
+                {fund.name} ({fund.code})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="bg-white dark:bg-secondary-950 shadow-sm border border-secondary-200 dark:border-secondary-800 rounded-xl p-8 sm:p-12 print:shadow-none print:border-none print:p-0">
 

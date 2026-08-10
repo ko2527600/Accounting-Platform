@@ -9,6 +9,7 @@ import {
 } from '../repository/journalEntryRepository';
 import * as accountRepository from '../repository/accountRepository';
 import * as ledgerRepository from '../repository/ledgerRepository';
+import * as fundService from './fundService';
 import { requireTenantContext } from '../context/tenantContext';
 import * as fiscalPeriodService from './fiscalPeriodService';
 import * as approvalWorkflowService from './approvalWorkflowService';
@@ -135,6 +136,24 @@ export async function createJournalEntry(data: CreateJournalEntryInput, actor?: 
       }
     }
 
+    // Verify any fundId referenced by a line belongs to this tenant (fund
+    // accounting for nonprofit tenants) - Fund lives in the shared public
+    // schema, so this is a separate lookup from the accountId check above.
+    const { tenantId: currentTenantId } = requireTenantContext();
+    for (let i = 0; i < data.lines.length; i++) {
+      const line = data.lines[i];
+      if (line.fundId) {
+        try {
+          await fundService.validateFundId(currentTenantId, line.fundId);
+        } catch (error: any) {
+          if (error instanceof fundService.FundServiceError) {
+            throw new JournalEntryServiceError(`Line ${i + 1}: ${error.message}`, error.statusCode);
+          }
+          throw error;
+        }
+      }
+    }
+
     // Convert date string if provided
     let entryDate: Date | undefined;
     if (data.entryDate) {
@@ -163,6 +182,7 @@ export async function createJournalEntry(data: CreateJournalEntryInput, actor?: 
         debit: Number(l.debit || 0),
         credit: Number(l.credit || 0),
         description: l.description,
+        fundId: l.fundId || undefined,
       })),
     });
 
@@ -411,11 +431,16 @@ export async function voidJournalEntry(
       description: `Reversal of ${entry.entryNumber}: ${reason?.trim() || entry.description || 'Journal Entry Void'}`,
       status: 'POSTED',
       reversalOfEntryId: entry.id,
+      // fundId must be carried through here or a void of a fund-tagged entry
+      // produces a reversal with no fund tag - the original stays counted
+      // against the fund in a fund-filtered report but its reversal never
+      // cancels it out, permanently overstating that fund's balance.
       lines: (entry.lines || []).map((l) => ({
         accountId: l.accountId,
         debit: l.credit,
         credit: l.debit,
         description: l.description || undefined,
+        fundId: l.fundId || undefined,
       })),
     });
 

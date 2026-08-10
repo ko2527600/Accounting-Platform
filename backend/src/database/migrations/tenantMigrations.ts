@@ -238,6 +238,27 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       ALTER TABLE accounts DROP CONSTRAINT IF EXISTS chk_account_type;
       ALTER TABLE accounts ADD CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE', 'COST_OF_SALES'));
     `
+  },
+  {
+    version: 7,
+    name: '007_add_fund_id_to_journal_lines_and_ledgers',
+    sql: `
+      -- Fund dimension for restricted-fund accounting (NGO/church/school
+      -- tenants). fund_id is a bare nullable UUID column, not a real FK -
+      -- Fund lives in the shared public.funds table (tenantId-scoped Prisma
+      -- model), not this tenant's own schema, so it can't be a native FK
+      -- across schemas. Existence/tenant-ownership is instead validated at
+      -- the service layer before every write (see fundService.validateFundId),
+      -- the same cross-schema-reference pattern TaxRate.accountId already
+      -- uses in reverse. Nullable and purely additive - every existing
+      -- line/ledger row is fund-less (general/unrestricted) and keeps
+      -- working unchanged - NULL simply means "not tagged to any fund."
+      ALTER TABLE journal_entry_lines ADD COLUMN IF NOT EXISTS fund_id UUID;
+      ALTER TABLE ledgers ADD COLUMN IF NOT EXISTS fund_id UUID;
+
+      CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_fund ON journal_entry_lines(fund_id);
+      CREATE INDEX IF NOT EXISTS idx_ledgers_fund ON ledgers(fund_id);
+    `
   }
 ];
 

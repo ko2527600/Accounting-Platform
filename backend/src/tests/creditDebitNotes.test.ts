@@ -23,6 +23,7 @@ describe('Credit Notes (AR) and Debit Notes (AP)', () => {
   async function cleanupTestData() {
     if (tenantId) {
       await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await prisma.fund.deleteMany({ where: { tenantId } }).catch(() => {});
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
@@ -183,6 +184,40 @@ describe('Credit Notes (AR) and Debit Notes (AP)', () => {
       // Revenue is credit-normal, so closingBalance (debit - credit) is negative
       // when revenue exists; debiting it to reverse moves the number toward zero.
       expect(revenueAfter).toBe(revenueBefore + 300);
+    });
+
+    it('carries the invoice\'s fundId through to a credit note\'s reversal lines (regression: same class of bug as the void-mapper fix)', async () => {
+      const fund = await request(app)
+        .post('/api/v1/funds')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ name: 'Credit Note Fund', code: `CNFUND-${Date.now()}` });
+      const fundId = fund.body.data.fund.id;
+
+      const invoice = await request(app)
+        .post('/api/v1/invoices')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ customerId, fundId, items: [{ description: 'Fund-tagged consulting', quantity: 1, unitPrice: 400 }] });
+      expect(invoice.status).toBe(201);
+      const paid = await payInvoice(invoice.body.data.invoice.id);
+      expect(paid.status).toBe('PAID');
+
+      const creditNote = await request(app)
+        .post(`/api/v1/invoices/${invoice.body.data.invoice.id}/credit-notes`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ amount: 150, reason: 'Fund credit note regression test' });
+      expect(creditNote.status).toBe(201);
+      expect(creditNote.body.data.creditNote.method).toBe('JOURNAL_REVERSAL');
+
+      const journalRes = await request(app)
+        .get(`/api/v1/journal-entries/${creditNote.body.data.creditNote.journalId}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantSlug);
+      const lines = journalRes.body.data.journalEntry.lines;
+      expect(lines.length).toBe(2);
+      expect(lines.every((l: any) => l.fundId === fundId)).toBe(true);
     });
 
     it('rejects a credit amount exceeding the remaining creditable balance', async () => {

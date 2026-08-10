@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Trash2, ArrowLeft, Calculator, Sparkles } from "lucide-react";
 import { useJournals } from "../../hooks/useJournals";
 import { useAccounts } from "../../hooks/useAccounts";
-import type { CreateJournalEntryDTO, JournalLine } from "../../types/accounting";
+import type { CreateJournalEntryDTO, JournalLine, Fund } from "../../types/accounting";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Card, CardHeader, CardContent, CardFooter } from "../ui/Card";
@@ -15,6 +15,16 @@ export function JournalBuilder() {
   const { postJournal, isLoading: isPosting } = useJournals();
   const { accounts } = useAccounts();
   const { showToast } = useToast();
+
+  const [funds, setFunds] = useState<Fund[]>([]);
+  useEffect(() => {
+    api.get("/funds").then((res) => {
+      if (res.data.success) setFunds((res.data.data.funds || []).filter((f: Fund) => f.isActive));
+    }).catch(() => {
+      // Funds are an optional nonprofit feature - silently show none rather
+      // than blocking the builder if this fails for an unconfigured tenant.
+    });
+  }, []);
 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState("");
@@ -189,6 +199,7 @@ export function JournalBuilder() {
                 <thead className="bg-secondary-50 dark:bg-secondary-900/80 text-secondary-500 dark:text-secondary-400 font-medium border-b border-secondary-200 dark:border-secondary-800">
                   <tr>
                     <th className="px-4 py-3 w-1/3">Account</th>
+                    {funds.length > 0 && <th className="px-4 py-3 w-40">Fund</th>}
                     <th className="px-4 py-3 w-1/3">Description</th>
                     <th className="px-4 py-3 w-32 text-right">Debit</th>
                     <th className="px-4 py-3 w-32 text-right">Credit</th>
@@ -211,6 +222,20 @@ export function JournalBuilder() {
                           ))}
                         </select>
                       </td>
+                      {funds.length > 0 && (
+                        <td className="px-4 py-2 align-top">
+                          <select
+                            value={line.fundId || ""}
+                            onChange={(e) => updateLine(line.id!, "fundId", e.target.value || undefined)}
+                            className="flex h-10 w-full rounded-md border border-secondary-300 bg-transparent px-3 py-2 text-sm text-secondary-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-secondary-700 dark:text-secondary-50"
+                          >
+                            <option value="">No fund</option>
+                            {funds.map(f => (
+                              <option key={f.id} value={f.id}>{f.name} ({f.code})</option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
                       <td className="px-4 py-2 align-top">
                         <Input
                           placeholder="Line description..."

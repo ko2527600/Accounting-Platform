@@ -7,6 +7,10 @@ export interface JwtPayload {
   role: string;
   tenantId?: string;
   name?: string;
+  // "BUSINESS" | "NONPROFIT" - the tenant's org type at the time this token
+  // was issued, ridden through so nav filtering doesn't need an extra DB
+  // round trip on every authenticated request.
+  orgType?: string;
   iat?: number;
   exp?: number;
   [key: string]: any;

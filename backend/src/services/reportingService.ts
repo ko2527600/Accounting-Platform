@@ -48,26 +48,28 @@ export async function getTrialBalance(
 export async function getProfitAndLoss(
   startDate?: string,
   endDate?: string,
-  asOfDate?: string
+  asOfDate?: string,
+  fundId?: string
 ): Promise<ProfitLossResult> {
   if (startDate) validateDateFormat(startDate, 'startDate');
   if (endDate) validateDateFormat(endDate, 'endDate');
   if (asOfDate) validateDateFormat(asOfDate, 'asOfDate');
 
   return withCurrentTenantDb(prisma, async (client) => {
-    return reportRepository.getProfitAndLoss(client, startDate, endDate, asOfDate);
+    return reportRepository.getProfitAndLoss(client, startDate, endDate, asOfDate, fundId);
   });
 }
 
 export async function getBalanceSheet(
   asOfDate?: string,
-  endDate?: string
+  endDate?: string,
+  fundId?: string
 ): Promise<BalanceSheetResult> {
   if (asOfDate) validateDateFormat(asOfDate, 'asOfDate');
   if (endDate) validateDateFormat(endDate, 'endDate');
 
   return withCurrentTenantDb(prisma, async (client) => {
-    return reportRepository.getBalanceSheet(client, asOfDate, endDate);
+    return reportRepository.getBalanceSheet(client, asOfDate, endDate, fundId);
   });
 }
 

@@ -7,6 +7,8 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as taxRateService from '../services/taxRateService';
 import { TaxRateServiceError } from '../services/taxRateService';
+import * as fundService from '../services/fundService';
+import { FundServiceError } from '../services/fundService';
 import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
 import * as fxRateService from '../services/fxRateService';
@@ -102,11 +104,22 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId } = req.body;
+    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId, fundId } = req.body;
 
     if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: 'Customer and at least one item are required.' });
       return;
+    }
+
+    // Optional restricted/unrestricted fund this invoice's revenue belongs
+    // to (fund accounting for nonprofit tenants) - same inline
+    // validate-or-400 shape as taxRateId below.
+    if (fundId) {
+      const fund = await fundService.getFundById(tenantId, fundId);
+      if (!fund) {
+        res.status(400).json({ success: false, error: `Fund with ID "${fundId}" not found.` });
+        return;
+      }
     }
 
     let subtotal = 0;
@@ -202,6 +215,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           taxBreakdown,
           total,
           baseCurrencyAmount,
+          fundId: fundId || null,
           status: 'SENT',
           items: { create: itemData },
         },
@@ -216,7 +230,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       res.status(404).json({ success: false, error: error.message });
       return;
     }
-    if (error instanceof TaxRateServiceError || error instanceof FxRateServiceError) {
+    if (error instanceof TaxRateServiceError || error instanceof FxRateServiceError || error instanceof FundServiceError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }

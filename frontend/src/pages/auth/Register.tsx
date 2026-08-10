@@ -17,7 +17,8 @@ export function Register() {
     password: "",
     tenantName: "",
     tenantSlug: "",
-    baseCurrency: "USD"
+    baseCurrency: "USD",
+    orgType: "BUSINESS"
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
@@ -92,6 +93,7 @@ export function Register() {
         password: formData.password,
         adminName: formData.adminName,
         baseCurrency: formData.baseCurrency,
+        orgType: formData.orgType,
         termsAccepted: true,
         acceptedTermsVersion: "v1.0",
       });
@@ -104,6 +106,7 @@ export function Register() {
           name: admin.name,
           role: admin.role,
           tenantId: tenant.id,
+          orgType: tenant.orgType,
         };
 
         login(token, userObj);
@@ -264,6 +267,23 @@ export function Register() {
                     <option value="GBP">GBP - British Pound (£)</option>
                     <option value="NGN">NGN - Nigerian Naira (₦)</option>
                   </select>
+                </div>
+                <div>
+                  <label htmlFor="orgType" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                    Organization Type
+                  </label>
+                  <select
+                    id="orgType"
+                    className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+                    value={formData.orgType}
+                    onChange={(e) => setFormData({ ...formData, orgType: e.target.value })}
+                  >
+                    <option value="BUSINESS">Business</option>
+                    <option value="NONPROFIT">Nonprofit / Church / NGO / School</option>
+                  </select>
+                  <p className="text-[11px] text-secondary-500 mt-1">
+                    Nonprofit workspaces get a Funds tab for tracking restricted vs. unrestricted donor funds, and hide Point of Sale/Inventory. This can't be changed later, so pick carefully.
+                  </p>
                 </div>
 
                 {/* Terms and Conditions Checkbox */}
