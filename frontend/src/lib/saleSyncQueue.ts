@@ -22,11 +22,12 @@ const SYNC_INTERVAL_MS = 15000;
  *
  * Only network-layer failures (no response received - still offline, or a
  * transient blip) get silently retried on the next pass. A real rejection
- * from the server (e.g. insufficient stock discovered only at sync time,
- * since there's no offline stock reservation anywhere in this schema) stops
- * that sale from auto-retrying and moves it into "needs attention" - a
- * completed cash sale, with real money already collected from a real
- * customer, must never be silently dropped.
+ * from the server (e.g. insufficient stock discovered only at sync time -
+ * there's still no *server-side* offline stock reservation, only the local,
+ * same-device soft reservation PointOfSale.tsx keeps against its own pending
+ * queue) stops that sale from auto-retrying and moves it into "needs
+ * attention" - a completed cash sale, with real money already collected
+ * from a real customer, must never be silently dropped.
  */
 export function useSaleSyncQueue(tillId: string | null, onSynced: () => void) {
   const [pendingSales, setPendingSales] = useState<OfflinePendingSale[]>([]);

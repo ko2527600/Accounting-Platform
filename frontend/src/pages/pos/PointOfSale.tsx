@@ -214,9 +214,10 @@ export function PointOfSale() {
         // otherwise reset to null on every cold load) or with an empty,
         // unsearchable catalog. Flagged as cached (not live) via
         // isOfflineData rather than presented as confirmed current truth -
-        // stock counts in particular won't reflect sales made since the
-        // snapshot was taken, including this device's own still-unsynced
-        // queue (no offline stock reservation exists anywhere in this app).
+        // stock counts here reflect a moment-in-time snapshot; unavailableQtyFor
+        // (below) layers this device's own still-unsynced sales on top so at
+        // least this session can't oversell the same unit twice, but another
+        // device selling from the same warehouse isn't visible until sync.
         const [cachedTill, cachedItems] = await Promise.all([
           getTillSnapshot(selectedWarehouseId),
           getCatalogSnapshot(selectedWarehouseId),
@@ -305,6 +306,23 @@ export function PointOfSale() {
   // build a cart that the backend would reject for exceeding stock.
   const cartQtyFor = (itemId: string) => cart.find((l) => l.itemId === itemId)?.quantity || 0;
 
+  // Stock already claimed by this device's own still-unsynced sales for this
+  // till - without this, a cashier could sell the same last unit twice across
+  // two separate carts within one offline outage before either sale actually
+  // reaches the server (there is still no server-side offline stock
+  // reservation - the backend only enforces this at sync time, per line).
+  // Only "pending"/"syncing" sales reserve stock - a "failed" sale was
+  // explicitly rejected by the server (often *because* of a real stock
+  // conflict), so its items are no longer assumed reserved once failed.
+  const pendingReservedByItemId = new Map<string, number>();
+  for (const sale of pendingSales) {
+    if (sale.status === "failed") continue;
+    for (const line of sale.lines) {
+      pendingReservedByItemId.set(line.itemId, (pendingReservedByItemId.get(line.itemId) || 0) + line.quantity);
+    }
+  }
+  const unavailableQtyFor = (itemId: string) => cartQtyFor(itemId) + (pendingReservedByItemId.get(itemId) || 0);
+
   const filteredItems = items.filter((it) => {
     const q = itemSearch.trim().toLowerCase();
     if (!q) return true;
@@ -312,7 +330,7 @@ export function PointOfSale() {
   });
 
   const addToCart = (item: InventoryItemOption) => {
-    const remaining = item.stockQty - cartQtyFor(item.id);
+    const remaining = item.stockQty - unavailableQtyFor(item.id);
     if (remaining <= 0) return;
     setCart((prev) => {
       const existing = prev.find((l) => l.itemId === item.id);
@@ -337,7 +355,11 @@ export function PointOfSale() {
   const adjustCartQty = (itemId: string, delta: number) => {
     setCart((prev) =>
       prev
-        .map((l) => (l.itemId === itemId ? { ...l, quantity: Math.min(l.stockQty, l.quantity + delta) } : l))
+        .map((l) => {
+          if (l.itemId !== itemId) return l;
+          const maxAllowed = l.stockQty - (pendingReservedByItemId.get(itemId) || 0);
+          return { ...l, quantity: Math.min(maxAllowed, l.quantity + delta) };
+        })
         .filter((l) => l.quantity > 0)
     );
   };
@@ -668,7 +690,8 @@ export function PointOfSale() {
                       <div className="p-3 text-xs text-secondary-500 text-center">No products match "{itemSearch}".</div>
                     ) : (
                       filteredItems.map((it) => {
-                        const remaining = it.stockQty - cartQtyFor(it.id);
+                        const reserved = pendingReservedByItemId.get(it.id) || 0;
+                        const remaining = it.stockQty - unavailableQtyFor(it.id);
                         return (
                           <button
                             type="button"
@@ -679,7 +702,12 @@ export function PointOfSale() {
                           >
                             <div>
                               <div className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{it.name}</div>
-                              <div className="text-xs text-secondary-500">{it.sku} — {formatMoney(it.sellingPrice)} — {remaining} {it.unitOfMeasure} left</div>
+                              <div className="text-xs text-secondary-500">
+                                {it.sku} — {formatMoney(it.sellingPrice)} — {remaining} {it.unitOfMeasure} left
+                                {reserved > 0 && (
+                                  <span className="text-amber-600 dark:text-amber-400"> ({reserved} held by pending offline sale{reserved === 1 ? "" : "s"})</span>
+                                )}
+                              </div>
                             </div>
                             <Plus className="h-4 w-4 text-primary-600 flex-shrink-0 ml-2" />
                           </button>
