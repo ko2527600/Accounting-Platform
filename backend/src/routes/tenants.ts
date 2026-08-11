@@ -9,6 +9,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { BroadcastService } from '../services/broadcastService';
 import { CLOSED_ROLES, isLocationScopedRole } from '../services/warehouseAccessService';
 import { recordAuditLog, recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
+import { onboardingRateLimiter } from '../middleware/rateLimiterMiddleware';
 
 const router = Router();
 
@@ -18,7 +19,7 @@ const router = Router();
  * runs initial DDL migrations, registers tenant Admin user in public.users,
  * and returns tenant details and Admin JWT token.
  */
-router.post('/onboard', async (req: Request, res: Response) => {
+router.post('/onboard', onboardingRateLimiter, async (req: Request, res: Response) => {
   try {
     const result = await onboardTenant(prisma, req.body);
 
@@ -83,7 +84,7 @@ router.get('/', async (req: Request, res: Response) => {
  * self-service signup) - gated by the same master broadcast passcode as
  * every other platform-operator endpoint in this file, never a tenant JWT.
  */
-router.post('/admin-onboard', async (req: Request, res: Response) => {
+router.post('/admin-onboard', onboardingRateLimiter, async (req: Request, res: Response) => {
   try {
     const passcode = (req.body?.passcode as string) || (req.query.passcode as string) || req.headers['x-admin-passcode'];
     if (!passcode || !BroadcastService.verifyPasscode(passcode as string)) {

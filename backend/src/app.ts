@@ -21,7 +21,7 @@ import ledgersRouter from './routes/ledgers';
 import reportsRouter from './routes/reports';
 import { requestLoggerMiddleware } from './middleware/requestLoggerMiddleware';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
-import { apiRateLimiter, authRateLimiter, onboardingRateLimiter } from './middleware/rateLimiterMiddleware';
+import { apiRateLimiter, authRateLimiter } from './middleware/rateLimiterMiddleware';
 import legalRouter from './routes/legal';
 import customFieldsRouter from './routes/customFields';
 import auditLogsRouter from './routes/auditLogs';
@@ -51,7 +51,6 @@ import syncRouter from './routes/sync';
 import dataExportRouter from './routes/dataExport';
 import complianceRouter from './routes/compliance';
 import onboardingWizardRouter from './routes/onboardingWizard';
-import diagnosticsRouter from './routes/diagnostics';
 
 dotenv.config();
 
@@ -125,8 +124,12 @@ app.use('/api/v1/health', healthRouter);
 // Auth endpoints — strict brute-force limiter (10 req/min per IP/tenant)
 app.use('/api/v1/auth', authRateLimiter, authRouter);
 
-// Tenant onboarding & management endpoints — strict limiter (5 req/min)
-app.use('/api/v1/tenants', onboardingRateLimiter, tenantsRouter);
+// Tenant onboarding & management endpoints. The strict 5-req/min onboarding
+// limiter is applied per-route (POST /onboard, POST /admin-onboard) inside
+// tenants.ts, not to the whole router - it previously throttled unrelated
+// reads on this router too (GET / tenant roster, GET /current, GET /members,
+// etc.), so routine admin dashboard use could 429 after a handful of loads.
+app.use('/api/v1/tenants', tenantsRouter);
 
 // Chart of Accounts CRUD endpoints
 app.use('/api/v1/accounts', accountsRouter);
@@ -218,11 +221,6 @@ app.use('/api/v1/compliance', complianceRouter);
 // Phase 3 trust feature - guided onboarding wizard (business profile -> COA
 // -> opening balances with a hard trial-balance gate -> completion checklist).
 app.use('/api/v1/onboarding', onboardingWizardRouter);
-
-// Temporary: re-checks whether Render's outbound SMTP block still applies
-// now that billing is active. Passcode-gated, no tenant data touched. See
-// diagnostics.ts's header comment - remove once the question is answered.
-app.use('/api/v1/diagnostics', diagnosticsRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.
