@@ -269,6 +269,36 @@ Model confirmed consistently across GRA's own Phase Two rollout page and indepen
 
 ---
 
+### 2026-08-11 - User-supplied competitor/ERP feature checklist (partial - Module 5 tail, Modules 6-7)
+
+User pasted a fragment of a numbered ERP feature checklist (items ~24-30 across "Module 5" (Fixed Assets, tail-end only), "Module 6: Payroll & Time Tracking", "Module 7: Reporting, Budgeting & Tax Compliance"). Source/vendor not stated and Modules 1-4 (items 1-~23) weren't included in what was pasted - recorded verbatim below for the record; a fuller comparison should be redone if the rest of the list is shared later.
+
+> "...initial valuations, and serial IDs of equipment."
+> **Module 6: Payroll & Time Tracking** - Processing worker wages, taxes, and specialized project-specific labor costs.
+> 25. Salary Matrix Processing: Automating payouts while calculating variable base rates, commissions, and bonuses.
+> 26. Payroll Tax Deductions: Computing and withholding income taxes and benefit allocations automatically based on regional regulations.
+> 27. Billable Hours Allocation: Linking employee timesheets directly to specific client invoices for project billing.
+> **Module 7: Reporting, Budgeting & Tax Compliance** - Synthesizing system inputs into analytical reports for tax filings and business planning.
+> 28. Core Financial Reports: Instant compiling of critical Profit and Loss (P&L) statements, Balance Sheets, and Cash Flow summaries.
+> 29. Project Cost Tracking: Isolating and analyzing profits on individual projects to evaluate performance.
+> 30. Digital Tax Filing: Calculating local value-added taxes (VAT) or sales taxes to submit filings electronically.
+
+**Compared against this codebase (grepped `schema.prisma` and `backend/src` for each - not assumed):**
+
+| # | Item | Status |
+|---|---|---|
+| 24 (fragment) | Fixed Asset Management (initial valuation, serial ID tracking, implies depreciation) | **GAP - newly identified, not previously in this doc.** No `FixedAsset` entity, no `serialNumber`/`depreciation` field anywhere in `schema.prisma` or `backend/src` (confirmed via grep, zero matches). Genuinely unbuilt, not just under-featured. |
+| 25 | Salary Matrix Processing (variable rates/commissions/bonuses) | **GAP** - same as the existing "Payroll" gap (Section 2/4 item 14 below). No payroll module exists at all. |
+| 26 | Payroll Tax Deductions | **GAP** - same payroll gap; no statutory-deduction logic anywhere. |
+| 27 | Billable Hours Allocation (timesheets -> invoices) | **GAP** - overlaps the existing "Project tracking" gap (item 9 below); no timesheet entity exists (grepped, zero matches), so there's nothing to link to invoices yet. |
+| 28 | Core Financial Reports (P&L, Balance Sheet, Cash Flow) | **`[ALREADY BUILT]`** - all three exist and have frontend pages (`ProfitAndLoss.tsx`, `BalanceSheet.tsx`, `CashFlowStatement.tsx`), each "instant" (computed live from the ledger, not batch/scheduled). |
+| 29 | Project Cost Tracking (per-project profitability) | **GAP** - same as the existing "Project tracking" gap (item 9 below). |
+| 30 | Digital Tax Filing (VAT calc + electronic submission) | **GAP** - same as the existing GRA E-VAT/SDC gap (item 1 below); this platform can compute VAT (layered tax rates, done 2026-08-01) but has no electronic-filing/submission integration with GRA at all. |
+
+Net new finding: **Fixed Asset Management** (item 24) is a genuine gap not previously tracked anywhere in this doc - added to Section 2/4 below. Everything else in this fragment (25-30) maps onto gaps or completions this doc already tracks; no other new gaps surfaced.
+
+---
+
 ## 2. Gap Analysis: What This Platform Has vs. What the Ghana Market Expects
 
 | Requirement | Status | Notes |
@@ -292,6 +322,7 @@ Model confirmed consistently across GRA's own Phase Two rollout page and indepen
 | **180-day cash flow forecast** | **GAP** | Forward-looking projection - distinct from the also-missing historical Cash Flow Statement. |
 | Customizable dashboards | **Likely gap** | Not deeply investigated yet - existing report pages aren't user-configurable in the "rearrange your widgets" sense. |
 | **Payroll** | **GAP** | Confirmed via grep - no payroll module anywhere. Tally, Finza, and several others reviewed all include payroll in some form. |
+| **Fixed Asset Management** (initial valuation, serial ID tracking, implied depreciation) | **GAP** | Confirmed via grep (2026-08-11) - no `FixedAsset` entity, no `serialNumber`/`depreciation` field anywhere in the schema or backend. Also the reason the Cash Flow Statement (item above) has no Investing section - no capex/asset classification exists to separate from ordinary working capital. |
 | **Real cross-app search** | **GAP, plus a copy-honesty issue** | The header search bar's placeholder ("Search accounts, entries, reports...") implies real data search; it's actually a static navigation-shortcut menu (`CommandMenu.tsx`) with no search logic at all. Should either fix the copy to stop overpromising, or build real search - competitors (Tally's "SmartFind") treat this as baseline. |
 
 ---
@@ -328,6 +359,7 @@ In rough order of how compliance-critical they appear from research so far - **t
 15. **[DONE 2026-07-31]** ~~POS void/no-sale PIN-gating + anomaly detection on cashier void ratios~~ - built as a real void feature (there was no void capability at all before this, not just an unguarded one): `POST /tills/sales/:id/void` requires either the acting user to already be Admin/Shop Manager/Accountant, or a Cashier to supply a manager's own password as an inline step-up confirmation; restores stock, reverses the till total, full audit trail. New `GET /tills/void-stats` flags a cashier whose void ratio crosses 15% over 5+ sales. See STATUS.md.
 16. **[DONE 2026-08-08]** ~~Hybrid-offline POS architecture (local-first sale processing with async background sync, vs. today's live-API-per-sale model) - newly surfaced 2026-07-31; flagged as a cross-cutting blocker across nearly every segment in that research, likely the single highest-leverage infrastructure change if the research holds up under primary-source verification. Materially larger than most items on this list - needs its own architecture spike before scoping.~~ - built as a two-phase change, scoped to sales-only per an explicit user decision (till open/close and voids still require connectivity). Phase 1 (backend): `CashSale` gained a client-generated `clientTxnId` dedup key so `POST /tills/sales` is safely retry-idempotent - the DB unique constraint, not a pre-check, is the actual safety net under concurrent replay (Postgres blocks the losing INSERT until the winner commits). Phase 2 (frontend): an `idb`-backed local queue (`offlineDb.ts`) plus an in-app sync loop (`saleSyncQueue.ts`, deliberately not Workbox Background Sync - no Safari/iOS support, and it wouldn't replace any of the loop's actual machinery anyway) - a cashier can keep ringing up sales during an outage, queued sales sync automatically on reconnect or via a manual "Sync Now," and a genuine sync conflict (e.g. stock sold out elsewhere in the interim - no offline stock reservation exists) surfaces as "Needs Attention" via the audit log rather than being silently dropped, since real money was already collected. Live-verified end-to-end against the real dev stack, including confirming the synced sale reached the real backend and genuinely deducted stock. See STATUS.md.
 17. Fund accounting (restricted vs. unrestricted fund tracking, e.g. for NGOs/schools/churches/cooperatives) - a new segment not previously covered in this doc; would need a `fund`/restriction dimension on transactions and independent per-fund balance sheets. Not yet validated against a real prospective customer in this segment - the 2026-07-25 target-market discussion this session focused on retail/SME, not non-profits, so worth confirming this is actually a market we want before scoping.
+18. Fixed Asset Management (register with initial valuation + serial ID per item, implies a depreciation schedule) - newly surfaced 2026-08-11 from a user-supplied competitor/ERP feature checklist. Confirmed a genuine gap via grep, not previously tracked in this doc. Would also unblock the Cash Flow Statement's currently-missing Investing section (item 4 above), since there's no capex/asset classification today to separate from ordinary working capital.
 
 ---
 
