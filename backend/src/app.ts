@@ -51,6 +51,7 @@ import syncRouter from './routes/sync';
 import dataExportRouter from './routes/dataExport';
 import complianceRouter from './routes/compliance';
 import onboardingWizardRouter from './routes/onboardingWizard';
+import diagnosticsRouter from './routes/diagnostics';
 
 dotenv.config();
 
@@ -217,6 +218,11 @@ app.use('/api/v1/compliance', complianceRouter);
 // Phase 3 trust feature - guided onboarding wizard (business profile -> COA
 // -> opening balances with a hard trial-balance gate -> completion checklist).
 app.use('/api/v1/onboarding', onboardingWizardRouter);
+
+// Temporary: re-checks whether Render's outbound SMTP block still applies
+// now that billing is active. Passcode-gated, no tenant data touched. See
+// diagnostics.ts's header comment - remove once the question is answered.
+app.use('/api/v1/diagnostics', diagnosticsRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.
