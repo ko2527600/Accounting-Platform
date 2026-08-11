@@ -131,7 +131,17 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
         // transaction rolls back cleanly, then look the winner up in a
         // FRESH transaction below (same two-phase pattern cashTill.ts's
         // DuplicateSaleReplayError uses).
-        if (error.code === '23505' && data.clientTxnId && String(error.message || '').includes('uq_accounts_client_txn_id')) {
+        //
+        // Two concurrent inserts sharing the same clientTxnId also share the
+        // same `code` (it's a retry of the identical logical create), so
+        // Postgres can report the conflict on EITHER unique index depending
+        // on which one it evaluates first - observed both ways in practice
+        // (uq_accounts_client_txn_id locally, accounts_code_key under CI's
+        // timing). Both must be treated as "go look up the real winner",
+        // not just the client_txn_id one.
+        const message = String(error.message || '');
+        if (error.code === '23505' && data.clientTxnId &&
+          (message.includes('uq_accounts_client_txn_id') || message.includes('accounts_code_key'))) {
           throw new DuplicateAccountReplayError();
         }
         throw error;
@@ -166,12 +176,16 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
       // The winning transaction is guaranteed committed by now (Postgres
       // blocked our INSERT until it resolved) - a fresh transaction here is
       // safe and will find it.
-      replayed = true;
       created = await withCurrentTenantDb(prisma, async (client) => {
         const winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
-        if (!winner) throw raceError; // Should be unreachable - the winner must exist by now.
-        return winner;
+        if (winner) return winner;
+        // The code collision wasn't actually the same logical create racing
+        // itself (no account exists under this clientTxnId) - it's a
+        // genuine, unrelated code conflict with a different account. Surface
+        // the real 409 instead of the opaque sentinel.
+        throw new AccountServiceError(`Account code "${data.code.trim()}" already exists.`, 409);
       });
+      replayed = true;
     } else {
       throw raceError;
     }
