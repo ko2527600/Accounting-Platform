@@ -1,5 +1,5 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, FileSpreadsheet, Ban, ArrowRightLeft, Send } from "lucide-react";
+import { Plus, Search, FileSpreadsheet, Ban, ArrowRightLeft, Send, History } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useJournals } from "../../hooks/useJournals";
 import { useToast } from "../../contexts/ToastContext";
@@ -179,6 +179,14 @@ export function JournalList() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        className="h-8 px-2 text-xs"
+                        onClick={() => navigate(`/audit-logs?entityId=${journal.id}&entity=JournalEntry`)}
+                        title="View this entry's change history"
+                      >
+                        <History className="h-3.5 w-3.5" />
+                      </Button>
                       {journal.status === 'Draft' && (
                         <Button
                           variant="outline"

@@ -3,7 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import * as taxRateRepository from '../repository/taxRateRepository';
 import * as accountRepository from '../repository/accountRepository';
 import { TaxRateRecord, CreateTaxRateData, TaxRateComponent } from '../repository/taxRateRepository';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
 export class TaxRateServiceError extends Error {
   statusCode: number;
@@ -151,15 +151,19 @@ export async function createTaxRate(tenantId: string, input: any, actor?: AuditA
     components: validatedComponents,
   };
 
-  const created = await taxRateRepository.createTaxRate(prisma, tenantId, data);
+  const created = await prisma.$transaction(async (tx) => {
+    const created = await taxRateRepository.createTaxRate(tx as any, tenantId, data);
 
-  await recordAuditLog({
-    action: 'TAX_RATE.CREATED',
-    entity: 'TaxRate',
-    entityId: created.id,
-    tenantId,
-    actor,
-    details: `Tax rate ${created.code} - ${created.name} (${(Number(created.rate) * 100).toFixed(2)}%) created.`,
+    await recordAuditLogTx(tx as any, {
+      action: 'TAX_RATE.CREATED',
+      entity: 'TaxRate',
+      entityId: created.id,
+      tenantId,
+      actor,
+      details: `Tax rate ${created.code} - ${created.name} (${(Number(created.rate) * 100).toFixed(2)}%) created.`,
+    });
+
+    return created;
   });
 
   return created;
@@ -221,18 +225,22 @@ export async function updateTaxRate(tenantId: string, id: string, input: any, ac
   const effectiveComponents = data.components !== undefined ? data.components : existing.components;
   await validateAccountIds(effectiveAccountId, effectiveComponents);
 
-  const updated = await taxRateRepository.updateTaxRate(prisma, tenantId, id, data);
-  if (!updated) {
-    throw new TaxRateServiceError(`Failed to update tax rate with ID "${id}".`, 500);
-  }
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await taxRateRepository.updateTaxRate(tx as any, tenantId, id, data);
+    if (!updated) {
+      throw new TaxRateServiceError(`Failed to update tax rate with ID "${id}".`, 500);
+    }
 
-  await recordAuditLog({
-    action: 'TAX_RATE.UPDATED',
-    entity: 'TaxRate',
-    entityId: updated.id,
-    tenantId,
-    actor,
-    changes: diffFields(existing, updated, ['name', 'code', 'rate', 'accountId', 'isActive', 'effectiveFrom', 'effectiveTo']),
+    await recordAuditLogTx(tx as any, {
+      action: 'TAX_RATE.UPDATED',
+      entity: 'TaxRate',
+      entityId: updated.id,
+      tenantId,
+      actor,
+      changes: diffFields(existing, updated, ['name', 'code', 'rate', 'accountId', 'isActive', 'effectiveFrom', 'effectiveTo']),
+    });
+
+    return updated;
   });
 
   return updated;
@@ -252,15 +260,17 @@ export async function deleteTaxRate(tenantId: string, id: string, actor?: AuditA
     );
   }
 
-  await taxRateRepository.deleteTaxRate(prisma, tenantId, id);
+  await prisma.$transaction(async (tx) => {
+    await taxRateRepository.deleteTaxRate(tx as any, tenantId, id);
 
-  await recordAuditLog({
-    action: 'TAX_RATE.DELETED',
-    entity: 'TaxRate',
-    entityId: id,
-    tenantId,
-    actor,
-    details: `Tax rate ${existing.code} - ${existing.name} deleted.`,
+    await recordAuditLogTx(tx as any, {
+      action: 'TAX_RATE.DELETED',
+      entity: 'TaxRate',
+      entityId: id,
+      tenantId,
+      actor,
+      details: `Tax rate ${existing.code} - ${existing.name} deleted.`,
+    });
   });
 }
 

@@ -13,7 +13,7 @@ import * as fundService from './fundService';
 import { requireTenantContext } from '../context/tenantContext';
 import * as fiscalPeriodService from './fiscalPeriodService';
 import * as approvalWorkflowService from './approvalWorkflowService';
-import { recordAuditLog, AuditActor } from './auditLogService';
+import { recordAuditLogTx, AuditActor } from './auditLogService';
 
 export class JournalEntryServiceError extends Error {
   statusCode: number;
@@ -191,15 +191,18 @@ export async function createJournalEntry(data: CreateJournalEntryInput, actor?: 
       await ledgerRepository.postJournalEntryToLedger(client, entry.id);
     }
 
-    return entry;
-  });
+    // Written in the same transaction as the ledger write above so the audit
+    // trail can never desync from the data it describes - a failed audit
+    // write rolls the whole entry back rather than landing unaudited.
+    await recordAuditLogTx(client, {
+      action: 'JOURNAL_ENTRY.CREATED',
+      entity: 'JournalEntry',
+      entityId: entry.id,
+      actor,
+      details: `Journal entry ${entry.entryNumber} created with status ${entry.status}.`,
+    });
 
-  await recordAuditLog({
-    action: 'JOURNAL_ENTRY.CREATED',
-    entity: 'JournalEntry',
-    entityId: entry.id,
-    actor,
-    details: `Journal entry ${entry.entryNumber} created with status ${entry.status}.`,
+    return entry;
   });
 
   return entry;
@@ -360,15 +363,15 @@ export async function postJournalEntry(id: string, actor?: AuditActor): Promise<
     // Create ledger records
     await ledgerRepository.postJournalEntryToLedger(client, id);
 
-    return updatedEntry;
-  });
+    await recordAuditLogTx(client, {
+      action: 'JOURNAL_ENTRY.POSTED',
+      entity: 'JournalEntry',
+      entityId: updatedEntry.id,
+      actor,
+      changes: { status: { from: previousStatus, to: 'POSTED' } },
+    });
 
-  await recordAuditLog({
-    action: 'JOURNAL_ENTRY.POSTED',
-    entity: 'JournalEntry',
-    entityId: updatedEntry.id,
-    actor,
-    changes: { status: { from: previousStatus, to: 'POSTED' } },
+    return updatedEntry;
   });
 
   return updatedEntry;
@@ -409,6 +412,13 @@ export async function voidJournalEntry(
       if (!updatedEntry) {
         throw new JournalEntryServiceError(`Failed to void journal entry "${id}".`, 500);
       }
+      await recordAuditLogTx(client, {
+        action: 'JOURNAL_ENTRY.VOIDED',
+        entity: 'JournalEntry',
+        entityId: updatedEntry.id,
+        actor,
+        changes: { status: { from: previousStatus, to: 'VOID' } },
+      });
       return { journalEntry: updatedEntry, reversalEntry: null as JournalEntryRecord | null };
     }
 
@@ -453,27 +463,27 @@ export async function voidJournalEntry(
 
     const reversalWithLines = await journalEntryRepository.getJournalEntryById(client, reversal.id);
 
+    await recordAuditLogTx(client, {
+      action: 'JOURNAL_ENTRY.VOIDED',
+      entity: 'JournalEntry',
+      entityId: voidedOriginal.id,
+      actor,
+      changes: { status: { from: previousStatus, to: 'VOID' } },
+      details: reversalWithLines ? `Reversed by ${reversalWithLines.entryNumber}.` : undefined,
+    });
+
+    if (reversalWithLines) {
+      await recordAuditLogTx(client, {
+        action: 'JOURNAL_ENTRY.REVERSED',
+        entity: 'JournalEntry',
+        entityId: reversalWithLines.id,
+        actor,
+        details: `Reversal of ${voidedOriginal.entryNumber}.`,
+      });
+    }
+
     return { journalEntry: voidedOriginal, reversalEntry: reversalWithLines };
   });
-
-  await recordAuditLog({
-    action: 'JOURNAL_ENTRY.VOIDED',
-    entity: 'JournalEntry',
-    entityId: journalEntry.id,
-    actor,
-    changes: { status: { from: previousStatus, to: 'VOID' } },
-    details: reversalEntry ? `Reversed by ${reversalEntry.entryNumber}.` : undefined,
-  });
-
-  if (reversalEntry) {
-    await recordAuditLog({
-      action: 'JOURNAL_ENTRY.REVERSED',
-      entity: 'JournalEntry',
-      entityId: reversalEntry.id,
-      actor,
-      details: `Reversal of ${journalEntry.entryNumber}.`,
-    });
-  }
 
   return { journalEntry, reversalEntry };
 }

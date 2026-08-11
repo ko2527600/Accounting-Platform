@@ -7,7 +7,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as monoService from '../services/monoService';
 import { MonoServiceError } from '../services/monoService';
-import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
+import { recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
 
 const router = Router();
 
@@ -147,7 +147,7 @@ router.post('/connect', requireRole('Accountant'), async (req: Request, res: Res
     const accountDetails = await monoService.getAccountDetails(monoAccountId);
 
     const createdAccount = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).bankAccount.create({
+      const createdAccount = await (client as any).bankAccount.create({
         data: {
           tenantId,
           accountName: accountDetails.accountName,
@@ -159,17 +159,19 @@ router.post('/connect', requireRole('Accountant'), async (req: Request, res: Res
           monoAccountId,
         },
       });
+
+      await recordAuditLogTx(client, {
+        action: 'BANK_ACCOUNT.CONNECTED',
+        entity: 'BankAccount',
+        entityId: createdAccount.id,
+        actor: actorFromRequest(req),
+        details: `Bank account "${createdAccount.accountName}" (${createdAccount.bankName}) connected via Mono.`,
+      });
+
+      return createdAccount;
     });
 
     await syncAccountTransactions(createdAccount);
-
-    await recordAuditLog({
-      action: 'BANK_ACCOUNT.CONNECTED',
-      entity: 'BankAccount',
-      entityId: createdAccount.id,
-      actor: actorFromRequest(req),
-      details: `Bank account "${createdAccount.accountName}" (${createdAccount.bankName}) connected via Mono.`,
-    });
 
     res.status(201).json({
       success: true,
@@ -279,29 +281,29 @@ router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: R
       return;
     }
 
-    let existingTx: any;
     const updatedTx = await withCurrentTenantDb(prisma, async (client) => {
       const existing = await (client as any).bankTransaction.findFirst({ where: { id: transactionId, tenantId } });
       if (!existing) {
         throw new Error('Bank transaction not found.');
       }
-      existingTx = existing;
 
-      return (client as any).bankTransaction.update({
+      const updated = await (client as any).bankTransaction.update({
         where: { id: transactionId },
         data: {
           status: 'RECONCILED',
           ledgerId: ledgerId || undefined,
         },
       });
-    });
 
-    await recordAuditLog({
-      action: 'BANK_TRANSACTION.RECONCILED',
-      entity: 'BankTransaction',
-      entityId: transactionId,
-      actor: actorFromRequest(req),
-      changes: diffFields(existingTx, updatedTx, ['status', 'ledgerId']),
+      await recordAuditLogTx(client, {
+        action: 'BANK_TRANSACTION.RECONCILED',
+        entity: 'BankTransaction',
+        entityId: transactionId,
+        actor: actorFromRequest(req),
+        changes: diffFields(existing, updated, ['status', 'ledgerId']),
+      });
+
+      return updated;
     });
 
     res.status(200).json({

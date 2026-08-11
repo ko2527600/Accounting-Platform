@@ -13,7 +13,7 @@ import * as fxRateService from '../services/fxRateService';
 import { FxRateServiceError } from '../services/fxRateService';
 import * as fundService from '../services/fundService';
 import { FundServiceError } from '../services/fundService';
-import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
+import { recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
 import { assertWarehouseAccess, WarehouseAccessError } from '../services/warehouseAccessService';
 import { receiveInventoryForBill, allocateLandedCostToBill } from '../services/vendorBillReceivingService';
 import * as creditDebitNoteService from '../services/creditDebitNoteService';
@@ -211,20 +211,18 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           warehouseId,
           items.map((l: any) => ({ itemId: l.itemId, quantity: l.quantity, unitCost: l.unitCost }))
         );
+
+        await recordAuditLogTx(client, {
+          action: 'VENDOR_BILL.ITEMS_RECEIVED',
+          entity: 'VendorBill',
+          entityId: bill.id,
+          actor: actorFromRequest(req),
+          details: `Received ${items.length} line item(s) into warehouse for bill ${bill.billNumber} (${amount.toFixed(2)} ${currency}).`,
+        });
       }
 
       return { bill, receivingResult };
     });
-
-    if (isItemized) {
-      await recordAuditLog({
-        action: 'VENDOR_BILL.ITEMS_RECEIVED',
-        entity: 'VendorBill',
-        entityId: created.bill.id,
-        actor: actorFromRequest(req),
-        details: `Received ${items.length} line item(s) into warehouse for bill ${created.bill.billNumber} (${amount.toFixed(2)} ${currency}).`,
-      });
-    }
 
     res.status(201).json({
       success: true,
@@ -298,15 +296,15 @@ router.post('/:id/landed-cost', requireRole('Accountant'), async (req: Request, 
 
       const allocations = await allocateLandedCostToBill(client, tenantId, primaryBillId, Number(amount));
 
-      return { landedCostBill, allocations };
-    });
+      await recordAuditLogTx(client, {
+        action: 'VENDOR_BILL.LANDED_COST_ALLOCATED',
+        entity: 'VendorBill',
+        entityId: primaryBillId,
+        actor: actorFromRequest(req),
+        details: `Landed cost ${landedCostBill.billNumber} (${Number(amount).toFixed(2)} ${currency}${description ? `, ${description}` : ''}) allocated across ${allocations.length} line item(s).`,
+      });
 
-    await recordAuditLog({
-      action: 'VENDOR_BILL.LANDED_COST_ALLOCATED',
-      entity: 'VendorBill',
-      entityId: primaryBillId,
-      actor: actorFromRequest(req),
-      details: `Landed cost ${result.landedCostBill.billNumber} (${Number(amount).toFixed(2)} ${currency}${description ? `, ${description}` : ''}) allocated across ${result.allocations.length} line item(s).`,
+      return { landedCostBill, allocations };
     });
 
     res.status(201).json({
@@ -386,19 +384,21 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     }
 
     const updated = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).vendorBill.update({
+      const updated = await (client as any).vendorBill.update({
         where: { id },
         data: { status: 'PAID', journalId },
       });
-    });
 
-    await recordAuditLog({
-      action: 'VENDOR_BILL.PAID',
-      entity: 'VendorBill',
-      entityId: id,
-      actor,
-      changes: diffFields(bill, updated, ['status', 'journalId']),
-      details: `Vendor bill ${bill.billNumber} marked PAID (${postingAmount}).`,
+      await recordAuditLogTx(client, {
+        action: 'VENDOR_BILL.PAID',
+        entity: 'VendorBill',
+        entityId: id,
+        actor,
+        changes: diffFields(bill, updated, ['status', 'journalId']),
+        details: `Vendor bill ${bill.billNumber} marked PAID (${postingAmount}).`,
+      });
+
+      return updated;
     });
 
     res.status(200).json({

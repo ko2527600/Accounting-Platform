@@ -1,4 +1,5 @@
 import { Request } from 'express';
+import { PrismaClient } from '@prisma/client';
 import { prisma } from '../config/db';
 import { getTenantContext } from '../context/tenantContext';
 import { logger } from '../utils/logger';
@@ -50,6 +51,36 @@ export async function recordAuditLog(input: RecordAuditLogInput): Promise<void> 
       stack: err?.stack,
     });
   }
+}
+
+/**
+ * Transactional write path for AuditLog rows, for security-critical mutations
+ * (ledger entries, vouchers, masters) where the audit entry must never be able
+ * to drift out of sync with the data change it describes. Pass the same
+ * `client` the caller is already using inside `withTenantDb`/`withCurrentTenantDb`
+ * (its transaction-scoped `SET LOCAL search_path` still resolves `audit_logs`
+ * via the `public` fallback) so this insert commits or rolls back atomically
+ * with the business write. Unlike `recordAuditLog`, this throws on failure -
+ * that's the point: a failed audit write must abort the whole transaction
+ * rather than let an unaudited change land.
+ */
+export async function recordAuditLogTx(
+  client: Pick<PrismaClient, 'auditLog'>,
+  input: RecordAuditLogInput
+): Promise<void> {
+  await client.auditLog.create({
+    data: {
+      tenantId: input.tenantId ?? getTenantContext()?.tenantId ?? null,
+      action: input.action,
+      entity: input.entity,
+      entityId: input.entityId ?? null,
+      details: input.details ?? null,
+      userId: input.actor?.userId ?? null,
+      userEmail: input.actor?.userEmail ?? null,
+      ipAddress: input.actor?.ipAddress ?? null,
+      changes: (input.changes ?? undefined) as any,
+    },
+  });
 }
 
 /** Extracts actor identity (who/from-where) from an authenticated request. */

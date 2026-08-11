@@ -7,7 +7,7 @@ import { generateJwtToken, computeTokenHash, evictFromJwtCache } from '../utils/
 import { createUser, findUserByEmail, findUserById } from '../repository/userRepository';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
-import { recordAuditLog } from '../services/auditLogService';
+import { recordAuditLog, recordAuditLogTx } from '../services/auditLogService';
 import { revokeToken } from '../services/tokenRevocationService';
 
 const router = Router();
@@ -256,9 +256,22 @@ router.post('/resend-verification', async (req: Request, res: Response): Promise
       updateData.smsVerificationCode = Math.floor(1000 + Math.random() * 9000).toString();
     }
 
-    const updatedUser = await prisma.user.update({
-      where: { id: user.id },
-      data: updateData,
+    const updatedUser = await prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: user.id },
+        data: updateData,
+      });
+
+      await recordAuditLogTx(tx, {
+        action: 'AUTH.VERIFICATION_RESENT',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: `Resent verification for "${user.email}" (email: ${!user.isEmailVerified}, sms: ${!user.isPhoneVerified}).`,
+      });
+
+      return updatedUser;
     });
 
     if (!user.isEmailVerified) {
@@ -273,15 +286,6 @@ router.post('/resend-verification', async (req: Request, res: Response): Promise
         console.error('[AuthResendVerification] Error resending SMS code:', err);
       });
     }
-
-    await recordAuditLog({
-      action: 'AUTH.VERIFICATION_RESENT',
-      entity: 'User',
-      entityId: user.id,
-      tenantId: user.tenantId || null,
-      actor: { userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
-      details: `Resent verification for "${user.email}" (email: ${!user.isEmailVerified}, sms: ${!user.isPhoneVerified}).`,
-    });
 
     res.status(200).json({
       success: true,
@@ -668,59 +672,63 @@ router.post('/accept-invitation', async (req: Request, res: Response): Promise<v
 
     const hashedPassword = hashPassword(password);
 
-    // Upsert or create user linked to tenant
-    const existingUser = await findUserByEmail(prisma, invitation.email);
-    let user;
+    const user = await prisma.$transaction(async (tx) => {
+      // Upsert or create user linked to tenant
+      const existingUser = await findUserByEmail(tx as any, invitation.email);
+      let user;
 
-    if (existingUser) {
-      user = await prisma.user.update({
-        where: { id: existingUser.id },
-        data: {
-          name: name.trim(),
+      if (existingUser) {
+        user = await tx.user.update({
+          where: { id: existingUser.id },
+          data: {
+            name: name.trim(),
+            password: hashedPassword,
+            tenantId: invitation.tenantId,
+            role: invitation.role,
+            isActive: true,
+          },
+        });
+      } else {
+        user = await createUser(tx as any, {
+          email: invitation.email,
           password: hashedPassword,
-          tenantId: invitation.tenantId,
+          name: name.trim(),
           role: invitation.role,
-          isActive: true,
-        },
-      });
-    } else {
-      user = await createUser(prisma, {
-        email: invitation.email,
-        password: hashedPassword,
-        name: name.trim(),
-        role: invitation.role,
-        tenantId: invitation.tenantId,
-      });
-    }
-
-    // Grant the warehouses selected at invite time (only meaningful for
-    // location-scoped roles - empty for company-wide roles). Idempotent via
-    // skipDuplicates so re-accepting (existingUser update path above) never
-    // errors on the unique (userId, warehouseId) constraint.
-    if (invitation.warehouseIds && invitation.warehouseIds.length > 0) {
-      await prisma.warehouseAccess.createMany({
-        data: invitation.warehouseIds.map((warehouseId) => ({
           tenantId: invitation.tenantId,
-          userId: user.id,
-          warehouseId,
-        })),
-        skipDuplicates: true,
+        });
+      }
+
+      // Grant the warehouses selected at invite time (only meaningful for
+      // location-scoped roles - empty for company-wide roles). Idempotent via
+      // skipDuplicates so re-accepting (existingUser update path above) never
+      // errors on the unique (userId, warehouseId) constraint.
+      if (invitation.warehouseIds && invitation.warehouseIds.length > 0) {
+        await tx.warehouseAccess.createMany({
+          data: invitation.warehouseIds.map((warehouseId) => ({
+            tenantId: invitation.tenantId,
+            userId: user.id,
+            warehouseId,
+          })),
+          skipDuplicates: true,
+        });
+      }
+
+      // Mark invitation as accepted
+      await tx.invitation.update({
+        where: { id: invitation.id },
+        data: { status: 'ACCEPTED' },
       });
-    }
 
-    // Mark invitation as accepted
-    await prisma.invitation.update({
-      where: { id: invitation.id },
-      data: { status: 'ACCEPTED' },
-    });
+      await recordAuditLogTx(tx, {
+        action: 'AUTH.INVITATION_ACCEPTED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: invitation.tenantId,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: `${user.email} accepted invitation with role ${invitation.role}.`,
+      });
 
-    await recordAuditLog({
-      action: 'AUTH.INVITATION_ACCEPTED',
-      entity: 'User',
-      entityId: user.id,
-      tenantId: invitation.tenantId,
-      actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
-      details: `${user.email} accepted invitation with role ${invitation.role}.`,
+      return user;
     });
 
     // Generate JWT token

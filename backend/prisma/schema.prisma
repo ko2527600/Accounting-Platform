@@ -31,6 +31,16 @@ model Tenant {
   // PUT /tenants/current. Plain string, not a Prisma enum, matching how
   // `tier`/`baseCurrency` aren't enums either.
   orgType              String    @default("BUSINESS") @map("org_type")
+  // Guided onboarding wizard fields (Phase 3 trust feature). businessType is
+  // freeform-ish (e.g. "Sole Proprietor"/"Partnership"/"Limited Company") -
+  // not a Prisma enum, same convention as orgType/tier. `isLive` flips true
+  // only once the opening-balances step posts a real, server-validated
+  // balanced trial balance (see onboardingWizardService.ts) - a hard gate in
+  // code, never set directly from a client-supplied boolean.
+  businessType         String?   @map("business_type")
+  vatRegistered        Boolean   @default(false) @map("vat_registered")
+  graTin               String?   @map("gra_tin")
+  isLive               Boolean   @default(false) @map("is_live")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -1190,4 +1200,26 @@ model ExpenseClaim {
   @@index([status])
   @@index([submittedBy])
   @@map("expense_claims")
+}
+
+// Platform-wide (no tenantId - the same tax/regulatory rules apply to every
+// tenant in a given jurisdiction) record of when Ledgio last verified its
+// compliance data (e.g. Ghana VAT/NHIL/GETFund rates) against the real
+// regulator source. Lets Settings/Reports show a provable "last verified"
+// date instead of an unverifiable claim. Writes are gated by the platform
+// admin passcode (BroadcastService.verifyPasscode), the same mechanism
+// AuditLog's platform-wide entries and AdminCoreEngine use - never by a
+// per-tenant Admin role, since one tenant's admin must never be able to
+// fabricate a compliance claim every other tenant would also see.
+model ComplianceUpdate {
+  id          String   @id @default(uuid())
+  source      String
+  area        String
+  description String
+  verifiedAt  DateTime @map("verified_at")
+  verifiedBy  String?  @map("verified_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([verifiedAt(sort: Desc)])
+  @@map("compliance_updates")
 }

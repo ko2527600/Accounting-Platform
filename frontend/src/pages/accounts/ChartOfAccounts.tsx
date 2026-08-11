@@ -1,5 +1,6 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Edit } from "lucide-react";
+import { Plus, Search, Edit, History } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import type { Account, AccountType } from "../../types/accounting";
@@ -31,6 +32,7 @@ const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue',
 export function ChartOfAccounts() {
   const { accounts, createAccount, updateAccount } = useAccounts();
   const { settings } = useTenantSettings();
+  const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<AccountType | "All">("All");
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -125,7 +127,7 @@ export function ChartOfAccounts() {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead className="text-right">Balance</TableHead>
-              <TableHead className="w-[70px]"></TableHead>
+              <TableHead className="w-[100px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -175,14 +177,23 @@ export function ChartOfAccounts() {
                     {formatCurrency(account.balance)}
                   </TableCell>
                   <TableCell>
-                    <Button 
-                      variant="ghost" 
-                      size="icon" 
-                      onClick={() => openEditModal(account)}
-                      className="opacity-0 group-hover:opacity-100 transition-opacity"
-                    >
-                      <Edit className="h-4 w-4 text-secondary-500" />
-                    </Button>
+                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => navigate(`/audit-logs?entityId=${account.id}&entity=Account`)}
+                        title="View this account's change history"
+                      >
+                        <History className="h-4 w-4 text-secondary-500" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => openEditModal(account)}
+                      >
+                        <Edit className="h-4 w-4 text-secondary-500" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))

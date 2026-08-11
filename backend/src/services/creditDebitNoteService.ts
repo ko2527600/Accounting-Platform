@@ -2,7 +2,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalEntryService from './journalEntryService';
-import { recordAuditLog, AuditActor } from './auditLogService';
+import { recordAuditLogTx, AuditActor } from './auditLogService';
 import { requireTenantContext } from '../context/tenantContext';
 
 export class CreditDebitNoteServiceError extends Error {
@@ -124,15 +124,15 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
       });
     }
 
-    return note;
-  });
+    await recordAuditLogTx(client, {
+      action: 'CREDIT_NOTE.ISSUED',
+      entity: 'CreditNote',
+      entityId: note.id,
+      actor,
+      details: `Credit note ${creditNoteNumber} for ${amount.toFixed(2)} against invoice ${invoice.invoiceNumber} (${method}). Reason: ${reason}`,
+    });
 
-  await recordAuditLog({
-    action: 'CREDIT_NOTE.ISSUED',
-    entity: 'CreditNote',
-    entityId: created.id,
-    actor,
-    details: `Credit note ${creditNoteNumber} for ${amount.toFixed(2)} against invoice ${invoice.invoiceNumber} (${method}). Reason: ${reason}`,
+    return note;
   });
 
   return created;
@@ -230,15 +230,15 @@ export async function createDebitNote(billId: string, input: IssueNoteInput, act
       });
     }
 
-    return note;
-  });
+    await recordAuditLogTx(client, {
+      action: 'DEBIT_NOTE.ISSUED',
+      entity: 'DebitNote',
+      entityId: note.id,
+      actor,
+      details: `Debit note ${debitNoteNumber} for ${amount.toFixed(2)} against bill ${bill.billNumber} (${method}). Reason: ${reason}`,
+    });
 
-  await recordAuditLog({
-    action: 'DEBIT_NOTE.ISSUED',
-    entity: 'DebitNote',
-    entityId: created.id,
-    actor,
-    details: `Debit note ${debitNoteNumber} for ${amount.toFixed(2)} against bill ${bill.billNumber} (${method}). Reason: ${reason}`,
+    return note;
   });
 
   return created;

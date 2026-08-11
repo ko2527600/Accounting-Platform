@@ -6,7 +6,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 import { verifyPassword } from '../utils/password';
-import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
+import { recordAuditLog, recordAuditLogTx, actorFromRequest } from '../services/auditLogService';
 
 // Roles that can authorize a void either by initiating it themselves or by
 // stepping up to approve a Cashier-initiated one.
@@ -455,17 +455,17 @@ router.post('/sales/:id/void', async (req: Request, res: Response): Promise<void
         },
       });
 
-      return { voided, authorizer, originalAmount: Number(sale.amount) };
-    });
+      await recordAuditLogTx(client, {
+        action: 'CASH_SALE.VOIDED',
+        entity: 'CashSale',
+        entityId: voided.id,
+        tenantId,
+        actor: actorFromRequest(req),
+        changes: { status: { from: 'COMPLETED', to: 'VOIDED' } },
+        details: `Sale ${voided.receiptNo} (GH₵ ${Number(sale.amount).toFixed(2)}) voided by ${req.user!.name || req.user!.email}, authorized by ${authorizer.name} (${authorizer.role}). Reason: ${voided.voidReason}`,
+      });
 
-    await recordAuditLog({
-      action: 'CASH_SALE.VOIDED',
-      entity: 'CashSale',
-      entityId: result.voided.id,
-      tenantId,
-      actor: actorFromRequest(req),
-      changes: { status: { from: 'COMPLETED', to: 'VOIDED' } },
-      details: `Sale ${result.voided.receiptNo} (GH₵ ${result.originalAmount.toFixed(2)}) voided by ${req.user!.name || req.user!.email}, authorized by ${result.authorizer.name} (${result.authorizer.role}). Reason: ${result.voided.voidReason}`,
+      return { voided, authorizer, originalAmount: Number(sale.amount) };
     });
 
     res.status(200).json({ success: true, message: 'Sale voided and stock restored.', data: { sale: result.voided } });

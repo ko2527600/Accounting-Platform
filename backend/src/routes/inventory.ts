@@ -6,7 +6,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
-import { recordAuditLog, actorFromRequest } from '../services/auditLogService';
+import { recordAuditLog, recordAuditLogTx, actorFromRequest } from '../services/auditLogService';
 import { applyStockAdjustment } from '../services/stockAdjustmentService';
 import { generateStockTakeSheetPdf } from '../services/pdfGenerationService';
 
@@ -57,7 +57,7 @@ router.post('/warehouses', requireRole('Accountant'), async (req: Request, res: 
     const code = `WH-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).warehouse.create({
+      const created = await (client as any).warehouse.create({
         data: {
           tenantId,
           name: name.trim(),
@@ -67,14 +67,16 @@ router.post('/warehouses', requireRole('Accountant'), async (req: Request, res: 
           isPrimary: Boolean(isPrimary),
         },
       });
-    });
 
-    await recordAuditLog({
-      action: 'WAREHOUSE.CREATED',
-      entity: 'Warehouse',
-      entityId: created.id,
-      actor: actorFromRequest(req),
-      details: `Warehouse/shop "${created.name}" created.`,
+      await recordAuditLogTx(client, {
+        action: 'WAREHOUSE.CREATED',
+        entity: 'Warehouse',
+        entityId: created.id,
+        actor: actorFromRequest(req),
+        details: `Warehouse/shop "${created.name}" created.`,
+      });
+
+      return created;
     });
 
     res.status(201).json({ success: true, message: 'Warehouse created successfully', data: { warehouse: created } });
@@ -220,15 +222,15 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
         });
       }
 
-      return item;
-    });
+      await recordAuditLogTx(client, {
+        action: 'INVENTORY_ITEM.CREATED',
+        entity: 'InventoryItem',
+        entityId: item.id,
+        actor: actorFromRequest(req),
+        details: `Item "${item.name}" (${item.sku}) created.`,
+      });
 
-    await recordAuditLog({
-      action: 'INVENTORY_ITEM.CREATED',
-      entity: 'InventoryItem',
-      entityId: createdItem.id,
-      actor: actorFromRequest(req),
-      details: `Item "${createdItem.name}" (${createdItem.sku}) created.`,
+      return item;
     });
 
     res.status(201).json({ success: true, message: 'Item created successfully', data: { item: createdItem } });
@@ -272,42 +274,48 @@ router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: 
 
     const created: any[] = [];
     const failed: { index: number; name?: string; error: string }[] = [];
+    const warehouseValidityCache = new Map<string, boolean>();
+    const usedSkusThisBatch = new Set<string>();
 
-    await withCurrentTenantDb(prisma, async (client) => {
-      const warehouseValidityCache = new Map<string, boolean>();
-      const usedSkusThisBatch = new Set<string>();
+    // Each row gets its OWN transaction - a Postgres constraint violation
+    // (e.g. duplicate SKU) aborts the enclosing transaction at the DB level,
+    // not just the JS try/catch around it, so a shared transaction across
+    // rows would silently roll back every already-"succeeded" row too (a
+    // COMMIT on an aborted transaction is a silent no-op, not an error) the
+    // moment a later row failed. A per-row transaction is what actually
+    // makes "one bad row doesn't discard the others" true at the DB level.
+    for (let i = 0; i < items.length; i++) {
+      const row = items[i] || {};
+      let itemSku = '';
+      try {
+        const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = row;
 
-      for (let i = 0; i < items.length; i++) {
-        const row = items[i] || {};
-        let itemSku = '';
-        try {
-          const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = row;
+        if (!name || !String(name).trim()) throw new Error('Item name is required.');
+        if (costPrice === undefined || costPrice === null || costPrice === '') throw new Error('Cost price is required.');
+        if (sellingPrice === undefined || sellingPrice === null || sellingPrice === '') throw new Error('Selling price is required.');
 
-          if (!name || !String(name).trim()) throw new Error('Item name is required.');
-          if (costPrice === undefined || costPrice === null || costPrice === '') throw new Error('Cost price is required.');
-          if (sellingPrice === undefined || sellingPrice === null || sellingPrice === '') throw new Error('Selling price is required.');
+        itemSku = sku ? String(sku).trim().toUpperCase() : '';
+        if (!itemSku) {
+          do {
+            itemSku = `SKU-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
+          } while (usedSkusThisBatch.has(itemSku));
+        }
+        if (usedSkusThisBatch.has(itemSku)) {
+          throw new Error(`Duplicate SKU "${itemSku}" within this batch.`);
+        }
 
-          itemSku = sku ? String(sku).trim().toUpperCase() : '';
-          if (!itemSku) {
-            do {
-              itemSku = `SKU-${Date.now().toString(36).toUpperCase()}-${Math.floor(1000 + Math.random() * 9000)}`;
-            } while (usedSkusThisBatch.has(itemSku));
-          }
-          if (usedSkusThisBatch.has(itemSku)) {
-            throw new Error(`Duplicate SKU "${itemSku}" within this batch.`);
-          }
+        if (initialWarehouseId && !warehouseValidityCache.has(initialWarehouseId)) {
+          const wh = await withCurrentTenantDb(prisma, (client) => (client as any).warehouse.findFirst({ where: { id: initialWarehouseId, tenantId } }));
+          warehouseValidityCache.set(initialWarehouseId, !!wh);
+        }
+        if (initialWarehouseId && !warehouseValidityCache.get(initialWarehouseId)) {
+          throw new Error('Initial warehouse not found.');
+        }
+        if (initialWarehouseId) {
+          await withCurrentTenantDb(prisma, (client) => assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, initialWarehouseId));
+        }
 
-          if (initialWarehouseId && !warehouseValidityCache.has(initialWarehouseId)) {
-            const wh = await (client as any).warehouse.findFirst({ where: { id: initialWarehouseId, tenantId } });
-            warehouseValidityCache.set(initialWarehouseId, !!wh);
-          }
-          if (initialWarehouseId && !warehouseValidityCache.get(initialWarehouseId)) {
-            throw new Error('Initial warehouse not found.');
-          }
-          if (initialWarehouseId) {
-            await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, initialWarehouseId);
-          }
-
+        const newItem = await withCurrentTenantDb(prisma, async (client) => {
           const newItem = await (client as any).inventoryItem.create({
             data: {
               tenantId,
@@ -320,8 +328,6 @@ router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: 
             },
           });
 
-          usedSkusThisBatch.add(itemSku);
-
           if (initialWarehouseId && Number(initialQty) > 0) {
             await (client as any).warehouseStock.create({
               data: {
@@ -333,19 +339,24 @@ router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: 
             });
           }
 
-          created.push(newItem);
-        } catch (rowError: any) {
-          const message = rowError.code === 'P2002'
-            ? `SKU "${itemSku}" already exists for this business.`
-            : (rowError.message || 'Failed to create this item.');
-          failed.push({ index: i, name: row?.name, error: message });
-        }
+          return newItem;
+        });
+
+        usedSkusThisBatch.add(itemSku);
+        created.push(newItem);
+      } catch (rowError: any) {
+        const message = rowError.code === 'P2002'
+          ? `SKU "${itemSku}" already exists for this business.`
+          : (rowError.message || 'Failed to create this item.');
+        failed.push({ index: i, name: row?.name, error: message });
       }
-    });
+    }
 
     if (created.length > 0) {
       // One summary entry per batch, not one per row - avoids flooding the
       // audit log with up to 500 entries for a single bulk-import action.
+      // Best-effort, not recordAuditLogTx: this summarizes N independently
+      // committed rows above, not one atomic change to pair a transaction with.
       await recordAuditLog({
         action: 'INVENTORY_ITEM.BULK_CREATED',
         entity: 'InventoryItem',
@@ -436,7 +447,7 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
       // Record Transfer Audit
       const transferNumber = `TRF-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
 
-      return (client as any).stockTransfer.create({
+      const transfer = await (client as any).stockTransfer.create({
         data: {
           tenantId,
           transferNumber,
@@ -449,14 +460,16 @@ router.post('/transfers', requireRole('Accountant'), async (req: Request, res: R
         },
         include: { fromWarehouse: true, toWarehouse: true, items: true },
       });
-    });
 
-    await recordAuditLog({
-      action: 'STOCK_TRANSFER.RECORDED',
-      entity: 'StockTransfer',
-      entityId: transfer.id,
-      actor: actorFromRequest(req),
-      details: `${transfer.transferNumber}: ${quantity} unit(s) of item ${itemId} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}.`,
+      await recordAuditLogTx(client, {
+        action: 'STOCK_TRANSFER.RECORDED',
+        entity: 'StockTransfer',
+        entityId: transfer.id,
+        actor: actorFromRequest(req),
+        details: `${transfer.transferNumber}: ${quantity} unit(s) of item ${itemId} from ${transfer.fromWarehouse.name} to ${transfer.toWarehouse.name}.`,
+      });
+
+      return transfer;
     });
 
     res.status(201).json({
@@ -537,16 +550,18 @@ router.post('/adjustments', requireRole('Accountant'), async (req: Request, res:
         adjustedByName,
       });
 
-      return { adjustment, warehouse, item, newQty, previousQty };
-    });
+      // Same transaction as the stock write above, so the audit trail can
+      // never desync from the quantity change it describes.
+      await recordAuditLogTx(client, {
+        action: 'STOCK_ADJUSTMENT.RECORDED',
+        entity: 'StockAdjustment',
+        entityId: adjustment.id,
+        actor: actorFromRequest(req),
+        changes: { quantityOnHand: { from: previousQty, to: newQty } },
+        details: `${item.name} in ${warehouse.name}: ${mode} ${qty} (${reason}).`,
+      });
 
-    await recordAuditLog({
-      action: 'STOCK_ADJUSTMENT.RECORDED',
-      entity: 'StockAdjustment',
-      entityId: result.adjustment.id,
-      actor: actorFromRequest(req),
-      changes: { quantityOnHand: { from: result.previousQty, to: result.newQty } },
-      details: `${result.item.name} in ${result.warehouse.name}: ${mode} ${qty} (${reason}).`,
+      return { adjustment, warehouse, item, newQty, previousQty };
     });
 
     res.status(201).json({
@@ -702,19 +717,20 @@ router.post('/stock-take', requireRole('Accountant'), async (req: Request, res: 
         applied.push({ itemId: row.itemId, sku: (item as any).sku, previousQty, newQty, adjustmentId: adjustment.id });
       }
 
+      if (applied.length > 0) {
+        // Same transaction as every stock adjustment applied above.
+        await recordAuditLogTx(client, {
+          action: 'STOCK_TAKE.RECONCILED',
+          entity: 'StockTake',
+          entityId: stockTakeRef,
+          actor: actorFromRequest(req),
+          changes: { itemsAdjusted: { from: null, to: applied.map((a: any) => a.itemId) } },
+          details: `Stock take reconciled for ${warehouse.name}: ${applied.length} item(s) adjusted, ${unchanged.length} unchanged.`,
+        });
+      }
+
       return { warehouse, applied, unchanged, notFound };
     });
-
-    if (result.applied.length > 0) {
-      await recordAuditLog({
-        action: 'STOCK_TAKE.RECONCILED',
-        entity: 'StockTake',
-        entityId: stockTakeRef,
-        actor: actorFromRequest(req),
-        changes: { itemsAdjusted: { from: null, to: result.applied.map((a: any) => a.itemId) } },
-        details: `Stock take reconciled for ${result.warehouse.name}: ${result.applied.length} item(s) adjusted, ${result.unchanged.length} unchanged.`,
-      });
-    }
 
     res.status(200).json({
       success: true,

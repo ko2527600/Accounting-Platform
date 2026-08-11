@@ -3,7 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import * as budgetRepository from '../repository/budgetRepository';
 import * as fiscalPeriodRepository from '../repository/fiscalPeriodRepository';
 import { BudgetRecord } from '../repository/budgetRepository';
-import { recordAuditLog, diffFields, AuditActor } from './auditLogService';
+import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
 export class BudgetServiceError extends Error {
   statusCode: number;
@@ -99,22 +99,26 @@ export async function createBudget(tenantId: string, input: any, actor?: AuditAc
 
   let created: BudgetRecord;
   try {
-    created = await budgetRepository.createBudget(prisma, tenantId, { accountId, fiscalPeriodId, budgetAmount: amount, notes });
+    created = await prisma.$transaction(async (tx) => {
+      const created = await budgetRepository.createBudget(tx as any, tenantId, { accountId, fiscalPeriodId, budgetAmount: amount, notes });
+
+      await recordAuditLogTx(tx as any, {
+        action: 'BUDGET.CREATED',
+        entity: 'Budget',
+        entityId: created.id,
+        tenantId,
+        actor,
+        details: `Budget of ${created.budgetAmount} created for account ${created.accountId} in fiscal period ${created.fiscalPeriodId}.`,
+      });
+
+      return created;
+    });
   } catch (error: any) {
     if (error.code === 'P2002') {
       throw new BudgetServiceError('A budget already exists for this account in this fiscal period.', 409);
     }
     throw error;
   }
-
-  await recordAuditLog({
-    action: 'BUDGET.CREATED',
-    entity: 'Budget',
-    entityId: created.id,
-    tenantId,
-    actor,
-    details: `Budget of ${created.budgetAmount} created for account ${created.accountId} in fiscal period ${created.fiscalPeriodId}.`,
-  });
 
   return created;
 }
@@ -128,15 +132,19 @@ export async function updateBudget(tenantId: string, id: string, input: any, act
   if (isNaN(amount)) {
     throw new BudgetServiceError('budgetAmount must be a number.', 400);
   }
-  const updated = await budgetRepository.updateBudgetAmount(prisma, id, amount, input.notes);
+  const updated = await prisma.$transaction(async (tx) => {
+    const updated = await budgetRepository.updateBudgetAmount(tx as any, id, amount, input.notes);
 
-  await recordAuditLog({
-    action: 'BUDGET.UPDATED',
-    entity: 'Budget',
-    entityId: id,
-    tenantId,
-    actor,
-    changes: diffFields(existing, updated, ['budgetAmount', 'notes']),
+    await recordAuditLogTx(tx as any, {
+      action: 'BUDGET.UPDATED',
+      entity: 'Budget',
+      entityId: id,
+      tenantId,
+      actor,
+      changes: diffFields(existing, updated, ['budgetAmount', 'notes']),
+    });
+
+    return updated;
   });
 
   return updated;
@@ -144,17 +152,23 @@ export async function updateBudget(tenantId: string, id: string, input: any, act
 
 export async function deleteBudget(tenantId: string, id: string, actor?: AuditActor): Promise<void> {
   const existing = await budgetRepository.getBudgetById(prisma, tenantId, id);
-  const deleted = await budgetRepository.deleteBudget(prisma, tenantId, id);
-  if (!deleted) {
+  if (!existing) {
     throw new BudgetServiceError(`Budget with ID "${id}" not found.`, 404);
   }
 
-  await recordAuditLog({
-    action: 'BUDGET.DELETED',
-    entity: 'Budget',
-    entityId: id,
-    tenantId,
-    actor,
-    details: existing ? `Budget of ${existing.budgetAmount} for account ${existing.accountId} deleted.` : `Budget ${id} deleted.`,
+  await prisma.$transaction(async (tx) => {
+    const deleted = await budgetRepository.deleteBudget(tx as any, tenantId, id);
+    if (!deleted) {
+      throw new BudgetServiceError(`Budget with ID "${id}" not found.`, 404);
+    }
+
+    await recordAuditLogTx(tx as any, {
+      action: 'BUDGET.DELETED',
+      entity: 'Budget',
+      entityId: id,
+      tenantId,
+      actor,
+      details: `Budget of ${existing.budgetAmount} for account ${existing.accountId} deleted.`,
+    });
   });
 }

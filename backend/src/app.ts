@@ -48,6 +48,9 @@ import momoRouter from './routes/momo';
 import tellerRouter from './routes/teller';
 import expenseClaimsRouter from './routes/expenseClaims';
 import syncRouter from './routes/sync';
+import dataExportRouter from './routes/dataExport';
+import complianceRouter from './routes/compliance';
+import onboardingWizardRouter from './routes/onboardingWizard';
 
 dotenv.config();
 
@@ -202,6 +205,18 @@ app.use('/api/v1/teller', tellerRouter);
 // Employee Expense Claims (submit/approve/reimburse) endpoints
 app.use('/api/v1/expense-claims', expenseClaimsRouter);
 app.use('/api/v1/sync', syncRouter);
+
+// Full-tenant data export (Phase 2 trust feature) - CSV/ZIP and JSON dumps of
+// every table, no pricing-tier gate and no cooldown, see dataExportService.ts.
+app.use('/api/v1/data-export', dataExportRouter);
+
+// Phase 4 trust feature - a provable "last compliance update" timestamp,
+// not just a claimed one. See ComplianceUpdate in schema.prisma.
+app.use('/api/v1/compliance', complianceRouter);
+
+// Phase 3 trust feature - guided onboarding wizard (business profile -> COA
+// -> opening balances with a hard trial-balance gate -> completion checklist).
+app.use('/api/v1/onboarding', onboardingWizardRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.
