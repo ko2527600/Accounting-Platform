@@ -4,6 +4,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { TenantSettingsProvider, useTenantSettings } from "./contexts/TenantSettingsContext";
 import { useSyncEngineLifecycle } from "./hooks/useSyncEngineLifecycle";
+import { SETTINGS_RESTRICTED_ROLES } from "./lib/navigation";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
@@ -119,15 +120,6 @@ const Dashboard = () => {
     </div>
   );
 };
-
-// Roles that are NOT allowed into raw Settings screens (Workspace Settings,
-// Tax Rates, Fiscal Periods, Recurring Transactions) even by typing the URL
-// directly - the Sidebar already hides the link for these roles, but that's
-// just UX; this is the actual access-control gate. Backend already rejects
-// the underlying writes (`requireRole('Admin')` on `PUT /tenants/current`,
-// etc.), but a Shop Manager/Cashier/HR/Auditor shouldn't be able to browse
-// into the settings UI at all, per the "only the boss changes settings" rule.
-const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "auditor"]);
 
 function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode; blockedRoles?: Set<string> }) {
   const { token, isLoading, user } = useAuth();

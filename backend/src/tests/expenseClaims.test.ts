@@ -12,9 +12,11 @@ describe('Expense Claims (submit / approve / reject / reimburse)', () => {
   const tenantSchema = `tenant_expense_corp_${runId}`;
   const adminEmail = `admin_expense_${runId}@corp.com`;
   const viewerEmail = `viewer_expense_${runId}@corp.com`;
+  const hrEmail = `hr_expense_${runId}@corp.com`;
 
   let adminToken: string;
   let viewerToken: string;
+  let hrToken: string;
   let tenantId: string;
   let cashAccountId: string;
   let expenseAccountId: string;
@@ -26,6 +28,7 @@ describe('Expense Claims (submit / approve / reject / reimburse)', () => {
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
     await deleteUserByEmail(prisma, viewerEmail).catch(() => {});
+    await deleteUserByEmail(prisma, hrEmail).catch(() => {});
     await dropTenantSchema(prisma, tenantSchema).catch(() => {});
   }
 
@@ -85,6 +88,16 @@ describe('Expense Claims (submit / approve / reject / reimburse)', () => {
       .post('/api/v1/auth/accept-invitation')
       .send({ token: invite.body.data.invitation.token, name: 'Expense Viewer', password: 'Password123!' });
     viewerToken = accept.body.data.token;
+
+    const hrInvite = await request(app)
+      .post('/api/v1/tenants/invite')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ email: hrEmail, role: 'HR' });
+    const hrAccept = await request(app)
+      .post('/api/v1/auth/accept-invitation')
+      .send({ token: hrInvite.body.data.invitation.token, name: 'Expense HR', password: 'Password123!' });
+    hrToken = hrAccept.body.data.token;
   }, 120000);
 
   afterAll(async () => {
@@ -126,6 +139,29 @@ describe('Expense Claims (submit / approve / reject / reimburse)', () => {
     const decideRes = await request(app)
       .post(`/api/v1/expense-claims/${claim.id}/decide`)
       .set('Authorization', `Bearer ${viewerToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ decision: 'APPROVE' });
+    expect(decideRes.status).toBe(403);
+  });
+
+  it('lets HR view and file claims (a "scoped" role that needs explicit listing, unlike hierarchy-based roles) but not decide them', async () => {
+    const listRes = await request(app)
+      .get('/api/v1/expense-claims')
+      .set('Authorization', `Bearer ${hrToken}`)
+      .set('X-Tenant-ID', tenantSlug);
+    expect(listRes.status).toBe(200);
+
+    const submitRes = await request(app)
+      .post('/api/v1/expense-claims')
+      .set('Authorization', `Bearer ${hrToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ category: 'Supplies', description: 'Stationery', amount: 15, expenseDate: '2026-08-01' });
+    expect(submitRes.status).toBe(201);
+    expect(submitRes.body.data.expenseClaim.submittedByName).toBe('Expense HR');
+
+    const decideRes = await request(app)
+      .post(`/api/v1/expense-claims/${submitRes.body.data.expenseClaim.id}/decide`)
+      .set('Authorization', `Bearer ${hrToken}`)
       .set('X-Tenant-ID', tenantSlug)
       .send({ decision: 'APPROVE' });
     expect(decideRes.status).toBe(403);
