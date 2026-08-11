@@ -104,6 +104,13 @@ services:
         sync: false
       - key: EMAIL_FROM # REQUIRED - must exactly match the address verified as a Single Sender in SendGrid
         sync: false
+      # Diagnostic-only (POST /api/v1/diagnostics/test-smtp) - re-checks whether
+      # the SMTP block above still applies now that billing is active. Not used
+      # by EmailService/SendGrid above. Remove this and diagnostics.ts once answered.
+      - key: EMAIL_USER
+        sync: false
+      - key: EMAIL_PASS
+        sync: false
       - key: ARKESEL_API_KEY
         sync: false
       - key: MNOTIFY_API_KEY
