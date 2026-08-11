@@ -299,6 +299,48 @@ Net new finding: **Fixed Asset Management** (item 24) is a genuine gap not previ
 
 ---
 
+### 2026-08-11 - Same checklist, Modules 1-2 (items 1-10) - General Ledger & Accounts Receivable
+
+Continuation of the entry above - user supplied the front of the same checklist.
+
+> **Module 1: General Ledger (GL) & Core Bookkeeping** - The fundamental base where all transactional credit and debit data lives.
+> 1. Chart of Accounts (COA) Customization: Creating customized structures for assets, liabilities, equity, revenues, and expenses.
+> 2. Double-Entry Journal Logs: Entering manual or automated credit and debit rows to keep book metrics balanced.
+> 3. Multi-Currency Tracking: Recording deals using international foreign exchange conversion rates dynamically.
+> 4. General Ledger Updates: Merging localized books into one single real-time dashboard ledger overview.
+> 5. Historical Audit Trails: Tracking structural alterations to prevent internal manipulation and secure records.
+> **Module 2: Accounts Receivable (AR) & Sales** - Features centered on customer transactions, invoicing, and bringing money in.
+> 6. Automated Invoicing: Generating professional billable invoices and emailing them straight to consumers.
+> 7. Recurring Invoice Schedules: Scheduling systematic subscription billing models for clients on long-term retainers.
+> 8. Customer Credit Management: Restricting customer balances dynamically via set limits to control risk factors.
+> 9. Late Payment Warnings: Triggering systematic emails to nudge clients who have missed payment deadlines.
+> 10. Embedded Gateway Links: Adding links from processors like Stripe directly onto digital invoices for swift payment settlement.
+
+**Compared against this codebase (grepped `schema.prisma`/`backend/src`/`frontend/src` for each, via a dedicated sub-agent audit - not assumed):**
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Chart of Accounts Customization | **`[ALREADY BUILT]`** - full CRUD (`backend/src/routes/accounts.ts`), custom accounts across Asset/Liability/Equity/Revenue/Expense/Cost of Sales types, `ChartOfAccounts.tsx`. |
+| 2 | Double-Entry Journal Logs | **`[ALREADY BUILT]`** - core ledger/journal entry system, manual (`JournalBuilder.tsx`) and automated (posted by invoices/bills/expense claims/POS etc.). |
+| 3 | Multi-Currency Tracking | **`[ALREADY BUILT]`** - transaction-time conversion via a live FX rate API, base-currency-equivalent stored per transaction (already in Section 2's gap table). |
+| 4 | General Ledger Updates (merged, real-time dashboard) | **`[ALREADY BUILT]`** - schema-per-tenant multi-tenancy means one unified ledger per business (not fragmented per-branch books); `/reports/kpis` and the Dashboard pull live, non-hardcoded aggregate totals. |
+| 5 | Historical Audit Trails | **`[ALREADY BUILT]`, exceeds the ask** - not just tracked, but DB-level *enforced* append-only (`20260810150000_enforce_audit_log_append_only` migration - a Postgres `BEFORE UPDATE/DELETE` trigger unconditionally blocks tampering, not just an app-level log). |
+| 6 | Automated Invoicing (generate + auto-email to customer) | **GAP** - invoices can be created and paid (`routes/invoices.ts`), but creation/payment never calls `EmailService`; no "send invoice" action exists in `Invoices.tsx` either. Invoicing itself is built, the "email it automatically" half isn't. |
+| 7 | Recurring Invoice Schedules (subscription billing) | **PARTIAL, mismatched** - `RecurringTransactionCronService` exists but only stamps out generic `JournalEntry` rows on schedule (no `customerId`, no `Invoice`). It's recurring bookkeeping, not recurring customer billing - a real gap for actual AR subscription billing. |
+| 8 | Customer Credit Management (credit limits) | **GAP** - `Customer` model has no balance/limit field at all (confirmed via grep, zero matches for `creditLimit`); no enforcement anywhere in invoice creation. |
+| 9 | Late Payment Warnings (overdue-invoice dunning emails) | **GAP** - no overdue/dunning logic anywhere; the only cron-driven email is the unrelated scheduled P&L report. |
+| 10 | Embedded Gateway Links (Stripe-style pay-now link on invoice) | **GAP** - zero mentions of Stripe anywhere in the codebase, no `paymentUrl` field on `Invoice`. The existing MTN MoMo integration (`MomoPaymentRequest`) is adjacent but not equivalent - it's a merchant-initiated USSD "Request to Pay" prompt, not a customer-facing link embedded on the invoice document itself. |
+
+**Net new findings, both genuine AR gaps not previously tracked in this doc:**
+- **Automated invoice emailing** - invoices exist but are never actually sent to the customer by the system.
+- **Customer credit limits** - no risk-control mechanism on customer balances at all.
+- **Late payment reminders (dunning)** - no overdue-invoice nudge emails.
+- **Embedded payment link on invoices** - no Stripe-equivalent pay-now link; MoMo's request-to-pay doesn't cover this use case.
+
+Recurring Invoice Schedules (item 7) is a *mismatch*, not a clean gap or a clean built - the existing `RecurringTransaction` engine is architecturally close (same cron/scheduling machinery) but generates journal entries, not customer invoices; extending it to optionally spawn an `Invoice` instead of/alongside a `JournalEntry` is a plausible smaller lift than building AR subscription billing from scratch, worth keeping in mind when scoping. All four/five items added to Section 2/4 below as new candidate features, grouped since they're all small, closely-related AR/invoicing-lifecycle gaps (not a big dedicated phase like Payroll).
+
+---
+
 ## 2. Gap Analysis: What This Platform Has vs. What the Ghana Market Expects
 
 | Requirement | Status | Notes |
@@ -323,6 +365,11 @@ Net new finding: **Fixed Asset Management** (item 24) is a genuine gap not previ
 | Customizable dashboards | **Likely gap** | Not deeply investigated yet - existing report pages aren't user-configurable in the "rearrange your widgets" sense. |
 | **Payroll** | **GAP** | Confirmed via grep - no payroll module anywhere. Tally, Finza, and several others reviewed all include payroll in some form. |
 | **Fixed Asset Management** (initial valuation, serial ID tracking, implied depreciation) | **GAP** | Confirmed via grep (2026-08-11) - no `FixedAsset` entity, no `serialNumber`/`depreciation` field anywhere in the schema or backend. Also the reason the Cash Flow Statement (item above) has no Investing section - no capex/asset classification exists to separate from ordinary working capital. |
+| **Automated invoice emailing** (send generated invoice to customer) | **GAP** | Confirmed via grep (2026-08-11) - invoice create/pay routes never call `EmailService`; no "send invoice" UI action exists either. Invoices can be created and paid, just never actually emailed to the customer by the system. |
+| **Customer credit limits** | **GAP** | Confirmed via grep (2026-08-11) - `Customer` model has no balance/limit field at all; nothing enforces a risk ceiling on outstanding customer balances anywhere. |
+| **Late payment reminders (dunning emails)** | **GAP** | Confirmed via grep (2026-08-11) - no overdue-invoice nudge logic anywhere; the only cron-driven email is the unrelated scheduled P&L report. |
+| **Embedded payment link on invoices** (Stripe-style pay-now) | **GAP** | Confirmed via grep (2026-08-11) - zero Stripe references, no `paymentUrl` field on `Invoice`. The existing MTN MoMo `MomoPaymentRequest` is a merchant-initiated USSD prompt, not a customer-facing link on the invoice document, so it doesn't cover this. |
+| **Recurring customer invoices / subscription billing** | **PARTIAL - architectural mismatch** | `RecurringTransactionCronService` (2026-08-11 review) has the right scheduling machinery but only stamps out generic `JournalEntry` rows, never an `Invoice` - no `customerId` anywhere in that service. Recurring bookkeeping exists; recurring customer billing doesn't. |
 | **Real cross-app search** | **GAP, plus a copy-honesty issue** | The header search bar's placeholder ("Search accounts, entries, reports...") implies real data search; it's actually a static navigation-shortcut menu (`CommandMenu.tsx`) with no search logic at all. Should either fix the copy to stop overpromising, or build real search - competitors (Tally's "SmartFind") treat this as baseline. |
 
 ---
@@ -360,6 +407,11 @@ In rough order of how compliance-critical they appear from research so far - **t
 16. **[DONE 2026-08-08]** ~~Hybrid-offline POS architecture (local-first sale processing with async background sync, vs. today's live-API-per-sale model) - newly surfaced 2026-07-31; flagged as a cross-cutting blocker across nearly every segment in that research, likely the single highest-leverage infrastructure change if the research holds up under primary-source verification. Materially larger than most items on this list - needs its own architecture spike before scoping.~~ - built as a two-phase change, scoped to sales-only per an explicit user decision (till open/close and voids still require connectivity). Phase 1 (backend): `CashSale` gained a client-generated `clientTxnId` dedup key so `POST /tills/sales` is safely retry-idempotent - the DB unique constraint, not a pre-check, is the actual safety net under concurrent replay (Postgres blocks the losing INSERT until the winner commits). Phase 2 (frontend): an `idb`-backed local queue (`offlineDb.ts`) plus an in-app sync loop (`saleSyncQueue.ts`, deliberately not Workbox Background Sync - no Safari/iOS support, and it wouldn't replace any of the loop's actual machinery anyway) - a cashier can keep ringing up sales during an outage, queued sales sync automatically on reconnect or via a manual "Sync Now," and a genuine sync conflict (e.g. stock sold out elsewhere in the interim - no offline stock reservation exists) surfaces as "Needs Attention" via the audit log rather than being silently dropped, since real money was already collected. Live-verified end-to-end against the real dev stack, including confirming the synced sale reached the real backend and genuinely deducted stock. See STATUS.md.
 17. Fund accounting (restricted vs. unrestricted fund tracking, e.g. for NGOs/schools/churches/cooperatives) - a new segment not previously covered in this doc; would need a `fund`/restriction dimension on transactions and independent per-fund balance sheets. Not yet validated against a real prospective customer in this segment - the 2026-07-25 target-market discussion this session focused on retail/SME, not non-profits, so worth confirming this is actually a market we want before scoping.
 18. Fixed Asset Management (register with initial valuation + serial ID per item, implies a depreciation schedule) - newly surfaced 2026-08-11 from a user-supplied competitor/ERP feature checklist. Confirmed a genuine gap via grep, not previously tracked in this doc. Would also unblock the Cash Flow Statement's currently-missing Investing section (item 4 above), since there's no capex/asset classification today to separate from ordinary working capital.
+19. Automated invoice emailing (send the generated invoice to the customer automatically, e.g. on creation or on an explicit "Send" action) - newly surfaced 2026-08-11. Small, self-contained - `EmailService` already exists and is used elsewhere (verification emails, invitations, scheduled reports), this is "wire it into invoice create/send" rather than new infrastructure.
+20. Customer credit limits (block or warn when a new invoice would push a customer's outstanding balance past a set ceiling) - newly surfaced 2026-08-11. Needs a schema addition (`Customer.creditLimit` or similar) plus an enforcement check at invoice creation - small-to-medium lift.
+21. Late payment reminders / dunning emails (scheduled nudge to customers with overdue invoices) - newly surfaced 2026-08-11. Architecturally close to the existing scheduled-report cron (`ScheduledEmailCronService`) - likely a new job in the same pattern, checking `Invoice.dueDate` against today rather than a report schedule.
+22. Embedded payment link on invoices (Stripe-style pay-now link/button on the invoice document) - newly surfaced 2026-08-11. Needs a payment-gateway decision first (Stripe itself, or a Ghana-relevant equivalent - Paystack/Flutterwave support Ghana and are more locally standard than Stripe; worth a research pass before picking, consistent with this doc's Ghana-first bias elsewhere e.g. MTN MoMo over a generic global processor).
+23. Recurring customer invoices / subscription billing - newly surfaced 2026-08-11, and a genuine architectural mismatch rather than a clean gap: the existing `RecurringTransaction` engine already has the scheduling/cron machinery, but only ever produces a `JournalEntry`, never an `Invoice`, and has no `customerId` concept. Extending it to optionally spawn an `Invoice` (or a parallel `RecurringInvoice` entity reusing the same cron) is likely a smaller lift than building AR subscription billing from scratch - worth scoping as "extend" rather than "build new."
 
 ---
 
