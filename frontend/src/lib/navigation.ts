@@ -131,6 +131,17 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
   ],
 };
 
+// Roles blocked from Settings screens (Workspace Settings, Tax Rates,
+// Fiscal Periods, Recurring Transactions) - both the route guard (App.tsx)
+// and any UI entry point into /settings (Header's profile menu, etc.) must
+// check this same set so a restricted role never sees a link that just
+// bounces them back to /dashboard.
+export const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "auditor"]);
+
+export function isSettingsRestricted(role: string | undefined): boolean {
+  return SETTINGS_RESTRICTED_ROLES.has((role || "").toLowerCase().trim());
+}
+
 export function getVisibleHrefs(role: string | undefined): Set<string> | null {
   if (!role) return null;
   const allowed = RESTRICTED_ROLE_NAV[role.toLowerCase().trim()];

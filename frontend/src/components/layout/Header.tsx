@@ -6,6 +6,7 @@ import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
+import { isSettingsRestricted } from "../../lib/navigation";
 
 interface AppNotification {
   id: string;
@@ -234,14 +235,16 @@ export function Header() {
                 <p className="text-xs text-secondary-500 truncate">{user?.email || "admin@ledgiobusinessaccountingsoftware.com"}</p>
               </div>
               <div className="py-1">
-                <button 
-                  onClick={() => { setShowProfile(false); navigate("/settings"); }}
-                  className="w-full flex items-center px-4 py-2 text-sm text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 transition-colors"
-                >
-                  <SettingsIcon className="mr-2 h-4 w-4" />
-                  Preferences
-                </button>
-                <button 
+                {!isSettingsRestricted(user?.role) && (
+                  <button
+                    onClick={() => { setShowProfile(false); navigate("/settings"); }}
+                    className="w-full flex items-center px-4 py-2 text-sm text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 transition-colors"
+                  >
+                    <SettingsIcon className="mr-2 h-4 w-4" />
+                    Preferences
+                  </button>
+                )}
+                <button
                   onClick={() => { 
                     setShowProfile(false); 
                     logout();
