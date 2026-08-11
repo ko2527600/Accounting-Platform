@@ -5,6 +5,7 @@ import type { AccountType } from '../types/accounting';
 export interface LedgerReportLine {
   date: string;
   journalId: string;
+  journalEntryId: string | null;
   description: string;
   debit: number;
   credit: number;
@@ -58,6 +59,7 @@ export function useLedgerReport(accountId: string | null) {
           setLines(statement.transactions.map((t: any) => ({
             date: new Date(t.transactionDate).toISOString().split('T')[0],
             journalId: t.entryNumber || t.journalEntryId || '-',
+            journalEntryId: t.journalEntryId || null,
             description: t.description || 'Ledger Entry',
             debit: Number(t.debit),
             credit: Number(t.credit),
