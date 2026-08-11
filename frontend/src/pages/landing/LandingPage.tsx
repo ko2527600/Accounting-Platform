@@ -20,6 +20,39 @@ function isIos(): boolean {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
 }
 
+const FAQ_ITEMS: { question: string; answer: string }[] = [
+  {
+    question: "Do I need a credit card to start my free trial?",
+    answer:
+      "No. Registration only asks for your administrator account and business details - no payment card is collected to provision your workspace and start your trial.",
+  },
+  {
+    question: "Is my business data kept separate from other companies?",
+    answer:
+      "Yes. Every business is provisioned its own isolated PostgreSQL schema, so your ledgers, inventory, and reports are never mixed with another tenant's data.",
+  },
+  {
+    question: "How do the SMS shortage alerts work?",
+    answer:
+      "When a shop till closes with a cash shortage, an instant SMS alert is sent to your registered owner mobile number via our Android SMS Gateway. Included with the Professional and Enterprise tiers.",
+  },
+  {
+    question: "What's included in the weekly email reports?",
+    answer:
+      "Every Monday at 8:00 AM, an automated Profit & Loss PDF statement is emailed to your admin address so you can review performance without logging in.",
+  },
+  {
+    question: "Can I move to a different pricing tier later?",
+    answer:
+      "Yes. Reach out to support as your business grows and we'll move your workspace to the tier that fits, from Starter up to a custom Enterprise plan.",
+  },
+  {
+    question: "Is there an implementation or setup fee?",
+    answer:
+      "No. Registration provisions your dedicated workspace instantly - there's no separate implementation cost or onboarding fee on any tier.",
+  },
+];
+
 export function LandingPage() {
   const navigate = useNavigate();
   const { isInstallable, isInstalled, promptInstall } = useInstallPrompt();
@@ -65,6 +98,11 @@ export function LandingPage() {
               Sign In to Workspace
             </Button>
           </div>
+
+          <p className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-secondary-400">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            No credit card required to start your trial
+          </p>
 
           {/* Quick Metrics Banner */}
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto p-6 bg-secondary-900/60 border border-secondary-800 rounded-2xl backdrop-blur-sm">
@@ -320,6 +358,30 @@ export function LandingPage() {
                 Contact Enterprise
               </Button>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* 5b. Frequently Asked Questions */}
+      <section id="faq" className="py-24 border-t border-secondary-800/60 bg-secondary-900/40">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Frequently Asked Questions</h2>
+            <p className="mt-4 text-secondary-400 text-base">
+              Everything you need to know before starting your trial.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {FAQ_ITEMS.map((item) => (
+              <div
+                key={item.question}
+                className="p-6 rounded-2xl bg-secondary-900/80 border border-secondary-800"
+              >
+                <h3 className="text-base font-bold text-white mb-2">{item.question}</h3>
+                <p className="text-sm text-secondary-400 leading-relaxed">{item.answer}</p>
+              </div>
+            ))}
           </div>
         </div>
       </section>
