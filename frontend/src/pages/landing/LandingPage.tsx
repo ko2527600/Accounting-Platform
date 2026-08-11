@@ -14,6 +14,7 @@ import { Button } from "../../components/ui/Button";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt";
 import { PublicHeader } from "../../components/layout/PublicHeader";
 import { PublicFooter } from "../../components/layout/PublicFooter";
+import { ImageCarousel } from "../../components/landing/ImageCarousel";
 import { LEGAL_DOCS } from "../../lib/legalDocs";
 
 function isIos(): boolean {
@@ -123,6 +124,19 @@ export function LandingPage() {
               <div className="text-xs text-secondary-400 mt-1">Automated PDF Email Reports</div>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* 2b. Photo Carousel */}
+      <section id="gallery" className="py-20 border-t border-secondary-800/60 bg-secondary-950">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Real People. Real Businesses. Real Numbers.</h2>
+            <p className="mt-4 text-secondary-400 text-base">
+              Built for owners who want to stop guessing where the money went.
+            </p>
+          </div>
+          <ImageCarousel />
         </div>
       </section>
 

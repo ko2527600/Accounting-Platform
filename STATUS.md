@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-11] - Landing Page: Added Auto-Sliding Photo Carousel
+
+**What/Why:** User asked to make the landing page "look interesting" with a sliding image carousel, using a personal photo they uploaded plus accounting-themed imagery, and mentioned generating images with AI. No AI image-generation tool is available in this session, so that request was not fulfilled as asked - instead used two sourcing paths, both disclosed here: (1) the user's own uploaded photo (`4d6fab16-IMG20260609WA0010.jpg`, read and visually confirmed before use), copied into the repo as `frontend/public/landing/founder.jpg`; (2) three business/accounting-themed photos sourced from Unsplash, which licenses photos free for commercial use with no attribution required - chosen specifically to avoid pulling arbitrary images off the web with unclear rights. Each was downloaded, visually reviewed, and confirmed on-topic before being committed (`slide-workdesk.jpg`, `slide-taxdocs.jpg`, `slide-charts.jpg`).
+
+**What was added:** New `ImageCarousel` component (`frontend/src/components/landing/ImageCarousel.tsx`) - dependency-free (no carousel library installed), auto-advances every 5s via `setInterval`, pauses on hover, supports manual prev/next and dot navigation, each slide has an image, alt text, and a caption overlay. Wired into `LandingPage.tsx` as a new "Real People. Real Businesses. Real Numbers." section between the hero and the Features section.
+
+**Note on caption copy:** initial draft captioned the user's photo as "founder" - reverted that to neutral "team" language since that title wasn't confirmed by the user; flagged to them directly rather than asserting an unverified identity claim on a public page.
+
+**Verification:** `tsc --noEmit` not run in this session (`frontend/node_modules` not installed in the container) - reviewed the diff and each downloaded image manually instead. No backend changes.
+
+**Files:** `frontend/src/components/landing/ImageCarousel.tsx` (new), `frontend/src/pages/landing/LandingPage.tsx`, `frontend/public/landing/founder.jpg` (new), `frontend/public/landing/slide-workdesk.jpg` (new), `frontend/public/landing/slide-taxdocs.jpg` (new), `frontend/public/landing/slide-charts.jpg` (new).
+
 ## [Date: 2026-08-11] - Landing Page: Added FAQ Section + "No Credit Card Required" Trial Copy
 
 **What/Why:** User asked for a competitive review of a competitor's (Enerpize) marketing landing page, then asked to apply anything applicable to ours. Two gaps were UI/copy-only and safely actionable without a product-scope decision: (1) `LandingPage.tsx` had no FAQ section at all, despite this being a common, low-cost way to preempt trial-signup objections; (2) the hero CTA gave no reassurance about what "Start Free Business Trial" actually requires. Everything else identified in that review (Enerpize's AI auto-matching features, their broader ERP-module positioning, usage-metered pricing tiers) was deliberately left out as out-of-scope product/spec decisions, not landing-page copy - adding them would mean advertising capabilities not in this codebase's spec.
