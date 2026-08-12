@@ -25,7 +25,7 @@ export function HowItWorksPage() {
               <div className="text-xs font-bold text-emerald-400 mb-2">STEP 01</div>
               <h4 className="text-lg font-bold text-white mb-2">Register Business</h4>
               <p className="text-xs text-secondary-400 leading-relaxed">
-                Enter your Company Name, Base Operating Currency (GHS, USD, EUR, NGN, GBP), Admin Email, and Owner Mobile Number.
+                Enter your Company Name, choose Business or Nonprofit/Church/NGO/School as your organization type, select your Base Operating Currency (GHS, USD, EUR, NGN, GBP), Admin Email, and Owner Mobile Number.
               </p>
             </div>
 
@@ -56,6 +56,10 @@ export function HowItWorksPage() {
               <li className="flex items-center">
                 <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
                 <span><strong>Registered Business Name:</strong> Used to provision your dedicated schema.</span>
+              </li>
+              <li className="flex items-center">
+                <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
+                <span><strong>Organization Type:</strong> Business unlocks POS & Inventory; Nonprofit/Church/NGO/School unlocks Fund Accounting instead.</span>
               </li>
               <li className="flex items-center">
                 <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
