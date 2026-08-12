@@ -10,7 +10,7 @@ import { api } from "../../lib/api";
 import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History, Mail } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -57,6 +57,7 @@ interface Invoice {
   taxBreakdown: TaxBreakdownLine[] | null;
   total: number;
   status: string;
+  emailedAt?: string | null;
   // Present only on a record still in flight through the local-first sync
   // outbox (see lib/syncEngine.ts) - a real network round-trip hasn't
   // confirmed it yet, or a real rejection needs the user's attention.
@@ -245,6 +246,22 @@ export function Invoices() {
       await payInvoiceLocalFirst(id);
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
+    }
+  };
+
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
+  const handleSendInvoiceEmail = async (invoice: Invoice) => {
+    setSendingInvoiceId(invoice.id);
+    try {
+      const res = await api.post(`/invoices/${invoice.id}/send`);
+      if (res.data.success) {
+        showToast(res.data.message || `Invoice emailed to ${invoice.customer.email}.`, "success");
+        resyncInvoicesFromServer();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to email invoice.", "error");
+    } finally {
+      setSendingInvoiceId(null);
     }
   };
 
@@ -557,6 +574,19 @@ export function Invoices() {
                       >
                         <History className="h-3 w-3" />
                       </Button>
+                      {inv.status !== "DRAFT" && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleSendInvoiceEmail(inv)}
+                          disabled={sendingInvoiceId === inv.id}
+                          className="text-xs"
+                          title={inv.emailedAt ? `Last emailed ${new Date(inv.emailedAt).toLocaleString()}` : "Email this invoice to the customer"}
+                        >
+                          <Mail className="mr-1 h-3 w-3" />
+                          {sendingInvoiceId === inv.id ? "Sending..." : inv.emailedAt ? "Re-send" : "Email Invoice"}
+                        </Button>
+                      )}
                       {inv.status !== "PAID" && (
                         <Button variant="outline" size="sm" onClick={() => handlePayInvoice(inv.id)} className="text-xs">
                           Record Payment

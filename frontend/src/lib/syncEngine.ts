@@ -55,6 +55,7 @@ export interface LocalInvoice {
   total: number;
   baseCurrencyAmount: number | null;
   status: string;
+  emailedAt?: string | null;
   journalId?: string | null;
   fundId: string | null;
   createdAt: string;

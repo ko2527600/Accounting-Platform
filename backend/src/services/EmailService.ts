@@ -1,5 +1,5 @@
 import axios from 'axios';
-import { generateQuickStartGuidePdf } from './pdfGenerationService';
+import { generateQuickStartGuidePdf, generateInvoicePdf, InvoicePdfItem } from './pdfGenerationService';
 import { recordAuditLog } from './auditLogService';
 import { escapeHtml } from '../utils/htmlEscape';
 
@@ -295,6 +295,97 @@ export class EmailService {
       {
         filename: 'Ledgio_Quick_Start_Guide.pdf',
         content: guidePdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ];
+
+    return this.sendMail(to, subject, html, attachments);
+  }
+
+  /**
+   * Emails a customer their invoice as a PDF attachment, with the key
+   * figures also shown inline in the email body itself (so the total/due
+   * date are visible without opening the attachment).
+   */
+  public static async sendInvoiceEmail(
+    to: string,
+    customerName: string,
+    tenantName: string,
+    invoice: {
+      invoiceNumber: string;
+      issueDateLabel: string;
+      dueDateLabel: string;
+      currency: string;
+      customerAddress?: string | null;
+      items: InvoicePdfItem[];
+      subtotal: number;
+      tax: number;
+      taxBreakdown: { name: string; rate: number; amount: number }[] | null;
+      total: number;
+    }
+  ): Promise<boolean> {
+    const subject = `Invoice ${invoice.invoiceNumber} from ${tenantName}`;
+    const formattedTotal = new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(invoice.total);
+    const itemRows = invoice.items
+      .map(
+        (item) => `
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${escapeHtml(item.description)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${item.quantity}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(item.unitPrice)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(item.amount)}</td>
+          </tr>
+        `
+      )
+      .join('');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
+          Invoice ${escapeHtml(invoice.invoiceNumber)}
+        </h2>
+        <p style="font-size: 14px; color: #475569;">
+          Hi ${escapeHtml(customerName)}, here is your invoice from <strong>${escapeHtml(tenantName)}</strong>. The full itemized invoice is also attached as a PDF.
+        </p>
+        <table role="presentation" style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <thead>
+            <tr style="background-color: #f8fafc;">
+              <th style="padding: 8px; text-align: left;">Description</th>
+              <th style="padding: 8px; text-align: right;">Qty</th>
+              <th style="padding: 8px; text-align: right;">Unit Price</th>
+              <th style="padding: 8px; text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+        <div style="text-align: right; font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 8px;">
+          Total Due: ${formattedTotal}
+        </div>
+        <p style="font-size: 13px; color: #475569; margin-top: 12px;">
+          Issued ${escapeHtml(invoice.issueDateLabel)} · Due ${escapeHtml(invoice.dueDateLabel)}
+        </p>
+      </div>
+    `;
+
+    const pdfBuffer = await generateInvoicePdf(tenantName, {
+      invoiceNumber: invoice.invoiceNumber,
+      issueDateLabel: invoice.issueDateLabel,
+      dueDateLabel: invoice.dueDateLabel,
+      currency: invoice.currency,
+      customerName,
+      customerEmail: to,
+      customerAddress: invoice.customerAddress,
+      items: invoice.items,
+      subtotal: invoice.subtotal,
+      tax: invoice.tax,
+      taxBreakdown: invoice.taxBreakdown,
+      total: invoice.total,
+    });
+
+    const attachments: EmailAttachment[] = [
+      {
+        filename: `Invoice-${invoice.invoiceNumber}.pdf`,
+        content: pdfBuffer,
         contentType: 'application/pdf',
       },
     ];

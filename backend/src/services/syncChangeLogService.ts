@@ -147,6 +147,7 @@ export function invoiceToSyncPayload(invoice: any): Record<string, unknown> {
         ? Number(invoice.baseCurrencyAmount)
         : null,
     status: invoice.status,
+    emailedAt: invoice.emailedAt?.toISOString?.() ?? invoice.emailedAt ?? null,
     journalId: invoice.journalId,
     fundId: invoice.fundId,
     createdAt: invoice.createdAt?.toISOString?.() ?? invoice.createdAt,
