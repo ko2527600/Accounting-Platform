@@ -12,6 +12,7 @@ const SITE_LINKS = [
 const CONTACTS = [
   { name: "Sandra", role: "Sales Executive", phone: "+233 24 805 1379" },
   { name: "Erasmus Asare", role: "Consultant Manager", phone: "+233 55 405 1068" },
+  { name: "Exceltrine Abena Ntewusu", role: "Customer Care Representative", phone: "+233 59 850 0298" },
 ];
 
 export function PublicFooter() {
