@@ -2,6 +2,12 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-11] - Landing Page: Removed User's Photo from Carousel
+
+**What/Why:** User asked to remove their personal photo from the landing page carousel added in the previous entry. Removed the `founder.jpg` slide from `ImageCarousel.tsx`'s `SLIDES` array and deleted `frontend/public/landing/founder.jpg` from the repo. The carousel now shows only the three Unsplash accounting/business photos.
+
+**Files:** `frontend/src/components/landing/ImageCarousel.tsx`, `frontend/public/landing/founder.jpg` (deleted).
+
 ## [Date: 2026-08-11] - Landing Page: Added Auto-Sliding Photo Carousel
 
 **What/Why:** User asked to make the landing page "look interesting" with a sliding image carousel, using a personal photo they uploaded plus accounting-themed imagery, and mentioned generating images with AI. No AI image-generation tool is available in this session, so that request was not fulfilled as asked - instead used two sourcing paths, both disclosed here: (1) the user's own uploaded photo (`4d6fab16-IMG20260609WA0010.jpg`, read and visually confirmed before use), copied into the repo as `frontend/public/landing/founder.jpg`; (2) three business/accounting-themed photos sourced from Unsplash, which licenses photos free for commercial use with no attribution required - chosen specifically to avoid pulling arbitrary images off the web with unclear rights. Each was downloaded, visually reviewed, and confirmed on-topic before being committed (`slide-workdesk.jpg`, `slide-taxdocs.jpg`, `slide-charts.jpg`).

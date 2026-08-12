@@ -9,11 +9,6 @@ interface CarouselSlide {
 
 const SLIDES: CarouselSlide[] = [
   {
-    src: "/landing/founder.jpg",
-    alt: "Member of the Ledgio team holding a laptop",
-    caption: "Built by people who understand your business",
-  },
-  {
     src: "/landing/slide-workdesk.jpg",
     alt: "Team reviewing financial notes across two laptops",
     caption: "Real bookkeeping, done right, every day",
