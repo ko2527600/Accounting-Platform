@@ -21,7 +21,7 @@ import ledgersRouter from './routes/ledgers';
 import reportsRouter from './routes/reports';
 import { requestLoggerMiddleware } from './middleware/requestLoggerMiddleware';
 import { metricsMiddleware } from './middleware/metricsMiddleware';
-import { apiRateLimiter, authRateLimiter } from './middleware/rateLimiterMiddleware';
+import { apiRateLimiter } from './middleware/rateLimiterMiddleware';
 import legalRouter from './routes/legal';
 import customFieldsRouter from './routes/customFields';
 import auditLogsRouter from './routes/auditLogs';
@@ -121,8 +121,14 @@ app.use('/metrics', metricsRouter);
 app.use('/health', healthRouter);
 app.use('/api/v1/health', healthRouter);
 
-// Auth endpoints — strict brute-force limiter (10 req/min per IP/tenant)
-app.use('/api/v1/auth', authRateLimiter, authRouter);
+// Auth endpoints. The strict 10-req/min brute-force limiter is applied
+// per-route inside auth.ts, only to the unauthenticated credential-guessing
+// surface (login, MFA verification, registration, invitation acceptance) -
+// not the whole router. It previously covered already-authenticated routes
+// too (GET /me, POST /mfa/setup, etc.), which don't need pre-auth brute-force
+// protection and could 429 a legitimate user mid-session (e.g. enabling MFA,
+// logging out, logging back in, then disabling it all within one minute).
+app.use('/api/v1/auth', authRouter);
 
 // Tenant onboarding & management endpoints. The strict 5-req/min onboarding
 // limiter is applied per-route (POST /onboard, POST /admin-onboard) inside

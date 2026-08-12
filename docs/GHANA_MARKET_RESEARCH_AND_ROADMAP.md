@@ -269,6 +269,144 @@ Model confirmed consistently across GRA's own Phase Two rollout page and indepen
 
 ---
 
+### 2026-08-11 - User-supplied competitor/ERP feature checklist (partial - Module 5 tail, Modules 6-7)
+
+User pasted a fragment of a numbered ERP feature checklist (items ~24-30 across "Module 5" (Fixed Assets, tail-end only), "Module 6: Payroll & Time Tracking", "Module 7: Reporting, Budgeting & Tax Compliance"). Source/vendor not stated and Modules 1-4 (items 1-~23) weren't included in what was pasted - recorded verbatim below for the record; a fuller comparison should be redone if the rest of the list is shared later.
+
+> "...initial valuations, and serial IDs of equipment."
+> **Module 6: Payroll & Time Tracking** - Processing worker wages, taxes, and specialized project-specific labor costs.
+> 25. Salary Matrix Processing: Automating payouts while calculating variable base rates, commissions, and bonuses.
+> 26. Payroll Tax Deductions: Computing and withholding income taxes and benefit allocations automatically based on regional regulations.
+> 27. Billable Hours Allocation: Linking employee timesheets directly to specific client invoices for project billing.
+> **Module 7: Reporting, Budgeting & Tax Compliance** - Synthesizing system inputs into analytical reports for tax filings and business planning.
+> 28. Core Financial Reports: Instant compiling of critical Profit and Loss (P&L) statements, Balance Sheets, and Cash Flow summaries.
+> 29. Project Cost Tracking: Isolating and analyzing profits on individual projects to evaluate performance.
+> 30. Digital Tax Filing: Calculating local value-added taxes (VAT) or sales taxes to submit filings electronically.
+
+**Compared against this codebase (grepped `schema.prisma` and `backend/src` for each - not assumed):**
+
+| # | Item | Status |
+|---|---|---|
+| 24 (fragment) | Fixed Asset Management (initial valuation, serial ID tracking, implies depreciation) | **GAP - newly identified, not previously in this doc.** No `FixedAsset` entity, no `serialNumber`/`depreciation` field anywhere in `schema.prisma` or `backend/src` (confirmed via grep, zero matches). Genuinely unbuilt, not just under-featured. |
+| 25 | Salary Matrix Processing (variable rates/commissions/bonuses) | **GAP** - same as the existing "Payroll" gap (Section 2/4 item 14 below). No payroll module exists at all. |
+| 26 | Payroll Tax Deductions | **GAP** - same payroll gap; no statutory-deduction logic anywhere. |
+| 27 | Billable Hours Allocation (timesheets -> invoices) | **GAP** - overlaps the existing "Project tracking" gap (item 9 below); no timesheet entity exists (grepped, zero matches), so there's nothing to link to invoices yet. |
+| 28 | Core Financial Reports (P&L, Balance Sheet, Cash Flow) | **`[ALREADY BUILT]`** - all three exist and have frontend pages (`ProfitAndLoss.tsx`, `BalanceSheet.tsx`, `CashFlowStatement.tsx`), each "instant" (computed live from the ledger, not batch/scheduled). |
+| 29 | Project Cost Tracking (per-project profitability) | **GAP** - same as the existing "Project tracking" gap (item 9 below). |
+| 30 | Digital Tax Filing (VAT calc + electronic submission) | **GAP** - same as the existing GRA E-VAT/SDC gap (item 1 below); this platform can compute VAT (layered tax rates, done 2026-08-01) but has no electronic-filing/submission integration with GRA at all. |
+
+Net new finding: **Fixed Asset Management** (item 24) is a genuine gap not previously tracked anywhere in this doc - added to Section 2/4 below. Everything else in this fragment (25-30) maps onto gaps or completions this doc already tracks; no other new gaps surfaced.
+
+---
+
+### 2026-08-11 - Same checklist, Modules 1-2 (items 1-10) - General Ledger & Accounts Receivable
+
+Continuation of the entry above - user supplied the front of the same checklist.
+
+> **Module 1: General Ledger (GL) & Core Bookkeeping** - The fundamental base where all transactional credit and debit data lives.
+> 1. Chart of Accounts (COA) Customization: Creating customized structures for assets, liabilities, equity, revenues, and expenses.
+> 2. Double-Entry Journal Logs: Entering manual or automated credit and debit rows to keep book metrics balanced.
+> 3. Multi-Currency Tracking: Recording deals using international foreign exchange conversion rates dynamically.
+> 4. General Ledger Updates: Merging localized books into one single real-time dashboard ledger overview.
+> 5. Historical Audit Trails: Tracking structural alterations to prevent internal manipulation and secure records.
+> **Module 2: Accounts Receivable (AR) & Sales** - Features centered on customer transactions, invoicing, and bringing money in.
+> 6. Automated Invoicing: Generating professional billable invoices and emailing them straight to consumers.
+> 7. Recurring Invoice Schedules: Scheduling systematic subscription billing models for clients on long-term retainers.
+> 8. Customer Credit Management: Restricting customer balances dynamically via set limits to control risk factors.
+> 9. Late Payment Warnings: Triggering systematic emails to nudge clients who have missed payment deadlines.
+> 10. Embedded Gateway Links: Adding links from processors like Stripe directly onto digital invoices for swift payment settlement.
+
+**Compared against this codebase (grepped `schema.prisma`/`backend/src`/`frontend/src` for each, via a dedicated sub-agent audit - not assumed):**
+
+| # | Item | Status |
+|---|---|---|
+| 1 | Chart of Accounts Customization | **`[ALREADY BUILT]`** - full CRUD (`backend/src/routes/accounts.ts`), custom accounts across Asset/Liability/Equity/Revenue/Expense/Cost of Sales types, `ChartOfAccounts.tsx`. |
+| 2 | Double-Entry Journal Logs | **`[ALREADY BUILT]`** - core ledger/journal entry system, manual (`JournalBuilder.tsx`) and automated (posted by invoices/bills/expense claims/POS etc.). |
+| 3 | Multi-Currency Tracking | **`[ALREADY BUILT]`** - transaction-time conversion via a live FX rate API, base-currency-equivalent stored per transaction (already in Section 2's gap table). |
+| 4 | General Ledger Updates (merged, real-time dashboard) | **`[ALREADY BUILT]`** - schema-per-tenant multi-tenancy means one unified ledger per business (not fragmented per-branch books); `/reports/kpis` and the Dashboard pull live, non-hardcoded aggregate totals. |
+| 5 | Historical Audit Trails | **`[ALREADY BUILT]`, exceeds the ask** - not just tracked, but DB-level *enforced* append-only (`20260810150000_enforce_audit_log_append_only` migration - a Postgres `BEFORE UPDATE/DELETE` trigger unconditionally blocks tampering, not just an app-level log). |
+| 6 | Automated Invoicing (generate + auto-email to customer) | **GAP** - invoices can be created and paid (`routes/invoices.ts`), but creation/payment never calls `EmailService`; no "send invoice" action exists in `Invoices.tsx` either. Invoicing itself is built, the "email it automatically" half isn't. |
+| 7 | Recurring Invoice Schedules (subscription billing) | **PARTIAL, mismatched** - `RecurringTransactionCronService` exists but only stamps out generic `JournalEntry` rows on schedule (no `customerId`, no `Invoice`). It's recurring bookkeeping, not recurring customer billing - a real gap for actual AR subscription billing. |
+| 8 | Customer Credit Management (credit limits) | **GAP** - `Customer` model has no balance/limit field at all (confirmed via grep, zero matches for `creditLimit`); no enforcement anywhere in invoice creation. |
+| 9 | Late Payment Warnings (overdue-invoice dunning emails) | **GAP** - no overdue/dunning logic anywhere; the only cron-driven email is the unrelated scheduled P&L report. |
+| 10 | Embedded Gateway Links (Stripe-style pay-now link on invoice) | **GAP** - zero mentions of Stripe anywhere in the codebase, no `paymentUrl` field on `Invoice`. The existing MTN MoMo integration (`MomoPaymentRequest`) is adjacent but not equivalent - it's a merchant-initiated USSD "Request to Pay" prompt, not a customer-facing link embedded on the invoice document itself. |
+
+**Net new findings, both genuine AR gaps not previously tracked in this doc:**
+- **Automated invoice emailing** - invoices exist but are never actually sent to the customer by the system.
+- **Customer credit limits** - no risk-control mechanism on customer balances at all.
+- **Late payment reminders (dunning)** - no overdue-invoice nudge emails.
+- **Embedded payment link on invoices** - no Stripe-equivalent pay-now link; MoMo's request-to-pay doesn't cover this use case.
+
+Recurring Invoice Schedules (item 7) is a *mismatch*, not a clean gap or a clean built - the existing `RecurringTransaction` engine is architecturally close (same cron/scheduling machinery) but generates journal entries, not customer invoices; extending it to optionally spawn an `Invoice` instead of/alongside a `JournalEntry` is a plausible smaller lift than building AR subscription billing from scratch, worth keeping in mind when scoping. All four/five items added to Section 2/4 below as new candidate features, grouped since they're all small, closely-related AR/invoicing-lifecycle gaps (not a big dedicated phase like Payroll).
+
+---
+
+### 2026-08-11 - Same checklist, full text now received (Modules 3-5, items 11-24) - Accounts Payable, Cash Management, Inventory & Fixed Assets
+
+User sent the complete checklist. Modules 6-7 (items 25-30) are identical to the fragment already logged/compared above - not re-audited. This entry covers the three previously-unseen modules (3, 4, 5), audited via a dedicated sub-agent grepping `schema.prisma`/`backend/src`/`frontend/src` per item (not assumed) - item 24's full text also retroactively confirms/completes the Module-5-tail fragment from the first paste ("Capital Asset Register": purchase date, valuation, serial ID - same gap already logged as Section 4 item 18, not a new one).
+
+> **Module 3: Accounts Payable (AP) & Purchasing** - Tools designed to track what you owe vendors and outgoing operational bills.
+> 11. Vendor Invoice Processing: Scanning, digitizing, and logging supplier bills into your unpaid cost registry.
+> 12. Purchase Order (PO) Matching: Cross-checking incoming invoices against internal purchase orders before initiating payment releases.
+> 13. Automated Payment Scheduling: Batching vendor payouts to execute automatically on exact optimal due dates.
+> 14. Expense Receipt Capturing: Extracting data from receipts via optical character recognition (OCR) via mobile cameras.
+> 15. Aged Payable Analysis: Sorting outstanding vendor balances into timeframe categories (e.g., 30, 60, or 90 days past due).
+> **Module 4: Cash Management & Banking Links** - Direct operations matching physical bank flows to internal digital ledgers.
+> 16. Live Bank Feeds: Syncing digital checking or savings accounts directly into the ledger using Open Banking protocols.
+> 17. Automated Bank Reconciliation: Using AI to match transaction logs against physical bank records automatically.
+> 18. Cash Flow Projections: Running continuous models of your cash positions based on forecasted revenue and upcoming liabilities.
+> 19. Petty Cash Logs: Recording minor internal employee expenses paid out via actual office cash registers.
+> 20. Check Printing & Generation: Digitally formatting and printing physical paper business checks straight from system modules.
+> **Module 5: Inventory & Fixed Asset Controls** - Monitoring structural physical goods and high-value long-term capital investments.
+> 21. Stock Levels Monitoring: Running live item counts across multi-location warehouse operations.
+> 22. Automated Reorder Thresholds: Triggering inventory alerts and generating purchase orders when raw items drop below critical limits.
+> 23. Asset Depreciation Calculations: Computing asset value declines using standard Straight-Line or Reducing Balance accounting formulas.
+> 24. Capital Asset Register: Maintaining a secure centralized ledger detailing purchase dates, initial valuations, and serial IDs of equipment.
+
+| # | Item | Status |
+|---|---|---|
+| 11 | Vendor Invoice Processing (scan/digitize + log to AP registry) | **PARTIAL** - the "log into unpaid registry" half is `[ALREADY BUILT]` (`VendorBill`, itemized, `routes/bills.ts`); the "scanning/digitizing" (OCR) half is a **GAP** - zero OCR/image-processing dependency anywhere in `backend/package.json` or code. |
+| 12 | Purchase Order (PO) Matching | **GAP** - no `PurchaseOrder` model exists in `schema.prisma` at all, so there's nothing to match against; no 3-way-match logic anywhere. |
+| 13 | Automated Payment Scheduling (batch vendor payouts on due dates) | **GAP** - confirmed via grep, no scheduling logic tied to `VendorBill` payment execution anywhere (the existing recurring-transaction cron only produces journal entries, same mismatch as AR item 7). |
+| 14 | Expense Receipt Capturing (OCR from mobile camera) | **GAP** - `ExpenseClaim` (`schema.prisma`) has no receipt/image field at all, purely a manual text/number form; no OCR dependency anywhere. |
+| 15 | Aged Payable Analysis (30/60/90-day buckets) | **GAP** - no aging report exists for AP *or* AR anywhere in the app (grepped `aging`/`aged`/`30/60/90`, zero matches) - a broader gap than just AP. |
+| 16 | Live Bank Feeds (Open Banking sync) | **`[ALREADY BUILT]`, re-confirmed** - `POST /api/v1/banking/webhooks/mono` (`banking.ts`) is a genuine secret-verified server-to-server webhook, confirming real push-based live sync, not a manual pull. |
+| 17 | Automated Bank Reconciliation ("using AI" to match) | **GAP on the actual claim** - `POST /api/v1/banking/reconcile` only accepts a client-already-chosen `transactionId`+`ledgerId` pair and flips its status; there is no matching algorithm at all (no amount/date comparison, let alone AI/fuzzy matching) - it's a manual pairing endpoint wearing a "reconcile" label. |
+| 18 | Cash Flow Projections | **`[ALREADY BUILT]`, re-confirmed** - the existing 180-day cash flow forecast (`CashFlowForecast.tsx`, done 2026-08-01). |
+| 19 | Petty Cash Logs | **GAP** - no distinct petty-cash disbursement entity/workflow; the only hit for "petty cash" anywhere in the app is a sample Chart-of-Accounts row in the bulk-import wizard's example CSV, not a feature. |
+| 20 | Check Printing & Generation | **GAP** - zero mentions anywhere. Likely low real-world priority for this app's target market specifically (paper cheques are uncommon in Ghana SME payments vs. MoMo/bank transfer/cash) - flagged as a gap for completeness, not recommended as a priority without evidence otherwise. |
+| 21 | Stock Levels Monitoring (multi-location, live) | **`[ALREADY BUILT]`, re-confirmed** - live (uncached) Prisma queries per request across warehouses, not batch/cached. |
+| 22 | Automated Reorder Thresholds (alert + auto-generate PO) | **PARTIAL** - `InventoryItem.reorderLevel` exists and drives a frontend low-stock badge/filter (`WarehouseManagement.tsx`), but there's no backend alert/notification job, and "generating purchase orders" is blocked on item 12 (no PO entity exists to generate). |
+| 23 | Asset Depreciation Calculations (Straight-Line/Reducing Balance) | **GAP** - confirmed no calculation logic anywhere (only a passing mention of "depreciation" as placeholder example copy on the Recurring Transactions page, not a real feature). Same root gap as item 24/Section 4 item 18 - a depreciation schedule is what a fixed asset register would compute once it exists. |
+| 24 | Capital Asset Register | **GAP - confirms, not new** - this is the full-text version of the fragment already logged from the first paste ("...initial valuations, and serial IDs of equipment") and already added as Section 4 item 18. No separate tracking needed; folding item 23's depreciation-formula detail into that same item below. |
+
+**Net new findings added to Section 2/4 below:** vendor-bill OCR/scanning, Purchase Order entity + PO matching + auto-PO-on-reorder, automated vendor payment scheduling, expense-receipt OCR, and **AP/AR aging analysis** (broader than just AP - neither side has it). The bank "reconciliation" endpoint's actual matching logic (none - manual pairing only) is upgraded from "already built" to a flagged gap, since the checklist's specific claim ("using AI to match... automatically") doesn't hold. Petty cash logs and check printing are gaps too, though check printing is flagged as likely low-priority for this app's actual market. Asset depreciation formulas are folded into the existing Fixed Asset Management item rather than tracked separately, since they're the same underlying feature.
+
+---
+
+### 2026-08-11 - User-supplied industry pain-point analysis - self-audit: does this app have the same problems?
+
+Different in kind from the feature checklists above - not "what features exist" but "what documented failure modes/pain points does accounting software generally have, and is this app vulnerable to each one." User pasted a 5-category industry pain-point breakdown (source/vendor not stated); audited each point honestly against the actual codebase via a dedicated sub-agent (grep/read, not assumed) rather than treating it as marketing copy to agree with.
+
+**1. Cost Creep and Pricing Structures** (subscription traps, feature gating, per-seat penalties) - **not currently applicable, but worth designing correctly now.** No live billing/pricing model exists at all yet (`Tenant.tier` is stored but only enforces one minor feature - custom fields, `tierEnforcementMiddleware.ts` - everything else, including multi-currency and batch invoicing, is available to every tenant regardless of tier; `dataExport.ts` explicitly documents a deliberate choice *not* to gate a core feature behind a tier). No per-seat pricing exists, so there's no current seat-penalty risk either. This isn't a gap to fix so much as a design constraint to hold when real billing eventually gets built (Section 4 item 7, already tracked, unscoped) - the article's complaint is a reason to keep core capabilities (multi-currency, batch invoicing, inventory) *out* of any future paywall, matching the precedent `dataExport.ts` already set.
+
+**2. Implementation and Complexity Barriers** - **already substantially mitigated.** Steep learning curve: the Guided Onboarding Wizard (hard trial-balance gate) exists specifically for non-accountant owners. Bad data entry breaking the Chart of Accounts: `journalEntryService.createJournalEntry` enforces balanced debits/credits to the cent, non-negative amounts, no single line with both debit+credit, and real account existence; `accountService` rejects duplicate codes, invalid types, and circular parent references - the specific failure mode described (an untrained employee corrupting the CoA) is structurally blocked, not just discouraged. Rigid onboarding/spreadsheet migration: the Bulk Data Import wizard exists precisely for this. No new gaps found here.
+
+**3. Integration Breakdowns ("Software Silos")** - **partially relevant, no new findings.** This app's existing external integrations (Mono, MTN MoMo) are deliberately env-gated to return a clean 503 when not configured, rather than silently succeeding with wrong/missing data - the specific "broken sync leaves data duplicated or missing" failure mode the article describes is designed against, as a pattern, in what exists today. No Shopify/Stripe-class integrations exist yet to actually test this claim under real load, so this is a design principle to hold for future integrations, not a verified track record. Manual CSV workarounds (Bulk Import/CSV Export) exist and are honestly what they are - a workaround, not a magic seamless sync - which matches the article's description of industry reality rather than exposing anything unique to this app.
+
+**4. Technical and Security Constraints** - **one real, current gap confirmed; internet dependency partially, honestly scoped.**
+- **MFA/2FA: genuinely absent.** Grepped `backend/src` and `schema.prisma` for `mfa`/`2fa`/`totp`/`authenticator` - zero matches. No TOTP field on `User`, no second factor anywhere in the auth flow. This is a real, currently-true gap on a platform that moves real money (MoMo collections, bank feeds) - worth prioritizing given the article names it as a named risk, not a hypothetical.
+- **Internet dependency: honestly partial, not resolved.** Beyond the known Hybrid-offline POS (sales only), a separate local-first sync (`frontend/src/syncEngine.ts`) covers exactly two more entities - Chart of Accounts and Invoices (its own header comment: "Two entities only, on purpose"). Everything else - Journal Entries, Banking/reconciliation, all Reports, Vendor Bills, Expense Claims - hard-requires a live connection with zero offline resilience. This is the same pain point the 2026-07-31 deep-research report already flagged as a cross-cutting blocker (Section 1 above) - this pass confirms the mitigation's exact current boundary rather than claiming it's solved everywhere.
+- Shared-login risk: **already structurally discouraged**, not just a policy - every mutating write's audit log entry carries an individual `userId`/`userEmail`/`ipAddress` inside the same transaction as the mutation (this session's whole audit-trail hardening effort), so a shared login would still attribute actions to one specific account, not anonymize them.
+
+**5. Automation Oversells** - **both points confirmed real, one already tracked, one is a genuine differentiator with a real caveat.**
+- Flawed bank reconciliation: **already tracked as a gap above (this entry's item 17/Section 2's "Bank reconciliation matching logic")** - and actually worse than the article's framing of "occasionally misses transactions": there is no matching algorithm at all today, automated or otherwise. Not a new finding, cross-referenced rather than duplicated.
+- Generic tax reporting: **mixed.** The calculation side is a real differentiator, not generic - layered Ghana-specific NHIL/GETFund/VAT rates already exist (2026-08-01), more localized than most competitors researched. But the article's actual complaint ("requiring manual intervention before filing") still fully applies, since there's no electronic filing/submission to GRA at all - ties directly to the already-tracked GRA E-VAT gap (Section 4 item 1), not a new finding.
+
+**Net new findings:** only one genuinely new item - **MFA/2FA** - added to Section 2/4 below. Everything else either confirms an existing tracked gap (bank reconciliation, GRA E-VAT/filing, internet dependency) or confirms something already built (onboarding wizard, bulk import, CoA/JE validation, audit trail actor tracking). The pricing-structure section produced forward-looking design guidance, not a code gap, since no billing exists yet to be vulnerable.
+
+---
+
 ## 2. Gap Analysis: What This Platform Has vs. What the Ghana Market Expects
 
 | Requirement | Status | Notes |
@@ -292,7 +430,22 @@ Model confirmed consistently across GRA's own Phase Two rollout page and indepen
 | **180-day cash flow forecast** | **GAP** | Forward-looking projection - distinct from the also-missing historical Cash Flow Statement. |
 | Customizable dashboards | **Likely gap** | Not deeply investigated yet - existing report pages aren't user-configurable in the "rearrange your widgets" sense. |
 | **Payroll** | **GAP** | Confirmed via grep - no payroll module anywhere. Tally, Finza, and several others reviewed all include payroll in some form. |
+| **Fixed Asset Management** (register: purchase date/initial valuation/serial ID per asset, plus Straight-Line/Reducing-Balance depreciation calculation) | **GAP** | Confirmed via grep (2026-08-11) - no `FixedAsset`/`Asset`/`Equipment`/`CapitalAsset` entity under any name, no `serialNumber`/`depreciation` field anywhere in the schema or backend. Also the reason the Cash Flow Statement (item above) has no Investing section - no capex/asset classification exists to separate from ordinary working capital. |
+| **Vendor bill / expense receipt OCR (scan-and-digitize)** | **GAP** | Confirmed via grep (2026-08-11) - zero OCR/image-processing dependency anywhere in `backend/package.json` or code. `VendorBill` and `ExpenseClaim` both exist but are pure manual-entry forms today. |
+| **Purchase Order (PO) entity + PO-vs-bill matching** | **GAP** | Confirmed via grep (2026-08-11) - no `PurchaseOrder` model in `schema.prisma` at all, so there's nothing to match incoming vendor bills against, and nothing for the reorder-threshold feature (below) to auto-generate. |
+| **Automated vendor payment scheduling** (batch payouts on due dates) | **GAP** | Confirmed via grep (2026-08-11) - no scheduling tied to `VendorBill` payment execution; same architectural mismatch as recurring customer invoices (the recurring-transaction cron only produces journal entries). |
+| **AP/AR aging analysis** (30/60/90-day overdue buckets) | **GAP** | Confirmed via grep (2026-08-11) - no aging report exists for vendor bills *or* customer invoices anywhere in the app. |
+| **Bank reconciliation matching logic** | **GAP on the actual matching, not just the endpoint** | `POST /banking/reconcile` (2026-08-11 review) only accepts a client-already-chosen transaction/ledger pair and flips its status - there's no amount/date comparison, fuzzy matching, or AI involved despite "reconcile" in the name. A real matching algorithm (even simple rule-based, before any "AI" framing) doesn't exist yet. |
+| **Petty cash logs** (minor internal cash disbursements) | **GAP** | Confirmed via grep (2026-08-11) - no distinct petty-cash entity/workflow; the only "petty cash" hit anywhere is a sample row in the bulk-import wizard's example CSV, not a feature. Distinct from `CashTill` (POS sales) and `ExpenseClaim` (employee reimbursement) - neither covers ad-hoc small office cash disbursements. |
+| **Check printing & generation** | **GAP, likely low priority** | Confirmed via grep (2026-08-11) - zero mentions anywhere. Paper cheques are uncommon in Ghana SME payments (vs. MoMo/bank transfer/cash), so this is flagged for completeness rather than recommended as a priority without evidence of real demand. |
+| **Automated reorder alerts + auto-generated PO** | **PARTIAL** | `InventoryItem.reorderLevel` (2026-08-11 review, `schema.prisma`) exists and drives a frontend low-stock badge/filter, but there's no backend alert/notification job, and auto-generating a PO is blocked on the PO-entity gap above. |
+| **Automated invoice emailing** (send generated invoice to customer) | **GAP** | Confirmed via grep (2026-08-11) - invoice create/pay routes never call `EmailService`; no "send invoice" UI action exists either. Invoices can be created and paid, just never actually emailed to the customer by the system. |
+| **Customer credit limits** | **GAP** | Confirmed via grep (2026-08-11) - `Customer` model has no balance/limit field at all; nothing enforces a risk ceiling on outstanding customer balances anywhere. |
+| **Late payment reminders (dunning emails)** | **GAP** | Confirmed via grep (2026-08-11) - no overdue-invoice nudge logic anywhere; the only cron-driven email is the unrelated scheduled P&L report. |
+| **Embedded payment link on invoices** (Stripe-style pay-now) | **GAP** | Confirmed via grep (2026-08-11) - zero Stripe references, no `paymentUrl` field on `Invoice`. The existing MTN MoMo `MomoPaymentRequest` is a merchant-initiated USSD prompt, not a customer-facing link on the invoice document, so it doesn't cover this. |
+| **Recurring customer invoices / subscription billing** | **PARTIAL - architectural mismatch** | `RecurringTransactionCronService` (2026-08-11 review) has the right scheduling machinery but only stamps out generic `JournalEntry` rows, never an `Invoice` - no `customerId` anywhere in that service. Recurring bookkeeping exists; recurring customer billing doesn't. |
 | **Real cross-app search** | **GAP, plus a copy-honesty issue** | The header search bar's placeholder ("Search accounts, entries, reports...") implies real data search; it's actually a static navigation-shortcut menu (`CommandMenu.tsx`) with no search logic at all. Should either fix the copy to stop overpromising, or build real search - competitors (Tally's "SmartFind") treat this as baseline. |
+| Multi-Factor Authentication (MFA/2FA) | `[ALREADY BUILT 2026-08-11]` | Hand-rolled TOTP (RFC 6238) + one-time backup codes. Two-step login for MFA-enabled accounts, `Settings > Security` enrollment/disable UI with a real QR code. See STATUS.md. |
 
 ---
 
@@ -328,6 +481,21 @@ In rough order of how compliance-critical they appear from research so far - **t
 15. **[DONE 2026-07-31]** ~~POS void/no-sale PIN-gating + anomaly detection on cashier void ratios~~ - built as a real void feature (there was no void capability at all before this, not just an unguarded one): `POST /tills/sales/:id/void` requires either the acting user to already be Admin/Shop Manager/Accountant, or a Cashier to supply a manager's own password as an inline step-up confirmation; restores stock, reverses the till total, full audit trail. New `GET /tills/void-stats` flags a cashier whose void ratio crosses 15% over 5+ sales. See STATUS.md.
 16. **[DONE 2026-08-08]** ~~Hybrid-offline POS architecture (local-first sale processing with async background sync, vs. today's live-API-per-sale model) - newly surfaced 2026-07-31; flagged as a cross-cutting blocker across nearly every segment in that research, likely the single highest-leverage infrastructure change if the research holds up under primary-source verification. Materially larger than most items on this list - needs its own architecture spike before scoping.~~ - built as a two-phase change, scoped to sales-only per an explicit user decision (till open/close and voids still require connectivity). Phase 1 (backend): `CashSale` gained a client-generated `clientTxnId` dedup key so `POST /tills/sales` is safely retry-idempotent - the DB unique constraint, not a pre-check, is the actual safety net under concurrent replay (Postgres blocks the losing INSERT until the winner commits). Phase 2 (frontend): an `idb`-backed local queue (`offlineDb.ts`) plus an in-app sync loop (`saleSyncQueue.ts`, deliberately not Workbox Background Sync - no Safari/iOS support, and it wouldn't replace any of the loop's actual machinery anyway) - a cashier can keep ringing up sales during an outage, queued sales sync automatically on reconnect or via a manual "Sync Now," and a genuine sync conflict (e.g. stock sold out elsewhere in the interim - no offline stock reservation exists) surfaces as "Needs Attention" via the audit log rather than being silently dropped, since real money was already collected. Live-verified end-to-end against the real dev stack, including confirming the synced sale reached the real backend and genuinely deducted stock. See STATUS.md.
 17. Fund accounting (restricted vs. unrestricted fund tracking, e.g. for NGOs/schools/churches/cooperatives) - a new segment not previously covered in this doc; would need a `fund`/restriction dimension on transactions and independent per-fund balance sheets. Not yet validated against a real prospective customer in this segment - the 2026-07-25 target-market discussion this session focused on retail/SME, not non-profits, so worth confirming this is actually a market we want before scoping.
+18. Fixed Asset Management (register with purchase date/initial valuation/serial ID per item, plus Straight-Line/Reducing-Balance depreciation calculation) - newly surfaced 2026-08-11 from a user-supplied competitor/ERP feature checklist. Confirmed a genuine gap via grep, not previously tracked in this doc. Would also unblock the Cash Flow Statement's currently-missing Investing section (item 4 above), since there's no capex/asset classification today to separate from ordinary working capital.
+19. Automated invoice emailing (send the generated invoice to the customer automatically, e.g. on creation or on an explicit "Send" action) - newly surfaced 2026-08-11. Small, self-contained - `EmailService` already exists and is used elsewhere (verification emails, invitations, scheduled reports), this is "wire it into invoice create/send" rather than new infrastructure.
+20. Customer credit limits (block or warn when a new invoice would push a customer's outstanding balance past a set ceiling) - newly surfaced 2026-08-11. Needs a schema addition (`Customer.creditLimit` or similar) plus an enforcement check at invoice creation - small-to-medium lift.
+21. Late payment reminders / dunning emails (scheduled nudge to customers with overdue invoices) - newly surfaced 2026-08-11. Architecturally close to the existing scheduled-report cron (`ScheduledEmailCronService`) - likely a new job in the same pattern, checking `Invoice.dueDate` against today rather than a report schedule.
+22. Embedded payment link on invoices (Stripe-style pay-now link/button on the invoice document) - newly surfaced 2026-08-11. Needs a payment-gateway decision first (Stripe itself, or a Ghana-relevant equivalent - Paystack/Flutterwave support Ghana and are more locally standard than Stripe; worth a research pass before picking, consistent with this doc's Ghana-first bias elsewhere e.g. MTN MoMo over a generic global processor).
+23. Recurring customer invoices / subscription billing - newly surfaced 2026-08-11, and a genuine architectural mismatch rather than a clean gap: the existing `RecurringTransaction` engine already has the scheduling/cron machinery, but only ever produces a `JournalEntry`, never an `Invoice`, and has no `customerId` concept. Extending it to optionally spawn an `Invoice` (or a parallel `RecurringInvoice` entity reusing the same cron) is likely a smaller lift than building AR subscription billing from scratch - worth scoping as "extend" rather than "build new."
+24. Vendor bill / expense receipt OCR (scan-and-digitize a paper bill or receipt into the existing `VendorBill`/`ExpenseClaim` forms) - newly surfaced 2026-08-11. A materially larger lift than most items on this list - needs a real OCR provider decision (cloud API like Google Vision/AWS Textract vs. a self-hosted Tesseract) before scoping, plus mobile-camera capture UX.
+25. Purchase Order (PO) entity + PO-vs-bill matching, and auto-generating a PO when an item crosses its `reorderLevel` (closing the "alert-only" half of item 26 below) - newly surfaced 2026-08-11. A new core entity, likely a prerequisite for both AP matching and the reorder-threshold gap - worth scoping as its own foundational piece rather than bundling into either dependent feature.
+26. Automated reorder alerts + auto-PO-on-threshold - newly surfaced 2026-08-11. `InventoryItem.reorderLevel` already exists and drives a frontend low-stock badge, so the "alert" half is a smaller lift (a backend notification job checking the existing field); the "auto-generate a PO" half is blocked on item 25.
+27. Automated vendor payment scheduling (batch bill payouts on their due dates) - newly surfaced 2026-08-11. Same architectural pattern/mismatch as recurring customer invoices (item 23) - the existing cron only produces journal entries, not bill payments.
+28. AP/AR aging analysis (30/60/90-day overdue buckets for vendor bills and customer invoices) - newly surfaced 2026-08-11, broader than the checklist's AP-only framing since neither side has it. Likely a lighter lift than it sounds - `dueDate` already exists on `Invoice`/`VendorBill`, this is mostly a new report bucketing existing data, similar in shape to the KPI dashboard.
+29. Real bank-transaction matching logic for `POST /banking/reconcile` - newly surfaced 2026-08-11. Today's endpoint just flips status on a client-chosen pair with zero matching algorithm; even simple rule-based matching (amount + date window) would be a real improvement before any "AI" framing is warranted. Worth fixing regardless of this checklist, since the current behavior doesn't match its own "reconcile" naming.
+30. Petty cash logs (ad-hoc minor office cash disbursements, distinct from `CashTill`'s POS sales and `ExpenseClaim`'s employee reimbursement workflow) - newly surfaced 2026-08-11.
+31. Check printing & generation - newly surfaced 2026-08-11. Flagged low-priority: paper cheques are uncommon in Ghana SME payments versus MoMo/bank transfer/cash - shouldn't be scoped ahead of the other items above without real customer demand evidence.
+32. **[DONE 2026-08-11]** ~~Multi-Factor Authentication (MFA/2FA) on login - newly surfaced 2026-08-11 from a user-supplied industry pain-point analysis (self-audit, not a feature checklist). Confirmed a genuine, currently-real gap via grep - no second factor exists anywhere in the auth flow. Worth weighing higher than its list position given this platform already moves real money (MoMo collections, bank feeds) - a security gap, not a feature-completeness one, so its priority shouldn't be judged purely by list order.~~ - built as real TOTP + one-time backup codes, hand-rolled on `node:crypto` (RFC 6238) rather than a library (`otplib`'s ESM-only deps broke this project's Jest setup), independently cross-checked against Python's `pyotp` for real RFC-correctness. Two-step login for MFA-enabled accounts, `Settings > Security` enrollment/disable UI with a real QR code. Found and fixed a real `authRateLimiter` scoping bug along the way (same pattern as item 3's `onboardingRateLimiter` fix). Live-verified end-to-end via Playwright. See STATUS.md.
 
 ---
 
