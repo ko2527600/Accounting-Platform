@@ -33,6 +33,10 @@ const startServer = async () => {
     // Initialize FX rate cache refresher (no-op if FX_RATE_API_KEY isn't configured)
     const { FxRateCronService } = require('./services/fxRateCronService');
     FxRateCronService.init();
+
+    // Initialize daily overdue-invoice payment reminder (dunning) sweep
+    const { DunningReminderCronService } = require('./services/dunningReminderService');
+    DunningReminderCronService.init();
   });
 
   const gracefulShutdown = async () => {

@@ -392,4 +392,44 @@ export class EmailService {
 
     return this.sendMail(to, subject, html, attachments);
   }
+
+  /**
+   * Emails a customer a late-payment reminder for an overdue invoice. No PDF
+   * attachment - just a concise nudge with the amount due and how overdue it
+   * is, matching sendInvoiceEmail's template conventions.
+   */
+  public static async sendPaymentReminderEmail(
+    to: string,
+    customerName: string,
+    tenantName: string,
+    invoice: {
+      invoiceNumber: string;
+      dueDateLabel: string;
+      currency: string;
+      total: number;
+      daysOverdue: number;
+    }
+  ): Promise<boolean> {
+    const subject = `Payment Reminder: Invoice ${invoice.invoiceNumber} from ${tenantName} is ${invoice.daysOverdue} day${invoice.daysOverdue === 1 ? '' : 's'} overdue`;
+    const formattedTotal = new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(invoice.total);
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #dc2626; padding-bottom: 10px;">
+          Payment Reminder: Invoice ${escapeHtml(invoice.invoiceNumber)}
+        </h2>
+        <p style="font-size: 14px; color: #475569;">
+          Hi ${escapeHtml(customerName)}, this is a friendly reminder that invoice <strong>${escapeHtml(invoice.invoiceNumber)}</strong> from <strong>${escapeHtml(tenantName)}</strong> was due on ${escapeHtml(invoice.dueDateLabel)} and is now <strong>${invoice.daysOverdue} day${invoice.daysOverdue === 1 ? '' : 's'} overdue</strong>.
+        </p>
+        <div style="text-align: right; font-size: 16px; font-weight: 700; color: #dc2626; margin-top: 8px;">
+          Amount Due: ${formattedTotal}
+        </div>
+        <p style="font-size: 13px; color: #475569; margin-top: 12px;">
+          If you've already made this payment, please disregard this notice. Otherwise, we'd appreciate settlement at your earliest convenience.
+        </p>
+      </div>
+    `;
+
+    return this.sendMail(to, subject, html, []);
+  }
 }

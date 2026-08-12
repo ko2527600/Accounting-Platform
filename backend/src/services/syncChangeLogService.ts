@@ -148,6 +148,7 @@ export function invoiceToSyncPayload(invoice: any): Record<string, unknown> {
         : null,
     status: invoice.status,
     emailedAt: invoice.emailedAt?.toISOString?.() ?? invoice.emailedAt ?? null,
+    lastReminderSentAt: invoice.lastReminderSentAt?.toISOString?.() ?? invoice.lastReminderSentAt ?? null,
     journalId: invoice.journalId,
     fundId: invoice.fundId,
     createdAt: invoice.createdAt?.toISOString?.() ?? invoice.createdAt,

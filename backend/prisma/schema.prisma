@@ -334,6 +334,10 @@ model Invoice {
   // handler). Null means never emailed; re-sending updates it, it isn't a
   // count of sends.
   emailedAt          DateTime? @map("emailed_at")
+  // Last time an overdue-payment reminder (dunning email) was sent for this
+  // invoice - used to dedup the daily DunningReminderCronService sweep so an
+  // overdue invoice isn't re-emailed more than once per day.
+  lastReminderSentAt DateTime? @map("last_reminder_sent_at")
   journalId          String?  @map("journal_id")
   // Optional restricted/unrestricted fund this invoice's revenue belongs to
   // (fund accounting for nonprofit tenants) - flows onto every journal line
