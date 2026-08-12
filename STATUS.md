@@ -40,6 +40,14 @@ Per tenant (`runWithTenantContext` + `withCurrentTenantDb`, since this runs with
 
 **Known follow-up, not addressed here (flagged to the user):** the invoice row's actions column (History/Record Payment/Collect via MoMo/Collect via Mobile Money/Credit Note) was already visually crowded before this change - screenshots from live verification show buttons wrapping and getting clipped at normal viewport width. Adding "Email Invoice"/"Re-send" as a sixth action button makes this measurably worse. Not fixed here since it's a distinct, pre-existing layout problem (redesigning the actions column - e.g. a "More actions" overflow menu - is a separate scoped task from "add invoice emailing"), but should be picked up soon given it's now visibly worse.
 
+## [Date: 2026-08-12] - Added Third Named Contact (Customer Care) to Public Footer
+
+**What/Why:** User supplied a third named contact to add alongside Sandra (Sales Executive) and Erasmus Asare (Consultant Manager): Exceltrine Abena Ntewusu, Customer Care Representative, `+233 59 850 0298`.
+
+**What changed:** Added a third entry to `PublicFooter.tsx`'s `CONTACTS` array - same format as the existing two (name, role, `tel:` link), no other changes needed since the footer already renders `CONTACTS` via `.map()`.
+
+**Files:** `frontend/src/components/layout/PublicFooter.tsx`.
+
 ## [Date: 2026-08-12] - Added Real Contact Info to Public Footer
 
 **What/Why:** Follow-up to the previous footer rebuild, which deliberately left contact info out since only a placeholder existed in the codebase. User supplied real details: a general email (`developershub26@gmail.com`) and phone (`0559428462`), plus two named contacts - Sandra (Sales Executive, `+233 24 805 1379`) and Erasmus Asare (Consultant Manager, `+233 55 405 1068`).
