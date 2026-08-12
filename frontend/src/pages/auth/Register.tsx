@@ -7,6 +7,7 @@ import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "../../lib/api";
 import { FileText } from "lucide-react";
+import { AuthSplitLayout } from "../../components/layout/AuthSplitLayout";
 
 export function Register() {
   const [step, setStep] = useState<"account" | "tenant">("account");
@@ -120,9 +121,13 @@ export function Register() {
   };
 
   return (
-    <div className="min-h-screen bg-secondary-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 dark:bg-secondary-950 transition-colors">
+    <AuthSplitLayout
+      imageSrc="/auth/register-panel.jpg"
+      imageAlt="3D data analytics illustration with charts and graphs"
+      tagline="Set up your isolated workspace in minutes - invoicing, mobile money, team roles, and nonprofit fund accounting, all included."
+    >
       <div className="sm:mx-auto sm:w-full sm:max-w-md mb-8 text-center">
-        <h1 className="text-3xl font-extrabold text-primary-600 dark:text-primary-500 tracking-tight">
+        <h1 className="text-3xl font-extrabold text-primary-600 dark:text-primary-500 tracking-tight lg:hidden">
           Ledgio
         </h1>
         <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-secondary-900 dark:text-secondary-50">
@@ -377,6 +382,6 @@ export function Register() {
           </Button>
         </div>
       </Modal>
-    </div>
+    </AuthSplitLayout>
   );
 }

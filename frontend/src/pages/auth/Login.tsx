@@ -5,6 +5,7 @@ import { Input } from "../../components/ui/Input";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "../../lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../../components/ui/Card";
+import { AuthSplitLayout } from "../../components/layout/AuthSplitLayout";
 
 export function Login() {
   const navigate = useNavigate();
@@ -107,9 +108,13 @@ export function Login() {
   };
 
   return (
-    <div className="min-h-screen bg-secondary-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8 dark:bg-secondary-950 transition-colors">
+    <AuthSplitLayout
+      imageSrc="/auth/login-panel.jpg"
+      imageAlt="Business analytics dashboard on a laptop screen"
+      tagline="Sign back in to your dedicated, schema-isolated workspace - real-time ledgers, inventory, and reports, wherever you left off."
+    >
       <div className="sm:mx-auto sm:w-full sm:max-w-md mb-8 text-center">
-        <h1 className="text-3xl font-extrabold text-primary-600 dark:text-primary-500 tracking-tight">
+        <h1 className="text-3xl font-extrabold text-primary-600 dark:text-primary-500 tracking-tight lg:hidden">
           Ledgio
         </h1>
         <h2 className="mt-6 text-center text-3xl font-bold tracking-tight text-secondary-900 dark:text-secondary-50">
@@ -240,6 +245,6 @@ export function Login() {
           )}
         </Card>
       </div>
-    </div>
+    </AuthSplitLayout>
   );
 }
