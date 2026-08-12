@@ -2,6 +2,16 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-12] - Added Real Contact Info to Public Footer
+
+**What/Why:** Follow-up to the previous footer rebuild, which deliberately left contact info out since only a placeholder existed in the codebase. User supplied real details: a general email (`developershub26@gmail.com`) and phone (`0559428462`), plus two named contacts - Sandra (Sales Executive, `+233 24 805 1379`) and Erasmus Asare (Consultant Manager, `+233 55 405 1068`).
+
+**What changed:** `PublicFooter.tsx` grid extended from 3 to 4 columns (`lg:grid-cols-4`), adding a "Contact Us" column: general email (`mailto:`) and phone (`tel:`) links at the top, then the two named contacts with role labels below a divider, each with their own `tel:` link. The general phone number `0559428462` was reformatted to `+233 55 942 8462` (and its `tel:` link to `+233559428462`) to match the international format the user supplied for the two named contacts and dial correctly for international visitors - same digits, just the standard Ghana local-to-international conversion (drop the leading 0, add +233).
+
+**Verification:** `tsc --noEmit` not run (`frontend/node_modules` not installed in this container) - reviewed the diff and the `mailto:`/`tel:` link formatting manually. Confirmed the `Phone` and `Mail` lucide-react icon exports exist in the pinned `1.26.0` package before using them. No backend changes.
+
+**Files:** `frontend/src/components/layout/PublicFooter.tsx`.
+
 ## [Date: 2026-08-12] - Rebuilt Public Footer: Real Nav/Legal Links, Removed Disguised Admin Link
 
 **What/Why:** User asked what should be in the site footer. Before that pass, `PublicFooter.tsx` had almost nothing - a logo, a copyright line, and a button disguised as a fake product-version label ("Ledgio Accounting Engine v2.4 (Encrypted)") that actually navigated to the passcode-gated `/admin/core-engine` admin console, on every public page including the homepage. Flagged this explicitly (not silently touched, since it's a security-surface decision) along with the fact that no real support contact email/phone exists anywhere in the codebase - the only one found (`docs/PRIVACY_POLICY.md`) is a placeholder the doc itself says not to use in production. User chose, via `AskUserQuestion`, to remove the admin link from the public footer (route itself untouched - `/admin/core-engine` still works by direct URL, just no longer linked from marketing pages) and did not supply real contact info, so contact details were deliberately left out rather than inventing a placeholder.
