@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-12] - Fixed: Invoice Row Actions-Column Crowding - Closes Research Doc Item 33
+
+**What/Why:** Follow-up to the invoice-emailing change below, which pushed an already-crowded row (History/Record Payment/Collect via MoMo/Collect via Mobile Money/Credit Note) over the edge - confirmed via live Playwright screenshot showing buttons wrapping and clipping at normal viewport width.
+
+**What changed:** `Invoices.tsx`'s per-row actions collapsed from 6 separate buttons down to 2: the existing icon-only History button, plus a single "Actions ▾" button opening a dropdown listing whichever of the 5 actions apply to that row (same conditional visibility rules as before, unchanged). Mirrors `Header.tsx`'s existing profile-dropdown outside-click-close pattern.
+
+**Real bug found and fixed while building this**: the first version rendered the dropdown as a normal `absolute`-positioned child inside the table cell, and it came out visibly clipped - `Table.tsx`'s wrapper is `overflow-auto` (needed for horizontal scroll on wide tables), and per the CSS spec, setting `overflow-x` to anything other than `visible` forces `overflow-y` to compute as `auto` too, not `visible`, even when only the x-axis was ever intended to be scrollable. No amount of CSS on the dropdown itself could escape that ancestor's clipping. Fixed by rendering the dropdown via `createPortal` to `document.body`, `position: fixed` with coordinates captured from the trigger button's `getBoundingClientRect()` at open time, and closing the menu on any scroll (capture-phase listener, since a fixed-position portal doesn't track its trigger through scrolling) rather than trying to reposition it live. Did not touch `Table.tsx` itself - changing its overflow behavior globally would risk breaking horizontal scrolling on the many other wide tables that already rely on it.
+
+**Verification:** `tsc -b`/`vite build` clean. No backend changes - full suite still 495/495 (confirms nothing else was touched). Live-verified via Playwright: row now shows just 2 compact buttons at normal viewport width (previously 6, wrapping), dropdown opens un-clipped with all 5 conditional items visible, clicking an item (Email Invoice) closes the menu and completes the action normally, and clicking outside the menu closes it without acting.
+
+**Files:** `frontend/src/pages/invoices/Invoices.tsx`.
+
 ## [Date: 2026-08-12] - Built Automated Invoice Emailing (PDF Attached) - Closes Research Doc Item 19
 
 **What/Why:** Closes the AR gap surfaced in the 2026-08-11 ERP checklist research pass - invoices could be created and paid, but the system never actually emailed them to the customer. `Invoice` gains an `emailedAt DateTime?` field (migration `20260812045641_add_invoice_emailed_at`), deliberately separate from the existing `status` field - `status` is already set to `"SENT"` at creation time regardless of whether any email is ever sent (a pre-existing naming quirk, left as-is rather than repurposed, to avoid changing existing status semantics other code/tests depend on), so `emailedAt` is the only real signal of whether the customer actually received the document.
