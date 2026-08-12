@@ -407,6 +407,89 @@ export function generateBalanceSheetPdf(
   });
 }
 
+export interface InvoicePdfItem {
+  description: string;
+  quantity: number;
+  unitPrice: number;
+  amount: number;
+}
+
+/**
+ * Generates a customer-facing Invoice PDF - the itemized document attached
+ * to the "email this invoice" send (see EmailService.sendInvoiceEmail /
+ * invoiceEmailService.ts), not an internal report like the other generators
+ * in this file.
+ */
+export function generateInvoicePdf(
+  tenantName: string,
+  data: {
+    invoiceNumber: string;
+    issueDateLabel: string;
+    dueDateLabel: string;
+    currency: string;
+    customerName: string;
+    customerEmail: string;
+    customerAddress?: string | null;
+    items: InvoicePdfItem[];
+    subtotal: number;
+    tax: number;
+    taxBreakdown: { name: string; rate: number; amount: number }[] | null;
+    total: number;
+  }
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 56, bufferPages: true, compress: false });
+    const chunks: Buffer[] = [];
+    doc.on('data', (chunk: Buffer) => chunks.push(chunk));
+    doc.on('end', () => resolve(Buffer.concat(chunks)));
+    doc.on('error', reject);
+
+    drawReportCover(doc, tenantName, `Invoice ${data.invoiceNumber}`, `Issued ${data.issueDateLabel} — due ${data.dueDateLabel}`);
+
+    doc.x = doc.page.margins.left;
+    doc.fillColor(MUTED).font('Helvetica-Bold').fontSize(10).text('Bill To', doc.x);
+    doc.fillColor(INK).font('Helvetica').fontSize(10.5).text(data.customerName);
+    doc.fillColor(MUTED).fontSize(9.5).text(data.customerEmail);
+    if (data.customerAddress) {
+      doc.text(data.customerAddress);
+    }
+    doc.moveDown(0.5);
+
+    const tableWidth = doc.page.width - doc.page.margins.left - doc.page.margins.right;
+    const columns: TableColumn[] = [
+      { header: 'Description', width: tableWidth * 0.46 },
+      { header: 'Qty', width: tableWidth * 0.14 },
+      { header: 'Unit Price', width: tableWidth * 0.2 },
+      { header: 'Amount', width: tableWidth * 0.2 },
+    ];
+
+    addSectionHeading(doc, 'Items');
+    drawSimpleTable(
+      doc,
+      columns,
+      data.items.map((i) => [i.description, String(i.quantity), formatMoney(i.unitPrice, data.currency), formatMoney(i.amount, data.currency)])
+    );
+
+    drawTotalRow(doc, 'Subtotal', formatMoney(data.subtotal, data.currency));
+    if (data.taxBreakdown && data.taxBreakdown.length > 0) {
+      for (const line of data.taxBreakdown) {
+        doc.moveDown(0.2);
+        doc.x = doc.page.margins.left;
+        doc.fillColor(MUTED).font('Helvetica').fontSize(9.5).text(`${line.name} (${line.rate}%)`, doc.x, doc.y, { continued: true, width: tableWidth * 0.6 });
+        doc.text(formatMoney(line.amount, data.currency), { align: 'right' });
+      }
+    } else if (data.tax > 0) {
+      doc.moveDown(0.2);
+      doc.x = doc.page.margins.left;
+      doc.fillColor(MUTED).font('Helvetica').fontSize(9.5).text('Tax', doc.x, doc.y, { continued: true, width: tableWidth * 0.6 });
+      doc.text(formatMoney(data.tax, data.currency), { align: 'right' });
+    }
+    drawTotalRow(doc, 'Total Due', formatMoney(data.total, data.currency), { color: BRAND_GREEN });
+
+    doc.end();
+  });
+}
+
 /**
  * Generates a real Profit & Loss PDF (Income/Expenses + Net Profit/Loss),
  * mirroring ProfitAndLoss.tsx's on-screen layout.

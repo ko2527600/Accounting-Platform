@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { useNavigate } from "react-router-dom";
 import { useLiveQuery } from "dexie-react-hooks";
 import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../../components/ui/Card";
@@ -10,7 +11,7 @@ import { api } from "../../lib/api";
 import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History, Mail, ChevronDown } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -57,6 +58,7 @@ interface Invoice {
   taxBreakdown: TaxBreakdownLine[] | null;
   total: number;
   status: string;
+  emailedAt?: string | null;
   // Present only on a record still in flight through the local-first sync
   // outbox (see lib/syncEngine.ts) - a real network round-trip hasn't
   // confirmed it yet, or a real rejection needs the user's attention.
@@ -247,6 +249,67 @@ export function Invoices() {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
     }
   };
+
+  const [sendingInvoiceId, setSendingInvoiceId] = useState<string | null>(null);
+  const handleSendInvoiceEmail = async (invoice: Invoice) => {
+    setSendingInvoiceId(invoice.id);
+    try {
+      const res = await api.post(`/invoices/${invoice.id}/send`);
+      if (res.data.success) {
+        showToast(res.data.message || `Invoice emailed to ${invoice.customer.email}.`, "success");
+        resyncInvoicesFromServer();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to email invoice.", "error");
+    } finally {
+      setSendingInvoiceId(null);
+    }
+  };
+
+  // Which row's "Actions" overflow menu is open, if any - collapses the
+  // per-row action buttons (previously 5-6 separate labeled buttons, which
+  // wrapped and clipped at normal viewport width) into one menu, mirroring
+  // Header.tsx's profile-dropdown outside-click-close pattern. Rendered via
+  // a portal (see below) since Table.tsx's wrapper is `overflow-auto` for
+  // horizontal scrolling - per the CSS spec, that forces vertical overflow
+  // to clip too, so an absolutely-positioned dropdown inside a table cell
+  // gets cut off no matter how it's positioned unless it escapes that
+  // ancestor entirely.
+  const [openActionsMenuId, setOpenActionsMenuId] = useState<string | null>(null);
+  const [actionsMenuPosition, setActionsMenuPosition] = useState<{ top: number; right: number } | null>(null);
+
+  const toggleActionsMenu = (invoiceId: string, e: React.MouseEvent<HTMLButtonElement>) => {
+    if (openActionsMenuId === invoiceId) {
+      setOpenActionsMenuId(null);
+      return;
+    }
+    // Viewport-relative (not document-relative) since the menu below uses
+    // `position: fixed` - deliberately not adding window.scrollX/scrollY.
+    const rect = e.currentTarget.getBoundingClientRect();
+    setActionsMenuPosition({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    setOpenActionsMenuId(invoiceId);
+  };
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (!(event.target as HTMLElement).closest("[data-invoice-actions-menu]")) {
+        setOpenActionsMenuId(null);
+      }
+    }
+    // Closes on any scroll (including the table's own horizontal/vertical
+    // scroll container) rather than repositioning - the portal-rendered
+    // menu uses viewport coordinates captured at open time, so it would
+    // otherwise visually detach from its trigger button as the page scrolls.
+    function handleScroll() {
+      setOpenActionsMenuId(null);
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("scroll", handleScroll, true);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("scroll", handleScroll, true);
+    };
+  }, []);
 
   const openCreditNoteModal = async (invoice: Invoice) => {
     setCreditNoteInvoice(invoice);
@@ -557,29 +620,73 @@ export function Invoices() {
                       >
                         <History className="h-3 w-3" />
                       </Button>
-                      {inv.status !== "PAID" && (
-                        <Button variant="outline" size="sm" onClick={() => handlePayInvoice(inv.id)} className="text-xs">
-                          Record Payment
+                      <div className="inline-block" data-invoice-actions-menu>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={(e) => toggleActionsMenu(inv.id, e)}
+                          className="text-xs"
+                        >
+                          Actions
+                          <ChevronDown className="ml-1 h-3 w-3" />
                         </Button>
-                      )}
-                      {inv.status !== "PAID" && inv.status !== "DRAFT" && (
-                        <Button variant="outline" size="sm" onClick={() => openMomoModal(inv)} className="text-xs">
-                          <Smartphone className="mr-1 h-3 w-3" />
-                          Collect via MoMo
-                        </Button>
-                      )}
-                      {inv.status !== "PAID" && inv.status !== "DRAFT" && (
-                        <Button variant="outline" size="sm" onClick={() => openTellerModal(inv)} className="text-xs">
-                          <Wallet className="mr-1 h-3 w-3" />
-                          Collect via Mobile Money (Other Networks)
-                        </Button>
-                      )}
-                      {inv.status !== "DRAFT" && (
-                        <Button variant="outline" size="sm" onClick={() => openCreditNoteModal(inv)} className="text-xs">
-                          <Undo2 className="mr-1 h-3 w-3" />
-                          Credit Note
-                        </Button>
-                      )}
+                        {openActionsMenuId === inv.id && actionsMenuPosition && createPortal(
+                          <div
+                            data-invoice-actions-menu
+                            style={{ position: "fixed", top: actionsMenuPosition.top, right: actionsMenuPosition.right }}
+                            className="w-64 bg-white dark:bg-secondary-900 border border-secondary-200 dark:border-secondary-800 rounded-lg shadow-lg z-50 py-1 text-left"
+                          >
+                            {inv.status !== "DRAFT" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); handleSendInvoiceEmail(inv); }}
+                                disabled={sendingInvoiceId === inv.id}
+                                title={inv.emailedAt ? `Last emailed ${new Date(inv.emailedAt).toLocaleString()}` : "Email this invoice to the customer"}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 disabled:opacity-50"
+                              >
+                                <Mail className="mr-2 h-3 w-3" />
+                                {sendingInvoiceId === inv.id ? "Sending..." : inv.emailedAt ? "Re-send Invoice" : "Email Invoice"}
+                              </button>
+                            )}
+                            {inv.status !== "PAID" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); handlePayInvoice(inv.id); }}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              >
+                                <DollarSign className="mr-2 h-3 w-3" />
+                                Record Payment
+                              </button>
+                            )}
+                            {inv.status !== "PAID" && inv.status !== "DRAFT" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); openMomoModal(inv); }}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              >
+                                <Smartphone className="mr-2 h-3 w-3" />
+                                Collect via MoMo
+                              </button>
+                            )}
+                            {inv.status !== "PAID" && inv.status !== "DRAFT" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); openTellerModal(inv); }}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              >
+                                <Wallet className="mr-2 h-3 w-3" />
+                                Collect via Mobile Money (Other Networks)
+                              </button>
+                            )}
+                            {inv.status !== "DRAFT" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); openCreditNoteModal(inv); }}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              >
+                                <Undo2 className="mr-2 h-3 w-3" />
+                                Credit Note
+                              </button>
+                            )}
+                          </div>,
+                          document.body
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}

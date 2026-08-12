@@ -19,6 +19,8 @@ import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService'
 import { JournalEntryServiceError } from '../services/journalEntryService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
 import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
+import * as invoiceEmailService from '../services/invoiceEmailService';
+import { InvoiceEmailServiceError } from '../services/invoiceEmailService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/syncChangeLogService';
 
 // Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
@@ -344,6 +346,31 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     }
     console.error('[Invoices] Error paying invoice:', error);
     res.status(500).json({ success: false, error: 'Failed to record invoice payment.' });
+  }
+});
+
+/**
+ * POST /api/v1/invoices/:id/send
+ * Emails the invoice (PDF attached) to its customer and stamps `emailedAt`.
+ * Safe to call more than once - each call is a real re-send, not blocked by
+ * a prior send.
+ */
+router.post('/:id/send', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const updated = await invoiceEmailService.sendInvoiceEmail(req.params.id, actor);
+    res.status(200).json({
+      success: true,
+      message: `Invoice emailed to ${updated.customer.email}.`,
+      data: { invoice: updated },
+    });
+  } catch (error: any) {
+    if (error instanceof InvoiceEmailServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Invoices] Error emailing invoice:', error);
+    res.status(500).json({ success: false, error: 'Failed to email invoice.' });
   }
 });
 
