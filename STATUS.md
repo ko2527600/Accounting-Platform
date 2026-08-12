@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-12] - Rebuilt Public Footer: Real Nav/Legal Links, Removed Disguised Admin Link
+
+**What/Why:** User asked what should be in the site footer. Before that pass, `PublicFooter.tsx` had almost nothing - a logo, a copyright line, and a button disguised as a fake product-version label ("Ledgio Accounting Engine v2.4 (Encrypted)") that actually navigated to the passcode-gated `/admin/core-engine` admin console, on every public page including the homepage. Flagged this explicitly (not silently touched, since it's a security-surface decision) along with the fact that no real support contact email/phone exists anywhere in the codebase - the only one found (`docs/PRIVACY_POLICY.md`) is a placeholder the doc itself says not to use in production. User chose, via `AskUserQuestion`, to remove the admin link from the public footer (route itself untouched - `/admin/core-engine` still works by direct URL, just no longer linked from marketing pages) and did not supply real contact info, so contact details were deliberately left out rather than inventing a placeholder.
+
+**What changed:** `PublicFooter.tsx` rewritten as a 3-column footer: brand/tagline, a "Product" nav column (Features, How It Works, Pricing, FAQ), and a "Legal & Compliance" column linking every entry in the existing `LEGAL_DOCS` array (Terms, Privacy, SLA, Customization Policy) plus the Legal Hub - closing a real gap where those pages were previously unreachable from the footer on any page except via the homepage's separate Legal Trust Center section. Copyright year switched from a hardcoded `2026` to `new Date().getFullYear()`. Removed the now-unused `useNavigate`/`Lock` imports and the stale `{/* 7. Footer & Secret Encrypted Admin Broadcast Access */}` comment in `LandingPage.tsx`.
+
+**Verification:** `tsc --noEmit` not run (`frontend/node_modules` not installed in this container) - reviewed the diff manually; all links point to routes already confirmed to exist in `App.tsx`. No backend changes.
+
+**Still open, not resolved here:** the actual support contact email/phone/address for the footer - needs the user to supply real details rather than a placeholder.
+
+**Files:** `frontend/src/components/layout/PublicFooter.tsx`, `frontend/src/pages/landing/LandingPage.tsx`.
+
 ## [Date: 2026-08-12] - Landing Page: Published the Rest of the Product (Nonprofit Support, Roles, Mobile Money, Bank Sync, Audit Trail, 2FA, Full Reports Suite, etc.)
 
 **What/Why:** Ran a factual audit (via a research subagent) cross-referencing every real nav item/route/service in the codebase against the three landing pages (`LandingPage.tsx`, `FeaturesPage.tsx`, `HowItWorksPage.tsx`). Found 20 of 26 in-app nav items (77%) were never mentioned anywhere on the marketing site - most notably nonprofit/fund accounting support (`Tenant.orgType`, the `Fund` model), the full RBAC role system, mobile money (MTN MoMo, TheTeller/Telecel Cash/AirtelTigo/Zeepay/G-Money), bank feed sync (Mono), core AR/AP (invoices/bills), the audit trail, and the just-shipped MFA/2FA. User asked to add all of it (explicitly deferred the pricing-tier inconsistency flagged in the same audit to a later discussion, since pricing itself is still being worked out).

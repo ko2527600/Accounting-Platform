@@ -449,7 +449,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* 7. Footer & Secret Encrypted Admin Broadcast Access */}
+      {/* 7. Footer */}
       <PublicFooter />
     </div>
   );
