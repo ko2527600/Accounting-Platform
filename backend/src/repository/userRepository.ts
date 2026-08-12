@@ -13,6 +13,9 @@ export interface UserRecord {
   isPhoneVerified?: boolean;
   emailVerificationToken?: string | null;
   smsVerificationCode?: string | null;
+  isMfaEnabled?: boolean;
+  totpSecret?: string | null;
+  mfaBackupCodes?: string[];
   createdAt: Date;
   updatedAt: Date;
 }

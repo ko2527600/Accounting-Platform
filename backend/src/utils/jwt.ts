@@ -11,6 +11,10 @@ export interface JwtPayload {
   // was issued, ridden through so nav filtering doesn't need an extra DB
   // round trip on every authenticated request.
   orgType?: string;
+  // True only on the short-lived intermediate token issued after password
+  // verification but before MFA verification - authMiddleware rejects any
+  // request bearing this token outright, see authMiddleware.ts.
+  mfaPending?: boolean;
   iat?: number;
   exp?: number;
   [key: string]: any;

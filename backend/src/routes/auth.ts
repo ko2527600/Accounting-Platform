@@ -3,12 +3,22 @@ import crypto from 'node:crypto';
 import { prisma } from '../config/db';
 import { hashPassword, verifyPassword } from '../utils/password';
 import { validatePasswordStrength } from '../utils/passwordPolicy';
-import { generateJwtToken, computeTokenHash, evictFromJwtCache } from '../utils/jwt';
-import { createUser, findUserByEmail, findUserById } from '../repository/userRepository';
+import { generateJwtToken, verifyJwtToken, computeTokenHash, evictFromJwtCache } from '../utils/jwt';
+import { createUser, findUserByEmail, findUserById, UserRecord } from '../repository/userRepository';
 import { authenticateJwt } from '../middleware/authMiddleware';
+import { authRateLimiter } from '../middleware/rateLimiterMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { recordAuditLog, recordAuditLogTx } from '../services/auditLogService';
 import { revokeToken } from '../services/tokenRevocationService';
+import {
+  generateTotpSecret,
+  buildOtpAuthUrl,
+  generateQrCodeDataUrl,
+  verifyTotpCode,
+  generateBackupCodes,
+  hashBackupCode,
+  matchBackupCode,
+} from '../utils/totp';
 
 const router = Router();
 
@@ -31,7 +41,7 @@ function timingSafeStringEqual(a: string | null | undefined, b: string | null | 
  * POST /api/v1/auth/register
  * Registers a new platform/tenant user.
  */
-router.post('/register', async (req: Request, res: Response): Promise<void> => {
+router.post('/register', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password, name, role, tenantId } = req.body;
 
@@ -148,7 +158,7 @@ router.post('/register', async (req: Request, res: Response): Promise<void> => {
  * Validates Email verification token and/or 4-digit SMS code.
  * Account becomes Active once both are verified, triggering Welcome Email + PDF attachment.
  */
-router.post('/verify', async (req: Request, res: Response): Promise<void> => {
+router.post('/verify', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, emailVerificationToken, smsCode } = req.body;
 
@@ -224,7 +234,7 @@ router.post('/verify', async (req: Request, res: Response): Promise<void> => {
  * "deactivated" account (verification email lost/never arrived) can
  * continue without needing to re-register.
  */
-router.post('/resend-verification', async (req: Request, res: Response): Promise<void> => {
+router.post('/resend-verification', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email } = req.body;
 
@@ -302,10 +312,60 @@ router.post('/resend-verification', async (req: Request, res: Response): Promise
 });
 
 /**
+ * Issues the real, fully-authenticated session token and sends the login
+ * success response. Shared by the direct (no-MFA) login path and the
+ * post-MFA-verification path so both end up with byte-identical behavior.
+ */
+async function completeLogin(user: UserRecord, req: Request, res: Response): Promise<void> {
+  // Org type rides on the token so nav filtering never needs an extra DB
+  // round trip on later requests - only fetched here at login time.
+  const loginTenant = user.tenantId
+    ? await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { orgType: true } })
+    : null;
+
+  const tokenPayload = {
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    role: user.role,
+    tenantId: user.tenantId || undefined,
+    orgType: loginTenant?.orgType,
+  };
+  const token = generateJwtToken(tokenPayload);
+
+  await recordAuditLog({
+    action: 'AUTH.LOGIN_SUCCESS',
+    entity: 'User',
+    entityId: user.id,
+    tenantId: user.tenantId || null,
+    actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+  });
+
+  res.status(200).json({
+    success: true,
+    message: 'Login successful',
+    data: {
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        phone: user.phone,
+        role: user.role,
+        tenantId: user.tenantId,
+        orgType: loginTenant?.orgType,
+        createdAt: user.createdAt,
+        isMfaEnabled: user.isMfaEnabled || false,
+      },
+      token,
+    },
+  });
+}
+
+/**
  * POST /api/v1/auth/login
  * Authenticates user credentials and returns JWT token.
  */
-router.post('/login', async (req: Request, res: Response): Promise<void> => {
+router.post('/login', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { email, password } = req.body;
 
@@ -365,53 +425,119 @@ router.post('/login', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    // Org type rides on the token so nav filtering never needs an extra DB
-    // round trip on later requests - only fetched here at login time.
-    const loginTenant = user.tenantId
-      ? await prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { orgType: true } })
-      : null;
+    if (user.isMfaEnabled) {
+      // Short-lived (5min), narrow-claim token - proves the password was
+      // correct but not that MFA was completed. authenticateJwt rejects it
+      // outright for every other route (see authMiddleware.ts); the only
+      // thing it's good for is POST /auth/login/verify-mfa below.
+      const mfaToken = generateJwtToken({ id: user.id, email: user.email, role: user.role, mfaPending: true }, 300);
 
-    // Generate JWT token
-    const tokenPayload = {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      role: user.role,
-      tenantId: user.tenantId || undefined,
-      orgType: loginTenant?.orgType,
-    };
-    const token = generateJwtToken(tokenPayload);
+      await recordAuditLog({
+        action: 'AUTH.MFA_CHALLENGE_ISSUED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+      });
 
-    await recordAuditLog({
-      action: 'AUTH.LOGIN_SUCCESS',
-      entity: 'User',
-      entityId: user.id,
-      tenantId: user.tenantId || null,
-      actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
-    });
+      res.status(200).json({
+        success: true,
+        mfaRequired: true,
+        message: 'MFA verification required.',
+        data: { mfaToken },
+      });
+      return;
+    }
 
-    res.status(200).json({
-      success: true,
-      message: 'Login successful',
-      data: {
-        user: {
-          id: user.id,
-          email: user.email,
-          name: user.name,
-          phone: user.phone,
-          role: user.role,
-          tenantId: user.tenantId,
-          orgType: loginTenant?.orgType,
-          createdAt: user.createdAt,
-        },
-        token,
-      },
-    });
+    await completeLogin(user, req, res);
   } catch (error: any) {
     console.error('[Auth Service] Login error:', error);
     res.status(500).json({
       error: 'Internal Server Error',
       message: 'Failed to authenticate user.',
+    });
+  }
+});
+
+/**
+ * POST /api/v1/auth/login/verify-mfa
+ * Second step of login for MFA-enabled accounts. Exchanges the short-lived
+ * mfaToken from POST /login (proves password was correct) plus either a
+ * live TOTP code or a one-time backup code for a real, fully-authenticated
+ * session token - mirrors POST /login's own success response shape exactly.
+ */
+router.post('/login/verify-mfa', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { mfaToken, code, backupCode } = req.body;
+
+    if (!mfaToken || (!code && !backupCode)) {
+      res.status(400).json({
+        error: 'Validation Error',
+        message: 'mfaToken and either code or backupCode are required.',
+      });
+      return;
+    }
+
+    let payload;
+    try {
+      payload = await verifyJwtToken(mfaToken);
+    } catch {
+      res.status(401).json({ error: 'Unauthorized', message: 'Invalid or expired MFA session. Please log in again.' });
+      return;
+    }
+
+    if (!payload.mfaPending) {
+      res.status(401).json({ error: 'Unauthorized', message: 'Invalid MFA session token.' });
+      return;
+    }
+
+    const user = await findUserById(prisma, payload.id);
+    if (!user || !user.isMfaEnabled || !user.totpSecret) {
+      res.status(401).json({ error: 'Unauthorized', message: 'MFA session is no longer valid.' });
+      return;
+    }
+
+    const usedBackupCode = !code;
+    const backupCodeIndex = usedBackupCode ? matchBackupCode(backupCode, user.mfaBackupCodes || []) : -1;
+    const verified = usedBackupCode ? backupCodeIndex !== -1 : verifyTotpCode(user.totpSecret, code);
+
+    if (!verified) {
+      await recordAuditLog({
+        action: 'AUTH.MFA_LOGIN_FAILED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: usedBackupCode ? 'Invalid backup code.' : 'Invalid TOTP code.',
+      });
+      res.status(401).json({
+        error: 'Unauthorized',
+        message: usedBackupCode ? 'Invalid backup code.' : 'Invalid verification code.',
+      });
+      return;
+    }
+
+    if (usedBackupCode) {
+      // Single-use: remove the matched code so it can never be replayed.
+      const remainingCodes = [...(user.mfaBackupCodes || [])];
+      remainingCodes.splice(backupCodeIndex, 1);
+      await prisma.user.update({ where: { id: user.id }, data: { mfaBackupCodes: remainingCodes } });
+      await recordAuditLog({
+        action: 'AUTH.MFA_BACKUP_CODE_USED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: `${remainingCodes.length} backup code(s) remaining.`,
+      });
+    }
+
+    await completeLogin(user, req, res);
+  } catch (error: any) {
+    console.error('[Auth Service] MFA verification error:', error);
+    res.status(500).json({
+      error: 'Internal Server Error',
+      message: 'Failed to verify MFA code.',
     });
   }
 });
@@ -479,6 +605,7 @@ router.get('/me', authenticateJwt, async (req: Request, res: Response): Promise<
           // value can never be stale.
           orgType: req.user.orgType,
           createdAt: user.createdAt,
+          isMfaEnabled: user.isMfaEnabled || false,
         },
       },
     });
@@ -534,13 +661,166 @@ router.put('/profile', authenticateJwt, async (req: Request, res: Response): Pro
 });
 
 /**
+ * POST /api/v1/auth/mfa/setup
+ * Starts (or restarts) MFA enrollment: generates a new TOTP secret, persists
+ * it on the user (isMfaEnabled stays false until confirmed via
+ * /mfa/verify-setup below), and returns the secret plus a scannable QR code.
+ * Safe to call again before confirming - each call just overwrites the
+ * pending secret.
+ */
+router.post('/mfa/setup', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = await findUserById(prisma, req.user!.id);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User record not found.' });
+      return;
+    }
+    if (user.isMfaEnabled) {
+      res.status(400).json({ success: false, error: 'MFA is already enabled. Disable it first to re-enroll.' });
+      return;
+    }
+
+    const secret = generateTotpSecret();
+    await prisma.user.update({ where: { id: user.id }, data: { totpSecret: secret } });
+
+    const otpAuthUrl = buildOtpAuthUrl(secret, user.email);
+    const qrCodeDataUrl = await generateQrCodeDataUrl(otpAuthUrl);
+
+    res.status(200).json({
+      success: true,
+      data: { secret, otpAuthUrl, qrCodeDataUrl },
+    });
+  } catch (error: any) {
+    console.error('[Auth Service] MFA setup error:', error);
+    res.status(500).json({ success: false, error: 'Failed to start MFA setup.' });
+  }
+});
+
+/**
+ * POST /api/v1/auth/mfa/verify-setup
+ * Confirms enrollment by checking a real code from the user's authenticator
+ * app against the pending secret from /mfa/setup. On success, activates MFA
+ * and returns one-time backup codes in plain text - shown to the user
+ * exactly once here, only hashed copies are ever persisted.
+ */
+router.post('/mfa/verify-setup', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { code } = req.body;
+    if (!code) {
+      res.status(400).json({ success: false, error: 'A verification code is required.' });
+      return;
+    }
+
+    const user = await findUserById(prisma, req.user!.id);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User record not found.' });
+      return;
+    }
+    if (user.isMfaEnabled) {
+      res.status(400).json({ success: false, error: 'MFA is already enabled.' });
+      return;
+    }
+    if (!user.totpSecret) {
+      res.status(400).json({ success: false, error: 'Start MFA setup first via POST /auth/mfa/setup.' });
+      return;
+    }
+
+    if (!verifyTotpCode(user.totpSecret, code)) {
+      res.status(400).json({ success: false, error: 'Invalid code. Please check your authenticator app and try again.' });
+      return;
+    }
+
+    const backupCodes = generateBackupCodes();
+    const hashedBackupCodes = backupCodes.map(hashBackupCode);
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { isMfaEnabled: true, mfaBackupCodes: hashedBackupCodes },
+    });
+
+    await recordAuditLog({
+      action: 'AUTH.MFA_ENABLED',
+      entity: 'User',
+      entityId: user.id,
+      tenantId: user.tenantId || null,
+      actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'MFA enabled successfully. Save these backup codes somewhere safe - each one can be used once if you lose access to your authenticator app, and they will not be shown again.',
+      data: { backupCodes },
+    });
+  } catch (error: any) {
+    console.error('[Auth Service] MFA setup verification error:', error);
+    res.status(500).json({ success: false, error: 'Failed to verify MFA setup.' });
+  }
+});
+
+/**
+ * POST /api/v1/auth/mfa/disable
+ * Requires the account password as re-confirmation (not just an existing
+ * session) before turning MFA off, since a stolen unlocked session
+ * shouldn't be enough on its own to strip a security control.
+ */
+router.post('/mfa/disable', authenticateJwt, async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { password } = req.body;
+    if (!password) {
+      res.status(400).json({ success: false, error: 'Your password is required to disable MFA.' });
+      return;
+    }
+
+    const user = await findUserById(prisma, req.user!.id);
+    if (!user) {
+      res.status(404).json({ success: false, error: 'User record not found.' });
+      return;
+    }
+    if (!user.isMfaEnabled) {
+      res.status(400).json({ success: false, error: 'MFA is not currently enabled.' });
+      return;
+    }
+    if (!user.password || !verifyPassword(password, user.password)) {
+      await recordAuditLog({
+        action: 'AUTH.MFA_DISABLE_FAILED',
+        entity: 'User',
+        entityId: user.id,
+        tenantId: user.tenantId || null,
+        actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+        details: 'Incorrect password.',
+      });
+      res.status(401).json({ success: false, error: 'Incorrect password.' });
+      return;
+    }
+
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { isMfaEnabled: false, totpSecret: null, mfaBackupCodes: [] },
+    });
+
+    await recordAuditLog({
+      action: 'AUTH.MFA_DISABLED',
+      entity: 'User',
+      entityId: user.id,
+      tenantId: user.tenantId || null,
+      actor: { userId: user.id, userEmail: user.email, ipAddress: req.ip || req.socket?.remoteAddress || null },
+    });
+
+    res.status(200).json({ success: true, message: 'MFA has been disabled on your account.' });
+  } catch (error: any) {
+    console.error('[Auth Service] MFA disable error:', error);
+    res.status(500).json({ success: false, error: 'Failed to disable MFA.' });
+  }
+});
+
+/**
  * POST /api/v1/auth/verify-token
  * Verifies JWT token validity and returns claims.
  * Note: named distinctly from POST /verify (email/SMS account verification above),
  * which would otherwise shadow this handler since Express dispatches to the first
  * matching route registration.
  */
-router.post('/verify-token', async (req: Request, res: Response): Promise<void> => {
+router.post('/verify-token', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   const authHeader = req.headers.authorization || (req.headers['x-auth-token'] as string) || req.body.token;
 
   if (!authHeader) {
@@ -580,7 +860,7 @@ router.post('/verify-token', async (req: Request, res: Response): Promise<void> 
  * GET /api/v1/auth/invitation/:token
  * Validates invitation token and returns basic details for accept UI.
  */
-router.get('/invitation/:token', async (req: Request, res: Response): Promise<void> => {
+router.get('/invitation/:token', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { token } = req.params;
     const invitation = await prisma.invitation.findUnique({
@@ -636,7 +916,7 @@ router.get('/invitation/:token', async (req: Request, res: Response): Promise<vo
  * POST /api/v1/auth/accept-invitation
  * Accepts invitation token, sets user password and name, links to tenantId.
  */
-router.post('/accept-invitation', async (req: Request, res: Response): Promise<void> => {
+router.post('/accept-invitation', authRateLimiter, async (req: Request, res: Response): Promise<void> => {
   try {
     const { token, name, password } = req.body;
 
