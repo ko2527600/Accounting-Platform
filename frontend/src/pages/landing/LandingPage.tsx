@@ -1,8 +1,5 @@
 import { useNavigate, Link } from "react-router-dom";
 import {
-  Smartphone,
-  Mail,
-  Building2,
   ArrowRight,
   CheckCircle2,
   ChevronRight,
@@ -16,6 +13,7 @@ import { PublicHeader } from "../../components/layout/PublicHeader";
 import { PublicFooter } from "../../components/layout/PublicFooter";
 import { ImageCarousel } from "../../components/landing/ImageCarousel";
 import { LEGAL_DOCS } from "../../lib/legalDocs";
+import { LANDING_FEATURE_CARDS, CARD_ACCENTS } from "../../lib/featureCards";
 
 function isIos(): boolean {
   return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
@@ -52,6 +50,26 @@ const FAQ_ITEMS: { question: string; answer: string }[] = [
     answer:
       "No. Registration provisions your dedicated workspace instantly - there's no separate implementation cost or onboarding fee on any tier.",
   },
+  {
+    question: "Does Ledgio support nonprofits, churches, NGOs, or schools?",
+    answer:
+      "Yes. Choose Nonprofit/Church/NGO/School as your organization type at registration to unlock dedicated fund accounting - restricted and unrestricted funds are tracked against every invoice, bill, and journal entry, and POS/Inventory are replaced with a Funds view.",
+  },
+  {
+    question: "Can I control what each team member can see and do?",
+    answer:
+      "Yes. Ledgio supports role-based access - Admin, Accountant, Auditor, HR, Shop Manager, and Cashier roles each see a different, purpose-built navigation, and shop-level roles can be restricted to specific warehouse locations.",
+  },
+  {
+    question: "Does Ledgio work with Mobile Money or my bank?",
+    answer:
+      "Yes. Ledgio supports MTN Mobile Money, Telecel Cash, AirtelTigo Money, Zeepay, and G-Money collections, plus bank account connection for automatic transaction sync.",
+  },
+  {
+    question: "Is two-factor authentication available?",
+    answer:
+      "Yes. Any account can enable TOTP-based two-factor authentication (compatible with apps like Google Authenticator or Authy) with one-time backup codes for account recovery.",
+  },
 ];
 
 export function LandingPage() {
@@ -68,7 +86,7 @@ export function LandingPage() {
           {/* Glassmorphic Badge */}
           <div className="inline-flex items-center space-x-2 px-4 py-2 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mb-8 animate-in fade-in duration-700">
             <SparklesIcon className="h-4 w-4" />
-            <span>The #1 Multi-Tenant ERP & Accounting Engine for Business Owners</span>
+            <span>The #1 Multi-Tenant ERP & Accounting Engine for Businesses & Nonprofits</span>
           </div>
 
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white max-w-5xl mx-auto leading-tight">
@@ -79,7 +97,7 @@ export function LandingPage() {
           </h1>
 
           <p className="mt-6 text-lg sm:text-xl text-secondary-300 max-w-3xl mx-auto leading-relaxed font-normal">
-            Eliminate shop cash shortages, automate multi-warehouse inventory, and receive executive weekly Profit & Loss PDF statements delivered straight to your email every Monday morning.
+            Eliminate shop cash shortages, automate multi-warehouse inventory, and receive executive weekly Profit & Loss PDF statements delivered straight to your email every Monday morning. Complete with invoicing, bills, role-based team access, mobile money collections, bank sync, and dedicated fund accounting for nonprofits.
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4">
@@ -144,42 +162,29 @@ export function LandingPage() {
       <section id="features" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Why Businesses Choose Ledgio</h2>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Why Businesses & Nonprofits Choose Ledgio</h2>
             <p className="mt-4 text-secondary-400 text-base">
-              Built specifically to give business owners absolute visibility, anti-fraud protection, and effortless compliance.
+              A complete accounting core - not just a shortage tracker - built for absolute visibility, anti-fraud protection, and effortless compliance.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 hover:border-emerald-500/50 transition-all duration-300 group">
-              <div className="p-3 bg-amber-500/10 rounded-xl text-amber-400 w-fit mb-6 group-hover:scale-110 transition-transform">
-                <Smartphone className="h-7 w-7" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-3">Instant SMS Cash Shortage Warnings</h3>
-              <p className="text-sm text-secondary-400 leading-relaxed">
-                Receive instant SMS shortage warnings directly on your mobile phone whenever a shop drawer closes short. Managed centrally by Ledgio and included in your subscription.
-              </p>
-            </div>
-
-            <div className="p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 hover:border-blue-500/50 transition-all duration-300 group">
-              <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400 w-fit mb-6 group-hover:scale-110 transition-transform">
-                <Mail className="h-7 w-7" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-3">Automated Monday Email Reports</h3>
-              <p className="text-sm text-secondary-400 leading-relaxed">
-                Receive weekly Profit & Loss PDF executive performance statements sent automatically to your inbox every Monday at 8:00 AM.
-              </p>
-            </div>
-
-            <div className="p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 hover:border-emerald-500/50 transition-all duration-300 group">
-              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400 w-fit mb-6 group-hover:scale-110 transition-transform">
-                <Building2 className="h-7 w-7" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-3">Multi-Warehouse Logistics ("Godowns")</h3>
-              <p className="text-sm text-secondary-400 leading-relaxed">
-                Identify fast-selling products vs slow-moving dead stock, transfer inventory between shops, and automate re-ordering thresholds.
-              </p>
-            </div>
+            {LANDING_FEATURE_CARDS.map((card, i) => {
+              const accent = CARD_ACCENTS[i % CARD_ACCENTS.length];
+              const Icon = card.icon;
+              return (
+                <div
+                  key={card.title}
+                  className={`p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 ${accent.hoverBorder} transition-all duration-300 group`}
+                >
+                  <div className={`p-3 ${accent.bg} rounded-xl ${accent.text} w-fit mb-6 group-hover:scale-110 transition-transform`}>
+                    <Icon className="h-7 w-7" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">{card.title}</h3>
+                  <p className="text-sm text-secondary-400 leading-relaxed">{card.description}</p>
+                </div>
+              );
+            })}
           </div>
 
           <div className="mt-10 text-center">
@@ -209,7 +214,7 @@ export function LandingPage() {
               <div className="text-xs font-bold text-emerald-400 mb-2">STEP 01</div>
               <h4 className="text-lg font-bold text-white mb-2">Register Business</h4>
               <p className="text-xs text-secondary-400 leading-relaxed">
-                Enter your Company Name, Base Operating Currency (GHS, USD, EUR, NGN, GBP), Admin Email, and Owner Mobile Number.
+                Enter your Company Name, choose Business or Nonprofit/Church/NGO/School as your organization type, select your Base Operating Currency (GHS, USD, EUR, NGN, GBP), Admin Email, and Owner Mobile Number.
               </p>
             </div>
 
@@ -240,6 +245,10 @@ export function LandingPage() {
               <li className="flex items-center">
                 <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
                 <span><strong>Registered Business Name:</strong> Used to provision your dedicated schema.</span>
+              </li>
+              <li className="flex items-center">
+                <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
+                <span><strong>Organization Type:</strong> Business unlocks POS & Inventory; Nonprofit/Church/NGO/School unlocks Fund Accounting instead.</span>
               </li>
               <li className="flex items-center">
                 <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
@@ -440,7 +449,7 @@ export function LandingPage() {
         </div>
       </section>
 
-      {/* 7. Footer & Secret Encrypted Admin Broadcast Access */}
+      {/* 7. Footer */}
       <PublicFooter />
     </div>
   );
