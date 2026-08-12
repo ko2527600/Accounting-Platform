@@ -8,6 +8,16 @@ import { requireTenantContext } from '../context/tenantContext';
 import * as monoService from '../services/monoService';
 import { MonoServiceError } from '../services/monoService';
 import { recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
+import * as ledgerRepository from '../repository/ledgerRepository';
+
+// Bank posting dates commonly lag or lead the book/ledger date by a few
+// days (batch processing, weekends/holidays), so the match window can't be
+// same-day-only without missing obviously-correct matches.
+const RECONCILE_MATCH_DAY_WINDOW = 10;
+// Tolerance for float/decimal rounding noise when comparing a Ledger row's
+// (debit - credit) against a bank transaction's amount - not a "close
+// enough" fuzzy match, just enough to absorb representation noise.
+const RECONCILE_AMOUNT_TOLERANCE = 0.01;
 
 const router = Router();
 
@@ -265,8 +275,66 @@ router.get('/transactions', async (req: Request, res: Response): Promise<void> =
 });
 
 /**
+ * GET /api/v1/banking/transactions/:id/suggestions
+ * Real matching logic: finds candidate General Ledger entries (on
+ * cash/bank-equivalent accounts) whose amount and date plausibly correspond
+ * to this bank statement line, instead of requiring the user to already
+ * know a ledgerId. Amount must match exactly (debit - credit, same sign
+ * convention as the bank transaction's amount); date must be within
+ * RECONCILE_MATCH_DAY_WINDOW days either side. Ledger rows already linked
+ * to another bank transaction are excluded so the same ledger entry can't
+ * be suggested for two different statement lines.
+ */
+router.get('/transactions/:id/suggestions', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+
+    const transaction = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).bankTransaction.findFirst({ where: { id, tenantId } });
+    });
+
+    if (!transaction) {
+      res.status(404).json({ success: false, error: 'Bank transaction not found.' });
+      return;
+    }
+
+    const alreadyLinked = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).bankTransaction.findMany({
+        where: { tenantId, ledgerId: { not: null }, id: { not: id } },
+        select: { ledgerId: true },
+      });
+    });
+    const excludeLedgerIds = alreadyLinked.map((t: any) => t.ledgerId as string);
+
+    const candidates = await withCurrentTenantDb(prisma, (client) =>
+      ledgerRepository.findCashLedgerMatchCandidates(client, {
+        amount: Number(transaction.amount),
+        targetDate: transaction.postedDate,
+        dayWindow: RECONCILE_MATCH_DAY_WINDOW,
+        excludeLedgerIds,
+      })
+    );
+
+    res.status(200).json({
+      success: true,
+      data: { candidates },
+    });
+  } catch (error: any) {
+    console.error('[Banking] Error finding reconciliation suggestions:', error);
+    res.status(500).json({ success: false, error: 'Failed to find matching ledger entries.' });
+  }
+});
+
+/**
  * POST /api/v1/banking/reconcile
- * Matches a bank transaction with a ledger entry.
+ * Confirms a bank transaction matches a specific ledger entry - unlike the
+ * old version of this endpoint, this actually validates the match rather
+ * than blindly flipping status: the ledgerId is required, must reference a
+ * real Ledger row, and that row's net amount (debit - credit) must equal
+ * the bank transaction's amount within RECONCILE_AMOUNT_TOLERANCE. Rejects
+ * matching a ledger row that's already linked to a different bank
+ * transaction.
  */
 router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
@@ -274,25 +342,51 @@ router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: R
     const { transactionId, ledgerId } = req.body;
 
     if (!transactionId) {
+      res.status(400).json({ success: false, error: 'Bank transactionId is required.' });
+      return;
+    }
+    if (!ledgerId) {
+      res.status(400).json({ success: false, error: 'A matching ledgerId is required to reconcile.' });
+      return;
+    }
+
+    const existing = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).bankTransaction.findFirst({ where: { id: transactionId, tenantId } });
+    });
+    if (!existing) {
+      res.status(404).json({ success: false, error: 'Bank transaction not found.' });
+      return;
+    }
+
+    const ledgerEntry = await withCurrentTenantDb(prisma, (client) => ledgerRepository.getLedgerById(client, ledgerId));
+    if (!ledgerEntry) {
+      res.status(404).json({ success: false, error: 'Ledger entry not found.' });
+      return;
+    }
+
+    const ledgerAmount = ledgerEntry.debit - ledgerEntry.credit;
+    if (Math.abs(ledgerAmount - Number(existing.amount)) > RECONCILE_AMOUNT_TOLERANCE) {
       res.status(400).json({
         success: false,
-        error: 'Bank transactionId is required.',
+        error: `Selected ledger entry (${ledgerAmount}) does not match the bank transaction amount (${Number(existing.amount)}).`,
       });
       return;
     }
 
-    const updatedTx = await withCurrentTenantDb(prisma, async (client) => {
-      const existing = await (client as any).bankTransaction.findFirst({ where: { id: transactionId, tenantId } });
-      if (!existing) {
-        throw new Error('Bank transaction not found.');
-      }
+    const conflictingTx = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).bankTransaction.findFirst({
+        where: { tenantId, ledgerId, id: { not: transactionId } },
+      });
+    });
+    if (conflictingTx) {
+      res.status(409).json({ success: false, error: 'This ledger entry is already matched to a different bank transaction.' });
+      return;
+    }
 
+    const updatedTx = await withCurrentTenantDb(prisma, async (client) => {
       const updated = await (client as any).bankTransaction.update({
         where: { id: transactionId },
-        data: {
-          status: 'RECONCILED',
-          ledgerId: ledgerId || undefined,
-        },
+        data: { status: 'RECONCILED', ledgerId },
       });
 
       await recordAuditLogTx(client, {
@@ -313,14 +407,7 @@ router.post('/reconcile', requireRole('Accountant'), async (req: Request, res: R
     });
   } catch (error: any) {
     console.error('[Banking] Error reconciling transaction:', error);
-    if (error.message === 'Bank transaction not found.') {
-      res.status(404).json({ success: false, error: error.message });
-      return;
-    }
-    res.status(500).json({
-      success: false,
-      error: 'Failed to reconcile bank transaction.',
-    });
+    res.status(500).json({ success: false, error: 'Failed to reconcile bank transaction.' });
   }
 });
 
