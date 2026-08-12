@@ -2,6 +2,34 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-11] - Landing Page: Removed User's Photo from Carousel
+
+**What/Why:** User asked to remove their personal photo from the landing page carousel added in the previous entry. Removed the `founder.jpg` slide from `ImageCarousel.tsx`'s `SLIDES` array and deleted `frontend/public/landing/founder.jpg` from the repo. The carousel now shows only the three Unsplash accounting/business photos.
+
+**Files:** `frontend/src/components/landing/ImageCarousel.tsx`, `frontend/public/landing/founder.jpg` (deleted).
+
+## [Date: 2026-08-11] - Landing Page: Added Auto-Sliding Photo Carousel
+
+**What/Why:** User asked to make the landing page "look interesting" with a sliding image carousel, using a personal photo they uploaded plus accounting-themed imagery, and mentioned generating images with AI. No AI image-generation tool is available in this session, so that request was not fulfilled as asked - instead used two sourcing paths, both disclosed here: (1) the user's own uploaded photo (`4d6fab16-IMG20260609WA0010.jpg`, read and visually confirmed before use), copied into the repo as `frontend/public/landing/founder.jpg`; (2) three business/accounting-themed photos sourced from Unsplash, which licenses photos free for commercial use with no attribution required - chosen specifically to avoid pulling arbitrary images off the web with unclear rights. Each was downloaded, visually reviewed, and confirmed on-topic before being committed (`slide-workdesk.jpg`, `slide-taxdocs.jpg`, `slide-charts.jpg`).
+
+**What was added:** New `ImageCarousel` component (`frontend/src/components/landing/ImageCarousel.tsx`) - dependency-free (no carousel library installed), auto-advances every 5s via `setInterval`, pauses on hover, supports manual prev/next and dot navigation, each slide has an image, alt text, and a caption overlay. Wired into `LandingPage.tsx` as a new "Real People. Real Businesses. Real Numbers." section between the hero and the Features section.
+
+**Note on caption copy:** initial draft captioned the user's photo as "founder" - reverted that to neutral "team" language since that title wasn't confirmed by the user; flagged to them directly rather than asserting an unverified identity claim on a public page.
+
+**Verification:** `tsc --noEmit` not run in this session (`frontend/node_modules` not installed in the container) - reviewed the diff and each downloaded image manually instead. No backend changes.
+
+**Files:** `frontend/src/components/landing/ImageCarousel.tsx` (new), `frontend/src/pages/landing/LandingPage.tsx`, `frontend/public/landing/founder.jpg` (new), `frontend/public/landing/slide-workdesk.jpg` (new), `frontend/public/landing/slide-taxdocs.jpg` (new), `frontend/public/landing/slide-charts.jpg` (new).
+
+## [Date: 2026-08-11] - Landing Page: Added FAQ Section + "No Credit Card Required" Trial Copy
+
+**What/Why:** User asked for a competitive review of a competitor's (Enerpize) marketing landing page, then asked to apply anything applicable to ours. Two gaps were UI/copy-only and safely actionable without a product-scope decision: (1) `LandingPage.tsx` had no FAQ section at all, despite this being a common, low-cost way to preempt trial-signup objections; (2) the hero CTA gave no reassurance about what "Start Free Business Trial" actually requires. Everything else identified in that review (Enerpize's AI auto-matching features, their broader ERP-module positioning, usage-metered pricing tiers) was deliberately left out as out-of-scope product/spec decisions, not landing-page copy - adding them would mean advertising capabilities not in this codebase's spec.
+
+**What changed:** Added a `FAQ_ITEMS` array and a new "Frequently Asked Questions" section (`#faq`, placed between Pricing and the Legal Trust Center) to `LandingPage.tsx`. Every answer is grounded in facts already established elsewhere in this same file or verified directly against the code before writing: no-credit-card was confirmed by reading `Register.tsx` (no payment/card fields in the signup flow); schema-per-tenant isolation and the SMS/weekly-email features were already stated elsewhere on the page; the "move tiers later" answer was phrased around contacting support rather than a self-serve upgrade flow, since `backend/prisma/schema.prisma` has a `tier` field on the tenant model but no upgrade endpoint was found in `backend/src`. Also added a "No credit card required to start your trial" line directly under the hero CTA buttons.
+
+**Verification:** `tsc --noEmit` could not be run in this session (`frontend/node_modules` not installed in this container), so this is unverified by the type checker - reviewed the diff manually instead. No backend or schema changes were made.
+
+**Files:** `frontend/src/pages/landing/LandingPage.tsx`.
+
 ## [Date: 2026-08-11] - Built MFA/2FA Login (TOTP + Backup Codes) - Closes the Gap Flagged in the Pain-Point Research Pass
 
 **What/Why:** Closes Section 4 item 32 of the Ghana market research doc (surfaced the same day via a user-supplied industry pain-point analysis - "small businesses rarely implement MFA properly," confirmed as a real, currently-true gap on this platform via grep). Full TOTP-based two-factor login: `User` gains `isMfaEnabled`/`totpSecret`/`mfaBackupCodes` fields (migration `20260811233001_add_user_mfa_fields`). Login is now two-step for MFA-enabled accounts - password success issues a short-lived (5min) `mfaPending` JWT claim instead of a real session token; `authenticateJwt` rejects any request bearing that claim outright (`authMiddleware.ts`), so it's only good for the new `POST /auth/login/verify-mfa`, which accepts either a live TOTP code or a one-time backup code and only then issues the real session token, via a `completeLogin()` helper shared with the no-MFA path so both produce byte-identical responses. New account-management endpoints: `POST /auth/mfa/setup` (generates secret + QR), `POST /auth/mfa/verify-setup` (confirms with a real code, activates MFA, issues 10 one-time backup codes shown once), `POST /auth/mfa/disable` (requires password re-confirmation, not just an existing session).
