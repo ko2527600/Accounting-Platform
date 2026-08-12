@@ -173,25 +173,68 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
     expect(payees).toContain('AWS Hosting Bill');
     expect(payees).not.toContain('Acme Client Corp'); // the old hardcoded fake payee
 
-    const txId = transactionsRes.body.data.transactions[0].id;
+    // Real matching now requires an actual Ledger row on a cash-equivalent
+    // account whose amount matches the bank transaction - post a journal
+    // entry that creates one for the AWS Hosting Bill withdrawal (-45000).
+    const cashAcc = await request(app)
+      .post('/api/v1/accounts')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ code: `1010-${runId}`, name: 'Cash', type: 'ASSET' });
+    const expenseAcc = await request(app)
+      .post('/api/v1/accounts')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ code: `5010-${runId}`, name: 'Hosting Expense', type: 'EXPENSE' });
+
+    const withdrawalTx = transactionsRes.body.data.transactions.find((t: any) => t.payee === 'AWS Hosting Bill');
+    await request(app)
+      .post('/api/v1/journal-entries')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({
+        description: 'AWS Hosting Bill payment',
+        status: 'POSTED',
+        entryDate: withdrawalTx.postedDate.split('T')[0],
+        lines: [
+          { accountId: expenseAcc.body.data.account.id, debit: 45000, credit: 0 },
+          { accountId: cashAcc.body.data.account.id, debit: 0, credit: 45000 },
+        ],
+      });
+
+    const suggestionsRes = await request(app)
+      .get(`/api/v1/banking/transactions/${withdrawalTx.id}/suggestions`)
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug);
+    expect(suggestionsRes.status).toBe(200);
+    expect(suggestionsRes.body.data.candidates.length).toBeGreaterThanOrEqual(1);
+    const matchedLedgerId = suggestionsRes.body.data.candidates[0].id;
+
     const reconcileRes = await request(app)
       .post('/api/v1/banking/reconcile')
       .set('Authorization', `Bearer ${token1}`)
       .set('X-Tenant-ID', tenant1Slug)
-      .send({ transactionId: txId });
+      .send({ transactionId: withdrawalTx.id, ledgerId: matchedLedgerId });
 
     expect(reconcileRes.status).toBe(200);
     expect(reconcileRes.body.data.transaction.status).toBe('RECONCILED');
 
-    const reconciledLog = await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'BankTransaction', entityId: txId, action: 'BANK_TRANSACTION.RECONCILED' } });
+    const reconciledLog = await prisma.auditLog.findFirst({ where: { tenantId: tenant1Id, entity: 'BankTransaction', entityId: withdrawalTx.id, action: 'BANK_TRANSACTION.RECONCILED' } });
     expect(reconciledLog).toBeTruthy();
     expect((reconciledLog!.changes as any).status).toEqual({ from: 'UNRECONCILED', to: 'RECONCILED' });
+
+    const missingLedgerIdRes = await request(app)
+      .post('/api/v1/banking/reconcile')
+      .set('Authorization', `Bearer ${token1}`)
+      .set('X-Tenant-ID', tenant1Slug)
+      .send({ transactionId: withdrawalTx.id });
+    expect(missingLedgerIdRes.status).toBe(400);
 
     const notFoundRes = await request(app)
       .post('/api/v1/banking/reconcile')
       .set('Authorization', `Bearer ${token1}`)
       .set('X-Tenant-ID', tenant1Slug)
-      .send({ transactionId: '00000000-0000-0000-0000-000000000000' });
+      .send({ transactionId: '00000000-0000-0000-0000-000000000000', ledgerId: matchedLedgerId });
     expect(notFoundRes.status).toBe(404);
   });
 
@@ -222,11 +265,17 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
       (t: any) => t.bankAccountId === tenant1AccountId
     ).id;
 
+    const crossTenantSuggestions = await request(app)
+      .get(`/api/v1/banking/transactions/${tenant1TxId}/suggestions`)
+      .set('Authorization', `Bearer ${token2}`)
+      .set('X-Tenant-ID', tenant2Slug);
+    expect(crossTenantSuggestions.status).toBe(404);
+
     const crossTenantReconcile = await request(app)
       .post('/api/v1/banking/reconcile')
       .set('Authorization', `Bearer ${token2}`)
       .set('X-Tenant-ID', tenant2Slug)
-      .send({ transactionId: tenant1TxId });
+      .send({ transactionId: tenant1TxId, ledgerId: '00000000-0000-0000-0000-000000000000' });
 
     expect(crossTenantReconcile.status).toBe(404);
   });

@@ -162,6 +162,68 @@ export async function postJournalEntryToLedger(
   return createdLedgerEntries;
 }
 
+export async function getLedgerById(
+  prisma: PrismaClient,
+  id: string
+): Promise<LedgerRecord | null> {
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at, fund_id
+     FROM ledgers
+     WHERE id = $1::uuid`,
+    id
+  );
+
+  return rows.length > 0 ? mapLedgerRow(rows[0]) : null;
+}
+
+export interface CashLedgerMatchCandidate extends LedgerRecord {
+  accountCode: string;
+  accountName: string;
+}
+
+/**
+ * Finds Ledger rows on cash/bank-equivalent accounts (`accounts.is_cash_equivalent`)
+ * whose net movement (debit - credit) exactly equals `amount` - the same
+ * sign convention monoService.ts uses for bank transactions (positive =
+ * deposit/debit-normal increase, negative = withdrawal) - within `dayWindow`
+ * days of `targetDate` either side (bank posting dates commonly lag or lead
+ * the book date by a few days), excluding any ledger row already linked to
+ * a bank transaction. Ranked by date proximity to `targetDate` first (exact
+ * same-day matches surface before a few-days-off one), then oldest first as
+ * a stable tiebreaker.
+ */
+export async function findCashLedgerMatchCandidates(
+  prisma: PrismaClient,
+  params: { amount: number; targetDate: Date; dayWindow: number; excludeLedgerIds: string[]; limit?: number }
+): Promise<CashLedgerMatchCandidate[]> {
+  const targetDateStr = params.targetDate.toISOString().split('T')[0];
+  const limit = params.limit ?? 10;
+
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at, l.fund_id,
+            a.code as account_code, a.name as account_name
+     FROM ledgers l
+     JOIN accounts a ON l.account_id = a.id
+     WHERE a.is_cash_equivalent = true
+       AND (l.debit - l.credit) = $1
+       AND l.transaction_date BETWEEN ($2::date - ($3 || ' days')::interval) AND ($2::date + ($3 || ' days')::interval)
+       AND NOT (l.id = ANY($4::uuid[]))
+     ORDER BY ABS(l.transaction_date - $2::date) ASC, l.created_at ASC
+     LIMIT $5`,
+    params.amount,
+    targetDateStr,
+    params.dayWindow,
+    params.excludeLedgerIds,
+    limit
+  );
+
+  return rows.map((row) => ({
+    ...mapLedgerRow(row),
+    accountCode: row.account_code,
+    accountName: row.account_name,
+  }));
+}
+
 export interface LedgerTransactionRecord {
   id: string;
   accountId: string;

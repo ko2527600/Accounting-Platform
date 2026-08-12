@@ -6,7 +6,7 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
-import { Landmark, Plus, CheckCircle, RefreshCw, ArrowUpRight, ArrowDownLeft } from "lucide-react";
+import { Landmark, Plus, CheckCircle, RefreshCw, ArrowUpRight, ArrowDownLeft, Search, X } from "lucide-react";
 
 const MONO_PUBLIC_KEY = import.meta.env.VITE_MONO_PUBLIC_KEY as string | undefined;
 
@@ -31,6 +31,17 @@ interface BankTx {
   bankAccount?: BankAccount;
 }
 
+interface LedgerCandidate {
+  id: string;
+  accountId: string;
+  accountCode: string;
+  accountName: string;
+  transactionDate: string;
+  debit: number;
+  credit: number;
+  description: string | null;
+}
+
 export function BankReconciliation() {
   const { user } = useAuth();
   const { showToast } = useToast();
@@ -40,6 +51,10 @@ export function BankReconciliation() {
   const [isConnecting, setIsConnecting] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [connectError, setConnectError] = useState<string | null>(null);
+  const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<LedgerCandidate[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [confirmingLedgerId, setConfirmingLedgerId] = useState<string | null>(null);
 
   const fetchBankingData = useCallback(async () => {
     setIsLoading(true);
@@ -104,14 +119,37 @@ export function BankReconciliation() {
     }
   };
 
-  const handleReconcileTx = async (txId: string) => {
+  const handleToggleFindMatch = async (txId: string) => {
+    if (expandedTxId === txId) {
+      setExpandedTxId(null);
+      return;
+    }
+    setExpandedTxId(txId);
+    setSuggestions([]);
+    setSuggestionsLoading(true);
     try {
-      const res = await api.post("/banking/reconcile", { transactionId: txId });
+      const res = await api.get(`/banking/transactions/${txId}/suggestions`);
+      if (res.data.success) setSuggestions(res.data.data.candidates);
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to find matching ledger entries.", "error");
+    } finally {
+      setSuggestionsLoading(false);
+    }
+  };
+
+  const handleConfirmMatch = async (txId: string, ledgerId: string) => {
+    setConfirmingLedgerId(ledgerId);
+    try {
+      const res = await api.post("/banking/reconcile", { transactionId: txId, ledgerId });
       if (res.data.success) {
+        setExpandedTxId(null);
+        showToast("Bank transaction reconciled.", "success");
         fetchBankingData();
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Reconciliation failed.", "error");
+    } finally {
+      setConfirmingLedgerId(null);
     }
   };
 
@@ -254,16 +292,79 @@ export function BankReconciliation() {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => handleReconcileTx(tx.id)}
+                            onClick={() => handleToggleFindMatch(tx.id)}
                             className="text-xs"
                           >
-                            Reconcile Match
+                            {expandedTxId === tx.id ? (
+                              <>
+                                <X className="mr-1.5 h-3.5 w-3.5" /> Close
+                              </>
+                            ) : (
+                              <>
+                                <Search className="mr-1.5 h-3.5 w-3.5" /> Find Match
+                              </>
+                            )}
                           </Button>
                         )}
                       </TableCell>
                     </TableRow>
                   );
                 })}
+                {expandedTxId &&
+                  (() => {
+                    const tx = transactions.find((t) => t.id === expandedTxId);
+                    if (!tx) return null;
+                    return (
+                      <TableRow key={`${expandedTxId}-suggestions`} className="bg-secondary-50/50 dark:bg-secondary-900/50">
+                        <TableCell colSpan={6}>
+                          <div className="py-2">
+                            <p className="text-xs font-medium text-secondary-500 mb-2">
+                              General Ledger entries matching {formatCurrency(Math.abs(Number(tx.amount)), tx.bankAccount?.currency)} within ±10 days of {new Date(tx.postedDate).toLocaleDateString()}:
+                            </p>
+                            {suggestionsLoading ? (
+                              <div className="text-sm text-secondary-500 py-2">Searching the ledger...</div>
+                            ) : suggestions.length === 0 ? (
+                              <div className="text-sm text-secondary-500 py-2">
+                                No matching ledger entry found. Post the corresponding journal entry first, then try again.
+                              </div>
+                            ) : (
+                              <div className="space-y-2">
+                                {suggestions.map((candidate) => (
+                                  <div
+                                    key={candidate.id}
+                                    className="flex items-center justify-between gap-4 p-2.5 rounded-md border border-secondary-200 dark:border-secondary-800 bg-white dark:bg-secondary-950"
+                                  >
+                                    <div className="text-xs">
+                                      <div className="font-medium text-secondary-900 dark:text-secondary-50">
+                                        {candidate.accountCode} · {candidate.accountName}
+                                      </div>
+                                      <div className="text-secondary-500">
+                                        {new Date(candidate.transactionDate).toLocaleDateString()} — {candidate.description || "No description"}
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-3 shrink-0">
+                                      <span className="text-xs font-semibold text-secondary-900 dark:text-secondary-50">
+                                        {formatCurrency(Math.abs(candidate.debit - candidate.credit), tx.bankAccount?.currency)}
+                                      </span>
+                                      <Button
+                                        variant="primary"
+                                        size="sm"
+                                        className="text-xs"
+                                        disabled={confirmingLedgerId === candidate.id}
+                                        onClick={() => handleConfirmMatch(tx.id, candidate.id)}
+                                      >
+                                        {confirmingLedgerId === candidate.id ? "Confirming..." : "Confirm Match"}
+                                      </Button>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })()}
               </TableBody>
             </Table>
           )}
