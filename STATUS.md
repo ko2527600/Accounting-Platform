@@ -2,6 +2,20 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-12] - Split-Screen Login/Register Pages with a Reusable Image Panel
+
+**What/Why:** User asked for a split-screen login/register design using a set of 6 "ERP" concept photos they shared. Declined to use those specific files - every one carried a visible tiled "Vecteezy" watermark, meaning they were unlicensed stock-marketplace preview thumbnails, not images cleared for use (same concern as the earlier landing-page carousel, where Unsplash was used specifically for its free-commercial-use license). Asked the user how to proceed via `AskUserQuestion`; they chose free-license stock photos.
+
+**What changed:** New `frontend/src/components/layout/AuthSplitLayout.tsx` - a reusable two-column layout (`lg:grid lg:grid-cols-2`): a full-bleed image panel with a dark gradient overlay, the Ledgio brand mark, and a page-specific tagline (hidden below `lg`, where the form panel takes the full width instead of squeezing a second column onto a phone screen), and a form panel that renders whatever page content is passed as children. Wired into both `Login.tsx` and `Register.tsx`, replacing their old single-column centered-card wrapper - the existing `Card`-based form markup itself was untouched, just re-parented into the new layout. The standalone "Ledgio" wordmark in the form panel is now `lg:hidden` since the brand mark already appears on the image panel at that breakpoint.
+
+**Images**: sourced two Unsplash photos (free for commercial use, no attribution required) instead of the supplied watermarked files - `frontend/public/auth/login-panel.jpg` (a dark analytics-dashboard screen, matching Ledgio's existing dark theme) for the Login page, and `frontend/public/auth/register-panel.jpg` (a colorful 3D "Data Analytics" illustration) for the Register page, giving the two pages distinct visual identity. Both reviewed visually before use.
+
+**Also:** this branch's PRs (#48, #51, #52) kept getting merged mid-session while more commits were still landing on the same branch name, stranding those commits outside any open PR each time. Restarted the branch from the latest `main` before this commit (per this repo's documented branch-merged-mid-session recovery procedure) rather than repeating the rebase-and-reopen dance a fourth time.
+
+**Verification:** `tsc --noEmit` not run (`frontend/node_modules` not installed in this container) - reviewed the diff and both images manually. No backend changes.
+
+**Files:** `frontend/src/components/layout/AuthSplitLayout.tsx` (new), `frontend/src/pages/auth/Login.tsx`, `frontend/src/pages/auth/Register.tsx`, `frontend/public/auth/login-panel.jpg` (new), `frontend/public/auth/register-panel.jpg` (new).
+
 ## [Date: 2026-08-12] - Built Late Payment Reminders (Dunning Emails) - Closes Research Doc Item 21
 
 **What/Why:** Natural continuation of the invoice-emailing work above - invoices could be created, emailed, and paid, but nothing ever nudged a customer whose invoice was overdue. `Invoice` gains `lastReminderSentAt DateTime?` (migration `20260812073943_add_invoice_last_reminder_sent_at`), tracking the last time a reminder was actually sent, distinct from `dueDate`/`status`.
