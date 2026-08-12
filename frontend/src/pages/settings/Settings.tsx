@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive } from "lucide-react";
+import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
@@ -15,7 +15,7 @@ interface ExportManifestEntry {
 }
 
 export function Settings() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { settings, isLoading, updateSettings } = useTenantSettings();
   
   // Local state for forms to handle edits before saving
@@ -48,12 +48,22 @@ export function Settings() {
   const [smsMsg, setSmsMsg] = useState<string | null>(null);
   const [testEmailMsg, setTestEmailMsg] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export" | "security">("profile");
 
   const isAdmin = user?.role === "Admin" || user?.role === "Owner";
   const [exportManifest, setExportManifest] = useState<ExportManifestEntry[]>([]);
   const [exportError, setExportError] = useState<string | null>(null);
   const [downloadingExport, setDownloadingExport] = useState<"csv" | "json" | null>(null);
+
+  // MFA / 2FA enrollment + disable state
+  const [mfaStep, setMfaStep] = useState<"idle" | "enrolling" | "backup-codes">("idle");
+  const [mfaSetupData, setMfaSetupData] = useState<{ secret: string; qrCodeDataUrl: string } | null>(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [mfaError, setMfaError] = useState<string | null>(null);
+  const [mfaBusy, setMfaBusy] = useState(false);
+  const [newBackupCodes, setNewBackupCodes] = useState<string[] | null>(null);
+  const [disablePassword, setDisablePassword] = useState("");
+  const [disableMsg, setDisableMsg] = useState<string | null>(null);
 
   useEffect(() => {
     if (settings.companyName) {
@@ -170,6 +180,67 @@ export function Settings() {
     }
   };
 
+  const handleStartMfaSetup = async () => {
+    setMfaBusy(true);
+    setMfaError(null);
+    setDisableMsg(null);
+    try {
+      const res = await api.post("/auth/mfa/setup");
+      setMfaSetupData({ secret: res.data.data.secret, qrCodeDataUrl: res.data.data.qrCodeDataUrl });
+      setMfaStep("enrolling");
+    } catch (err: any) {
+      setMfaError(err.response?.data?.error || "Failed to start MFA setup.");
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleConfirmMfaSetup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaBusy(true);
+    setMfaError(null);
+    try {
+      const res = await api.post("/auth/mfa/verify-setup", { code: mfaCode });
+      setNewBackupCodes(res.data.data.backupCodes);
+      setMfaStep("backup-codes");
+      setMfaCode("");
+      await refreshUser();
+    } catch (err: any) {
+      setMfaError(err.response?.data?.error || "Invalid code. Please try again.");
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
+  const handleFinishMfaEnrollment = () => {
+    setMfaStep("idle");
+    setMfaSetupData(null);
+    setNewBackupCodes(null);
+  };
+
+  const handleCancelMfaEnrollment = () => {
+    setMfaStep("idle");
+    setMfaSetupData(null);
+    setMfaCode("");
+    setMfaError(null);
+  };
+
+  const handleDisableMfa = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setMfaBusy(true);
+    setDisableMsg(null);
+    try {
+      await api.post("/auth/mfa/disable", { password: disablePassword });
+      setDisablePassword("");
+      setDisableMsg("✅ MFA has been disabled on your account.");
+      await refreshUser();
+    } catch (err: any) {
+      setDisableMsg(`❌ ${err.response?.data?.error || "Failed to disable MFA."}`);
+    } finally {
+      setMfaBusy(false);
+    }
+  };
+
   useEffect(() => {
     if (activeTab !== "export" || !isAdmin || exportManifest.length > 0) return;
     api
@@ -247,6 +318,13 @@ export function Settings() {
         >
           <Mail className="mr-2 h-4 w-4 text-blue-500" />
           Email Reports
+        </button>
+        <button
+          onClick={() => setActiveTab("security")}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 flex items-center ${activeTab === "security" ? "border-primary-600 text-primary-600" : "border-transparent text-secondary-500 hover:text-secondary-700"}`}
+        >
+          <ShieldCheck className="mr-2 h-4 w-4 text-primary-500" />
+          Security
         </button>
         {isAdmin && (
           <button
@@ -455,6 +533,136 @@ export function Settings() {
               Save Schedule Settings
             </Button>
           </CardFooter>
+        </Card>
+      )}
+
+      {/* Two-Factor Authentication (TOTP) */}
+      {activeTab === "security" && (
+        <Card className="border-primary-200 bg-primary-50/20 dark:bg-primary-950/10">
+          <CardHeader>
+            <CardTitle className="flex items-center">
+              <ShieldCheck className="mr-2 h-5 w-5 text-primary-600" />
+              Two-Factor Authentication (2FA)
+            </CardTitle>
+            <CardDescription>
+              Add a second step to your login using an authenticator app (Google Authenticator, Authy, Microsoft Authenticator, etc.) - your password alone won't be enough to sign in.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {mfaStep === "idle" && (
+              <>
+                <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-secondary-200 dark:border-secondary-800 flex items-center justify-between text-sm">
+                  <span>Status:</span>
+                  {user?.isMfaEnabled ? (
+                    <strong className="text-emerald-600">Enabled</strong>
+                  ) : (
+                    <strong className="text-secondary-500">Not enabled</strong>
+                  )}
+                </div>
+
+                {mfaError && <div className="p-2.5 bg-red-100 text-red-900 rounded text-xs">{mfaError}</div>}
+                {/* Rendered outside the enabled/disabled branch below so the
+                    confirmation survives the re-render that flips isMfaEnabled
+                    to false right after a successful disable. */}
+                {disableMsg && <div className="p-2.5 bg-secondary-100 dark:bg-secondary-800 rounded text-xs">{disableMsg}</div>}
+
+                {user?.isMfaEnabled ? (
+                  <form onSubmit={handleDisableMfa} className="space-y-3 pt-2">
+                    <div className="space-y-2">
+                      <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                        Enter your password to disable 2FA
+                      </label>
+                      <Input
+                        type="password"
+                        required
+                        value={disablePassword}
+                        onChange={(e) => setDisablePassword(e.target.value)}
+                        placeholder="••••••••"
+                      />
+                    </div>
+                    <Button type="submit" variant="outline" disabled={mfaBusy}>
+                      {mfaBusy ? "Disabling..." : "Disable 2FA"}
+                    </Button>
+                  </form>
+                ) : (
+                  <Button type="button" variant="primary" onClick={handleStartMfaSetup} disabled={mfaBusy}>
+                    {mfaBusy ? "Starting..." : "Enable 2FA"}
+                  </Button>
+                )}
+              </>
+            )}
+
+            {mfaStep === "enrolling" && mfaSetupData && (
+              <div className="space-y-4">
+                <p className="text-sm text-secondary-600 dark:text-secondary-400">
+                  Scan this QR code with your authenticator app, then enter the 6-digit code it shows to confirm setup.
+                </p>
+                <div className="flex justify-center p-4 bg-white rounded-lg border border-secondary-200">
+                  <img src={mfaSetupData.qrCodeDataUrl} alt="2FA QR code" className="h-48 w-48" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                    Can't scan? Enter this code manually:
+                  </label>
+                  <code className="block p-2 bg-secondary-100 dark:bg-secondary-800 rounded text-xs break-all">{mfaSetupData.secret}</code>
+                </div>
+
+                <form onSubmit={handleConfirmMfaSetup} className="space-y-3">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Verification code</label>
+                    <Input
+                      type="text"
+                      required
+                      autoFocus
+                      placeholder="123456"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value)}
+                    />
+                  </div>
+                  {mfaError && <div className="p-2.5 bg-red-100 text-red-900 rounded text-xs">{mfaError}</div>}
+                  <div className="flex gap-2">
+                    <Button type="submit" variant="primary" disabled={mfaBusy}>
+                      {mfaBusy ? "Confirming..." : "Confirm and enable"}
+                    </Button>
+                    <Button type="button" variant="outline" onClick={handleCancelMfaEnrollment} disabled={mfaBusy}>
+                      Cancel
+                    </Button>
+                  </div>
+                </form>
+              </div>
+            )}
+
+            {mfaStep === "backup-codes" && newBackupCodes && (
+              <div className="space-y-4">
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-lg text-emerald-800 dark:text-emerald-300 text-sm flex items-center">
+                  <CheckCircle2 className="mr-2 h-4 w-4 flex-shrink-0" />
+                  2FA is now enabled on your account.
+                </div>
+                <p className="text-sm text-secondary-600 dark:text-secondary-400">
+                  Save these one-time backup codes somewhere safe. Each one can be used once to sign in if you lose access to your authenticator app - they will not be shown again.
+                </p>
+                <div className="grid grid-cols-2 gap-2 p-4 bg-secondary-100 dark:bg-secondary-800 rounded-lg font-mono text-sm">
+                  {newBackupCodes.map((code) => (
+                    <div key={code}>{code}</div>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => navigator.clipboard.writeText(newBackupCodes.join("\n"))}
+                    className="flex items-center"
+                  >
+                    <Copy className="mr-2 h-4 w-4" />
+                    Copy codes
+                  </Button>
+                  <Button type="button" variant="primary" onClick={handleFinishMfaEnrollment}>
+                    I've saved these codes
+                  </Button>
+                </div>
+              </div>
+            )}
+          </CardContent>
         </Card>
       )}
 

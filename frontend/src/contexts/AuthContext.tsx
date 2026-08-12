@@ -10,6 +10,7 @@ type User = {
   role: string;
   tenantId?: string;
   orgType?: string;
+  isMfaEnabled?: boolean;
 };
 
 type AuthContextType = {
@@ -18,6 +19,7 @@ type AuthContextType = {
   isLoading: boolean;
   login: (token: string, user: User) => void;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -93,8 +95,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   };
 
+  // Re-fetches the current user profile without a full login round trip -
+  // for settings that change something on `user` itself (e.g. MFA
+  // enable/disable) but don't need a new token, so the rest of the app
+  // (Header, role-gated nav) reflects the change immediately.
+  const refreshUser = async () => {
+    if (!token) return;
+    const response = await api.get('/auth/me');
+    if (response.data.success) {
+      setUser(response.data.data.user);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

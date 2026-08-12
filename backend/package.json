@@ -33,6 +33,7 @@
     "@types/node": "^20.12.12",
     "@types/node-cron": "^3.0.11",
     "@types/pdfkit": "^0.17.6",
+    "@types/qrcode": "^1.5.6",
     "@types/ws": "^8.18.1",
     "archiver": "^6.0.2",
     "axios": "^1.18.1",
@@ -46,6 +47,7 @@
     "pdfkit": "^0.19.1",
     "prisma": "^5.18.0",
     "prom-client": "^15.1.2",
+    "qrcode": "^1.5.4",
     "typescript": "^5.4.5",
     "ws": "^8.21.3"
   },
