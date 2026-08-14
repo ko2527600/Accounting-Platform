@@ -114,6 +114,7 @@ export function AdminCoreEngine() {
   const [onboardAdminPhone, setOnboardAdminPhone] = useState("");
   const [onboardAdminPassword, setOnboardAdminPassword] = useState("");
   const [onboardBaseCurrency, setOnboardBaseCurrency] = useState("GHS");
+  const [onboardOrgType, setOnboardOrgType] = useState("BUSINESS");
   const [isOnboarding, setIsOnboarding] = useState(false);
   const [onboardError, setOnboardError] = useState<string | null>(null);
   const [onboardResult, setOnboardResult] = useState<{ tenant: { name: string; slug: string }; admin: { email: string } } | null>(null);
@@ -350,6 +351,7 @@ export function AdminCoreEngine() {
         adminPassword: onboardAdminPassword,
         phone: onboardAdminPhone || undefined,
         baseCurrency: onboardBaseCurrency,
+        orgType: onboardOrgType,
       });
       if (res.data.success) {
         setOnboardResult(res.data.data);
@@ -359,6 +361,7 @@ export function AdminCoreEngine() {
         setOnboardAdminEmail("");
         setOnboardAdminPhone("");
         setOnboardAdminPassword("");
+        setOnboardOrgType("BUSINESS");
         showToast(`${res.data.data.tenant.name} onboarded and pre-verified.`, "success");
       }
     } catch (err: any) {
@@ -1161,6 +1164,17 @@ export function AdminCoreEngine() {
                           <option value="GHS">GHS - Ghanaian Cedi</option>
                           <option value="USD">USD - US Dollar</option>
                           <option value="NGN">NGN - Nigerian Naira</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Organization Type</label>
+                        <select
+                          value={onboardOrgType}
+                          onChange={(e) => setOnboardOrgType(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs"
+                        >
+                          <option value="BUSINESS">Business</option>
+                          <option value="NONPROFIT">Nonprofit / Church / NGO / School</option>
                         </select>
                       </div>
                     </div>
