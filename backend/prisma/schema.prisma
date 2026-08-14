@@ -41,6 +41,10 @@ model Tenant {
   vatRegistered        Boolean   @default(false) @map("vat_registered")
   graTin               String?   @map("gra_tin")
   isLive               Boolean   @default(false) @map("is_live")
+  // Owner/manager phone number that automated SMS alerts (till-close
+  // summaries, cash shortage warnings) go to. Optional - alerts are skipped
+  // (not sent to a shared/hardcoded fallback) when unset for this tenant.
+  bossPhone            String?   @map("boss_phone")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 

@@ -157,11 +157,28 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug, baseCurrency } = req.body;
+    const { companyName, name, slug, baseCurrency, bossPhone } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
       return res.status(400).json({ success: false, error: 'Tenant ID context required.' });
+    }
+
+    // Same tolerant shape SmsService.send() already normalizes at send time
+    // (optional leading +, spaces/dashes/parens, 7-15 digits) - reject
+    // obvious garbage early rather than storing something that will always
+    // fail to send. An empty string clears the field (opts back out of SMS
+    // alerts) - only reject a non-empty value that doesn't look like a phone.
+    let normalizedBossPhone: string | null | undefined;
+    if (bossPhone !== undefined) {
+      const trimmed = String(bossPhone).trim();
+      if (trimmed === '') {
+        normalizedBossPhone = null;
+      } else if (!/^\+?[\d\s\-()]{7,20}$/.test(trimmed)) {
+        return res.status(400).json({ success: false, error: 'Boss phone number is not a valid phone number.' });
+      } else {
+        normalizedBossPhone = trimmed;
+      }
     }
 
     const before = await tenantRepository.findTenantById(prisma, tenantId);
@@ -173,6 +190,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           ...(newName && { name: newName }),
           ...(slug && { slug: slug.trim().toLowerCase() }),
           ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
+          ...(normalizedBossPhone !== undefined && { bossPhone: normalizedBossPhone }),
         },
       });
 
@@ -181,7 +199,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         entity: 'Tenant',
         entityId: tenantId,
         actor: actorFromRequest(req),
-        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency']),
+        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone']),
       });
 
       return updated;

@@ -31,7 +31,7 @@ export function Settings() {
   });
 
   const [smsData, setSmsData] = useState({
-    ownerPhone: user?.phone || "",
+    bossPhone: settings.bossPhone || "",
     gatewayStatus: "Active & Managed (Included in Subscription)",
   });
 
@@ -76,9 +76,9 @@ export function Settings() {
         financialYearStart: settings.financialYearStart,
         timezone: settings.timezone,
       });
+      setSmsData((prev) => ({ ...prev, bossPhone: settings.bossPhone || "" }));
     }
     if (user) {
-      setSmsData((prev) => ({ ...prev, ownerPhone: user.phone || "" }));
       setScheduleData((prev) => ({ ...prev, recipients: user.email || "" }));
     }
   }, [settings, user]);
@@ -132,10 +132,8 @@ export function Settings() {
   const handleUpdatePhone = async () => {
     setSaveSuccessMsg(null);
     try {
-      const res = await api.put("/auth/profile", { phone: smsData.ownerPhone });
-      if (res.data.success) {
-        setSaveSuccessMsg("✅ Owner alert mobile phone updated permanently in account DB.");
-      }
+      await updateSettings({ bossPhone: smsData.bossPhone || null });
+      setSaveSuccessMsg("✅ Boss alert mobile number updated.");
     } catch (err: any) {
       setSaveSuccessMsg(`❌ Error saving phone: ${err.response?.data?.error || err.message}`);
     }
@@ -278,7 +276,7 @@ export function Settings() {
           Workspace Settings & Automation
         </h2>
         <p className="text-secondary-500 dark:text-secondary-400 mt-1">
-          Manage workspace profile, currency, Android SMS shortage alerts, and automated weekly/monthly email reports.
+          Manage workspace profile, currency, Android SMS till-close alerts, and automated weekly/monthly email reports.
         </p>
       </div>
 
@@ -407,21 +405,21 @@ export function Settings() {
           <CardHeader>
             <CardTitle className="text-amber-900 dark:text-amber-300 flex items-center">
               <Smartphone className="mr-2 h-5 w-5 text-amber-600" />
-              Platform-Managed SMS Shortage Alert Service
+              Platform-Managed SMS Till-Close Alerts
             </CardTitle>
             <CardDescription>
-              Instant SMS shortage warnings are managed centrally by Ledgio and included in your subscription. You only need to maintain your alert phone number below.
+              SMS dispatch is managed centrally by Ledgio and included in your subscription. Set your boss/owner's mobile number below to receive a summary text every time a shop till is closed - not just on a shortage.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="space-y-2">
-              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Target Owner Mobile Phone Number</label>
+              <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Boss Mobile Phone Number</label>
               <Input
-                value={smsData.ownerPhone}
-                onChange={(e) => setSmsData({ ...smsData, ownerPhone: e.target.value })}
+                value={smsData.bossPhone}
+                onChange={(e) => setSmsData({ ...smsData, bossPhone: e.target.value })}
                 placeholder="+233201234567"
               />
-              <p className="text-[11px] text-secondary-500">Instant cash till shortage SMS alerts will be sent to this mobile number.</p>
+              <p className="text-[11px] text-secondary-500">Every till close (balanced, over, or short) sends a summary SMS to this number. Leave blank to disable till-close SMS alerts for this workspace.</p>
             </div>
 
             <div className="p-3 bg-white dark:bg-secondary-900 rounded-lg border border-amber-200 dark:border-amber-900/50 space-y-2 text-xs">
@@ -430,8 +428,8 @@ export function Settings() {
                 <strong className="text-emerald-600 font-bold">Active & Managed (Included in Subscription)</strong>
               </div>
               <div className="flex justify-between">
-                <span>Shortage Template:</span>
-                <em className="text-secondary-600">"Ledgio Alert: [Shop] till closed by [Staff]. Shortage: [Amount]. Please check."</em>
+                <span>Message Template:</span>
+                <em className="text-secondary-600">"Ledgio Alert: [Shop] till closed by [Staff]. Cash Sales: [Amount]. Expected: [X], Actual: [Y]. [BALANCED/OVER/SHORT]."</em>
               </div>
             </div>
 
@@ -445,12 +443,12 @@ export function Settings() {
             <Button
               type="button"
               variant="outline"
-              onClick={() => setSmsMsg("Test shortage alert queued via Ledgio Gateway Service.")}
+              onClick={() => setSmsMsg("Test till-close alert queued via Ledgio Gateway Service.")}
             >
-              Test Shortage Alert
+              Test Till-Close Alert
             </Button>
             <Button type="button" variant="primary" onClick={handleUpdatePhone}>
-              Update Alert Mobile Number
+              Update Boss Mobile Number
             </Button>
           </CardFooter>
         </Card>

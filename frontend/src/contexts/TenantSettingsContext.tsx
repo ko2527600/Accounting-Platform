@@ -10,6 +10,7 @@ const DEFAULT_TENANT: TenantSettings = {
   baseCurrency: 'USD',
   financialYearStart: '01-01',
   timezone: 'UTC',
+  bossPhone: null,
   updatedAt: new Date().toISOString()
 };
 
@@ -48,6 +49,7 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           baseCurrency: t.baseCurrency || 'USD',
           financialYearStart: '01-01',
           timezone: 'UTC',
+          bossPhone: t.bossPhone ?? null,
           updatedAt: t.updatedAt || new Date().toISOString(),
         });
       }
@@ -58,8 +60,15 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
     }
   }, []);
 
+  // Deliberately does not touch `isLoading` - that flag gates initial-load
+  // rendering (ProtectedRoute holds every page on a spinner until it's
+  // false, and this page's own body does the same). Toggling it here too
+  // was found to unmount/remount the whole page around every save - on
+  // Settings.tsx specifically, that resets `activeTab` state back to the
+  // first tab immediately after saving, so a save on any tab but the first
+  // looked like it silently failed (the tenant *was* saved - the success
+  // banner just rendered on a tab the user had already been bounced off of).
   const updateSettings = useCallback(async (data: UpdateTenantSettingsDTO) => {
-    setIsLoading(true);
     try {
       const res = await api.put('/tenants/current', data);
       if (res.data.success && res.data.data.tenant) {
@@ -77,8 +86,6 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
     } catch (error) {
       console.error('Failed to update tenant settings', error);
       throw error;
-    } finally {
-      setIsLoading(false);
     }
   }, []);
 

@@ -7,6 +7,7 @@ import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 import { verifyPassword } from '../utils/password';
 import { recordAuditLog, recordAuditLogTx, actorFromRequest } from '../services/auditLogService';
+import { SmsService } from '../services/smsService';
 
 // Roles that can authorize a void either by initiating it themselves or by
 // stepping up to approve a Cashier-initiated one.
@@ -571,6 +572,12 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // Looked up once, outside the tenant-schema transaction below - Tenant
+    // lives in the public schema, not per-tenant, same reason GET/PUT
+    // /tenants/current query it via the un-scoped `prisma` client rather
+    // than the search_path-scoped `client` the transaction callback gets.
+    const tenantForAlert = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { bossPhone: true } });
+
     const report = await withCurrentTenantDb(prisma, async (client) => {
       const till = await (client as any).cashTill.findFirst({
         where: { id: tillId, tenantId },
@@ -627,16 +634,22 @@ router.post('/close', async (req: Request, res: Response): Promise<void> => {
         },
       });
 
-      // Trigger Private Android SMS Gateway Alert on Cash Shortage
-      if (discrepancy < 0) {
-        const { SmsService } = require('../services/smsService');
-        SmsService.sendShortageAlert({
+      // Trigger Private Android SMS Gateway Alert to the tenant's configured
+      // boss number on every close (not just shortages) - the owner gets a
+      // running SMS record of every shift's cash count without opening the
+      // app. Skipped entirely (not sent to a shared fallback number) when
+      // this tenant hasn't configured a boss phone in Settings.
+      if (tenantForAlert?.bossPhone) {
+        SmsService.sendTillCloseAlert({
           shopName: till.warehouse?.name || 'Shop Location',
           staffName: userName,
-          shortageAmount: `GH₵ ${Math.abs(discrepancy).toFixed(2)}`,
-          recipientPhone: process.env.OWNER_PHONE_NUMBER || '+233200000000',
+          cashSales: `GH₵ ${sales.toFixed(2)}`,
+          expectedCash: `GH₵ ${expected.toFixed(2)}`,
+          actualCash: `GH₵ ${actual.toFixed(2)}`,
+          discrepancyText: discText,
+          recipientPhone: tenantForAlert.bossPhone,
         }).catch((smsErr: any) => {
-          console.error('[CashTill] Error dispatching SMS shortage alert:', smsErr);
+          console.error('[CashTill] Error dispatching till-close SMS alert:', smsErr);
         });
       }
 
