@@ -177,7 +177,7 @@ router.get('/items', async (req: Request, res: Response): Promise<void> => {
  * POST /api/v1/inventory/items
  * Creates a new inventory item and assigns initial stock to a warehouse.
  */
-router.post('/items', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = req.body;
@@ -258,7 +258,7 @@ router.post('/items', requireRole('Accountant'), async (req: Request, res: Respo
  * succeeded and which failed (with why) so the caller can fix and retry
  * only the failed ones.
  */
-router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/items/bulk', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { items } = req.body;
@@ -380,7 +380,7 @@ router.post('/items/bulk', requireRole('Accountant'), async (req: Request, res: 
  * POST /api/v1/inventory/transfers
  * Transfers stock items between two warehouses / godowns.
  */
-router.post('/transfers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/transfers', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { fromWarehouseId, toWarehouseId, itemId, quantity, notes } = req.body;
@@ -504,7 +504,7 @@ const ADJUSTMENT_MODES = new Set(['add', 'remove', 'set']);
  * as a stock transfer's audit trail, just for a single-warehouse correction
  * rather than a movement between two warehouses.
  */
-router.post('/adjustments', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/adjustments', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { warehouseId, itemId, mode, quantity, reason } = req.body;
@@ -639,7 +639,7 @@ router.get('/adjustments', async (req: Request, res: Response): Promise<void> =>
  * a generated reference embedded in their reason string for grouping, plus
  * one summary AuditLog entry for the whole reconciliation.
  */
-router.post('/stock-take', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/stock-take', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { warehouseId, counts, reason } = req.body;

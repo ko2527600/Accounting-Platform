@@ -7,6 +7,7 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
+import { usePresence } from "../../hooks/usePresence";
 import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2, UserCog, UserMinus } from "lucide-react";
 
 const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier", "HR"] as const;
@@ -44,6 +45,7 @@ interface WarehouseOption {
 export function TeamManagement() {
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { onlineUserIds } = usePresence();
   const [members, setMembers] = useState<Member[]>([]);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
@@ -325,9 +327,17 @@ export function TeamManagement() {
                       )}
                     </TableCell>
                     <TableCell>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
-                        Active
-                      </span>
+                      {onlineUserIds.has(member.id) ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          <span className="mr-1.5 h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                          Online now
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-secondary-100 text-secondary-600 dark:bg-secondary-800 dark:text-secondary-400">
+                          <span className="mr-1.5 h-2 w-2 rounded-full bg-secondary-400" />
+                          Offline
+                        </span>
+                      )}
                     </TableCell>
                     {isAdmin && (
                       <TableCell className="text-right space-x-2">

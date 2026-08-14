@@ -15,9 +15,11 @@ router.use(tenantContextMiddleware);
 /**
  * GET /api/v1/accounts
  * Description: Retrieve list of all accounts for the active tenant, including flat list and nested tree structure.
- * Access: Viewer role or higher
+ * Access: Viewer role or higher. Also explicitly grants Shop Manager/Cashier
+ * (otherwise scoped to Inventory/POS/Expense Claims) since the Expense
+ * Claims form needs this to populate its expense-category dropdown.
  */
-router.get('/', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+router.get('/', requireRole('Viewer', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await accountService.listAccounts();
     res.status(200).json({

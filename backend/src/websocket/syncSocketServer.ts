@@ -40,7 +40,22 @@ function removeSocket(tenantId: string, socket: WebSocket): void {
  * to a missed update.
  */
 export function initSyncSocketServer(httpServer: HttpServer): void {
-  const wss = new WebSocketServer({ server: httpServer, path: '/ws/sync' });
+  // noServer + a manually path-checked 'upgrade' listener, not the
+  // {server, path} shorthand: `ws`'s own path-mismatch handling
+  // (WebSocketServer.shouldHandle -> abortHandshake) actively sends a 400
+  // and destroys the socket for any upgrade whose path isn't this
+  // instance's, rather than deferring to other 'upgrade' listeners -
+  // fatal once a second WebSocketServer (presenceSocketServer.ts) shares
+  // this same httpServer, since Node calls every 'upgrade' listener for
+  // every request and this one would kill the other's connections first.
+  const wss = new WebSocketServer({ noServer: true });
+  httpServer.on('upgrade', (request, socket, head) => {
+    const { pathname } = new URL(request.url || '', 'http://localhost');
+    if (pathname !== '/ws/sync') return;
+    wss.handleUpgrade(request, socket, head, (ws) => {
+      wss.emit('connection', ws, request);
+    });
+  });
 
   // A dedicated connection is required for Redis subscribe mode - once a
   // connection issues (P)SUBSCRIBE it can't run ordinary commands, so this

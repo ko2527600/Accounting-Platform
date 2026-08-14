@@ -8,6 +8,7 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { formatMoney } from "../../lib/utils";
 import { useToast } from "../../contexts/ToastContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { Warehouse, Plus, ArrowRightLeft, AlertTriangle, Building, MapPin, Search, CheckCircle2, XCircle, Layers, Trash2, Download, SlidersHorizontal, History, Printer, ClipboardCheck } from "lucide-react";
 
 interface StockAdjustment {
@@ -87,8 +88,17 @@ interface WarehouseData {
   stocks: WarehouseStock[];
 }
 
+// Creating a new warehouse/shop is a business-setup action, not a
+// day-to-day shop task - kept Accountant/Admin-only on the backend even
+// though Shop Manager/Cashier are otherwise fully operational on this page
+// (stock adjustments, transfers, stock-take, adding products). Mirrors that
+// restriction here so the button doesn't render a false promise.
+const WAREHOUSE_CREATE_RESTRICTED_ROLES = new Set(["shop manager", "cashier"]);
+
 export function WarehouseManagement() {
   const { showToast } = useToast();
+  const { user } = useAuth();
+  const canCreateWarehouse = !WAREHOUSE_CREATE_RESTRICTED_ROLES.has((user?.role || "").toLowerCase().trim());
   const [warehouses, setWarehouses] = useState<WarehouseData[]>([]);
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -609,10 +619,12 @@ export function WarehouseManagement() {
             <ArrowRightLeft className="mr-2 h-4 w-4 text-primary-600" />
             Request Stock Transfer
           </Button>
-          <Button variant="outline" onClick={() => setIsWarehouseModalOpen(true)} className="flex items-center">
-            <Building className="mr-2 h-4 w-4" />
-            Add Warehouse / Shop
-          </Button>
+          {canCreateWarehouse && (
+            <Button variant="outline" onClick={() => setIsWarehouseModalOpen(true)} className="flex items-center">
+              <Building className="mr-2 h-4 w-4" />
+              Add Warehouse / Shop
+            </Button>
+          )}
           <Button variant="primary" onClick={() => setIsItemModalOpen(true)} className="flex items-center">
             <Plus className="mr-2 h-4 w-4" />
             Add Product / Item

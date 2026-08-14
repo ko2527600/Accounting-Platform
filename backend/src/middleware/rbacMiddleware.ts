@@ -22,13 +22,16 @@ const ROLE_HIERARCHY: Record<UserRole, number> = {
 
 // Roles that are explicitly scoped to their own screen(s) - denied by
 // default on any requireRole()-gated route unless that role is listed
-// there explicitly. Unlike a free-text worker title (e.g. "Shop Manager"),
-// these are NOT given blanket operational access as a fallback (rule 5
-// below) - Auditor/Viewer are read-only reviewers, HR only manages the
-// team roster, none of them should incidentally gain write access to
-// Journal Entries, Invoices, Inventory, etc. just by having an
-// unrecognized-but-not-explicitly-listed role string.
-const SCOPED_ROLES = new Set(['viewer', 'auditor', 'hr']);
+// there explicitly. Unlike an unrecognized free-text worker title, these
+// are NOT given blanket operational access as a fallback (rule 5 below) -
+// Auditor/Viewer are read-only reviewers, HR only manages the team roster,
+// and Shop Manager/Cashier are location-scoped to Inventory/POS/Expense
+// Claims (see warehouseAccessService.ts's LOCATION_SCOPED_ROLES and
+// navigation.ts's RESTRICTED_ROLE_NAV, which this list must stay in sync
+// with) - none of them should incidentally gain write access to Journal
+// Entries, Invoices, Banking, etc. just by having a role string the
+// fallback rule doesn't recognize as scoped.
+const SCOPED_ROLES = new Set(['viewer', 'auditor', 'hr', 'shop manager', 'cashier']);
 
 // Extend Express Request interface to include user payload
 declare global {
@@ -41,7 +44,10 @@ declare global {
 
 /**
  * Checks if a user's role satisfies at least one of the required roles or hierarchy.
- * Fully supports custom user-typed worker job titles (e.g. Shop Manager, Store Clerk, Cashier).
+ * Fully supports arbitrary legacy free-text worker job titles predating the
+ * closed role list (e.g. "Store Clerk", "Inventory Lead") - "Shop Manager"
+ * and "Cashier" are no longer examples of this since they became real
+ * scoped roles (see SCOPED_ROLES above).
  */
 export function hasRequiredRole(userRole: string, allowedRoles: string[]): boolean {
   if (!userRole || !allowedRoles || allowedRoles.length === 0) {
@@ -66,13 +72,15 @@ export function hasRequiredRole(userRole: string, allowedRoles: string[]): boole
     return true;
   }
 
-  // 4. Viewer / Auditor / HR - scoped roles, only allowed where explicitly listed
+  // 4. Viewer / Auditor / HR / Shop Manager / Cashier - scoped roles, only allowed where explicitly listed
   if (SCOPED_ROLES.has(uRoleLower)) {
     return allowedLower.includes(uRoleLower);
   }
 
-  // 5. Custom worker job titles assigned by business owner (e.g. Shop Manager, Store Clerk, Cashier, Inventory Lead)
-  // Have full operational access to business endpoints (Inventory, Invoices, Bills, Banking, Journals)
+  // 5. Legacy free-text worker job titles predating the closed role list
+  // (e.g. "Store Clerk", "Inventory Lead") - have full operational access
+  // to business endpoints (Inventory, Invoices, Bills, Banking, Journals),
+  // matching the behavior every role had before scoped roles existed.
   return true;
 }
 
