@@ -24,9 +24,26 @@ type AuthContextType = {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+function readCachedUser(): User | null {
+  const raw = localStorage.getItem('accountgo-user');
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw) as User;
+  } catch {
+    return null;
+  }
+}
+
+function cacheUser(userData: User): void {
+  localStorage.setItem('accountgo-user', JSON.stringify(userData));
+}
+
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const { showToast } = useToast();
-  const [user, setUser] = useState<User | null>(null);
+  // Seeded from the last-known cached profile (not null) so a returning
+  // offline user has a usable `user` (incl. tenantId, which
+  // useSyncEngineLifecycle keys off of) before /auth/me ever resolves.
+  const [user, setUser] = useState<User | null>(() => readCachedUser());
   const [token, setToken] = useState<string | null>(localStorage.getItem('accountgo-token'));
   const [isLoading, setIsLoading] = useState(true);
   // Guards against a burst of parallel requests (e.g. the dashboard's several
@@ -46,15 +63,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const response = await api.get('/auth/me');
         if (response.data.success) {
           setUser(response.data.data.user);
+          cacheUser(response.data.data.user);
           if (response.data.data.user.tenantId) {
             localStorage.setItem('accountgo-tenant-id', response.data.data.user.tenantId);
           }
         } else {
           throw new Error("Invalid token");
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Token verification failed:", error);
-        logout();
+        // A plain network failure (no HTTP response at all - offline, DNS,
+        // server unreachable) is not proof the token is invalid. Only a
+        // genuine HTTP rejection (e.g. an actual 401) means the session is
+        // really dead. Logging out on a connectivity blip would clear
+        // `token`, which cascades into useSyncEngineLifecycle wiping the
+        // entire local-first offline cache purely because the network hiccuped.
+        if (error?.response) {
+          logout();
+        }
       } finally {
         setIsLoading(false);
       }
@@ -84,6 +110,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (userData.tenantId) {
       localStorage.setItem('accountgo-tenant-id', userData.tenantId);
     }
+    cacheUser(userData);
     setToken(newToken);
     setUser(userData);
   };
@@ -91,6 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = () => {
     localStorage.removeItem('accountgo-token');
     localStorage.removeItem('accountgo-tenant-id');
+    localStorage.removeItem('accountgo-user');
     setToken(null);
     setUser(null);
   };
@@ -104,6 +132,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const response = await api.get('/auth/me');
     if (response.data.success) {
       setUser(response.data.data.user);
+      cacheUser(response.data.data.user);
     }
   };
 
