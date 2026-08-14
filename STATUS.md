@@ -2,6 +2,16 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-14] - Fixed: Admin "Onboard a Contracted Client" Form Missing Organization Type
+
+**What/Why:** User (platform admin) flagged that the passcode-gated `/admin/core-engine` console's "Onboard a Contracted Client" form had no way to set org type when onboarding a real contracted client. Backend was never the gap - `POST /tenants/admin-onboard` already spreads the whole request body (minus `passcode`) straight into `onboardTenant()`, which has accepted an optional `orgType` ("BUSINESS" | "NONPROFIT", defaulting to "BUSINESS") since the nonprofit/fund-accounting support was built. The self-serve `/register` page already collects it. The admin-onboard form simply never had the field, so every admin-onboarded tenant silently defaulted to BUSINESS regardless of the real client's org type.
+
+**What changed:** `AdminCoreEngine.tsx` - added `onboardOrgType` state (default `"BUSINESS"`), a matching "Organization Type" `<select>` (same two options/labels as `Register.tsx`: "Business" / "Nonprofit / Church / NGO / School"), included in the `POST /tenants/admin-onboard` body, and reset after a successful submission alongside the other fields.
+
+**Verification:** `tsc -b` clean. No backend changes needed (already supported). Verified end-to-end via a direct API call against the local dev backend with `orgType: "NONPROFIT"` - response confirmed `tenant.orgType: "NONPROFIT"` and the issued JWT's `orgType` claim matched; test tenant cleaned up afterward.
+
+**Files:** `frontend/src/pages/admin/AdminCoreEngine.tsx`.
+
 ## [Date: 2026-08-12] - Built Real Bank-Reconciliation Matching Logic - Closes Research Doc Item 29
 
 **What/Why:** `POST /banking/reconcile` was previously a correctness bug, not just a missing feature - despite "reconcile" in the name, it just took a client-supplied `transactionId`/`ledgerId` pair on faith and flipped `BankTransaction.status` to `RECONCILED`, with no amount/date comparison at all. The frontend didn't even collect a `ledgerId` - "Reconcile Match" blindly marked transactions reconciled with `ledgerId` left null. Flagged as a real gap in the 2026-08-11 research pass, distinct from (and more severe than) a missing feature.
