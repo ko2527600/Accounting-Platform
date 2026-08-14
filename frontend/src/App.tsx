@@ -4,6 +4,7 @@ import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { TenantSettingsProvider, useTenantSettings } from "./contexts/TenantSettingsContext";
 import { useSyncEngineLifecycle } from "./hooks/useSyncEngineLifecycle";
+import { usePresenceLifecycle } from "./hooks/usePresenceLifecycle";
 import { SETTINGS_RESTRICTED_ROLES, getVisibleHrefs } from "./lib/navigation";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
@@ -180,6 +181,15 @@ function SyncEngineLifecycleMount() {
   return null;
 }
 
+// Same mounting rationale as SyncEngineLifecycleMount - unconditional for
+// every role (not just Admin), since the presence roster needs everyone
+// actually connected to be accurate, even though only the Admin-only Team
+// Management page displays it.
+function PresenceLifecycleMount() {
+  usePresenceLifecycle();
+  return null;
+}
+
 function App() {
   return (
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
@@ -187,6 +197,7 @@ function App() {
       <AuthProvider>
       <TenantSettingsProvider>
         <SyncEngineLifecycleMount />
+        <PresenceLifecycleMount />
         <BrowserRouter>
           <CommandMenu />
           <Routes>
