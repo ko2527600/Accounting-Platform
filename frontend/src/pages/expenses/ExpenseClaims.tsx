@@ -35,11 +35,12 @@ const statusColor: Record<string, string> = {
   REIMBURSED: "text-primary-600",
 };
 
-// Accountant/Admin (and custom worker titles the backend treats as
-// full-operational-access) can decide/reimburse; Viewer/Auditor/HR cannot -
-// mirrors the same requireRole('Accountant') gate the backend enforces, so
-// the buttons don't render a false promise for roles the API would reject.
-const RESTRICTED_DECIDER_ROLES = new Set(["viewer", "auditor", "hr"]);
+// Accountant/Admin (and legacy free-text worker titles the backend treats
+// as full-operational-access) can decide/reimburse; Viewer/Auditor/HR/Shop
+// Manager/Cashier cannot - mirrors the same requireRole('Accountant') gate
+// the backend enforces, so the buttons don't render a false promise for
+// roles the API would reject.
+const RESTRICTED_DECIDER_ROLES = new Set(["viewer", "auditor", "hr", "shop manager", "cashier"]);
 
 export function ExpenseClaims() {
   const { user } = useAuth();

@@ -1,10 +1,10 @@
-import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import { TenantSettingsProvider, useTenantSettings } from "./contexts/TenantSettingsContext";
 import { useSyncEngineLifecycle } from "./hooks/useSyncEngineLifecycle";
-import { SETTINGS_RESTRICTED_ROLES } from "./lib/navigation";
+import { SETTINGS_RESTRICTED_ROLES, getVisibleHrefs } from "./lib/navigation";
 import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
@@ -54,9 +54,19 @@ import { useAccounts } from "./hooks/useAccounts";
 // Pages
 const Dashboard = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { totalRevenue, totalExpense, netIncome } = useProfitAndLoss();
   const { accounts } = useAccounts();
   const { settings } = useTenantSettings();
+
+  // Roles with a reduced nav (Shop Manager, Cashier, HR, Auditor) don't have
+  // backend read access to company-wide P&L/ledger data (rbacMiddleware.ts's
+  // scoped-role rules) - the underlying hooks above still fire regardless
+  // (rules of hooks), but their 403s are swallowed by the hooks' own
+  // catch/console.error, so just skip rendering these cards rather than
+  // showing stale/zeroed figures. Also not shown to these roles: financial
+  // data they have no operational need for anyway.
+  const isRestrictedRole = getVisibleHrefs((user?.role || "").toLowerCase().trim()) !== null;
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -76,47 +86,51 @@ const Dashboard = () => {
             Welcome back. Here's what's happening with your accounts today.
           </p>
         </div>
-        <Button variant="primary" onClick={() => navigate("/journals/new")}>
-          New Voucher
-        </Button>
+        {!isRestrictedRole && (
+          <Button variant="primary" onClick={() => navigate("/journals/new")}>
+            New Voucher
+          </Button>
+        )}
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(totalRevenue)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Expenses</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{formatCurrency(totalExpense)}</div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className={`text-2xl font-bold ${netIncome >= 0 ? 'text-primary-600 dark:text-primary-400' : 'text-red-600 dark:text-red-400'}`}>
-              {formatCurrency(netIncome)}
-            </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Active Accounts</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{accounts.length}</div>
-          </CardContent>
-        </Card>
-      </div>
+      {!isRestrictedRole && (
+        <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Revenue</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{formatCurrency(totalRevenue)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Expenses</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-amber-600 dark:text-amber-400">{formatCurrency(totalExpense)}</div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Net Profit</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className={`text-2xl font-bold ${netIncome >= 0 ? 'text-primary-600 dark:text-primary-400' : 'text-red-600 dark:text-red-400'}`}>
+                {formatCurrency(netIncome)}
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Accounts</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{accounts.length}</div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 };
@@ -127,6 +141,7 @@ function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode;
   // when we're about to redirect to /login anyway) so pages never paint the
   // hardcoded USD default before flipping to the tenant's real currency.
   const { isLoading: settingsLoading } = useTenantSettings();
+  const location = useLocation();
 
   if (isLoading || (token && settingsLoading)) {
     return <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900">Loading...</div>;
@@ -136,7 +151,21 @@ function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode;
     return <Navigate to="/login" replace />;
   }
 
-  if (blockedRoles && blockedRoles.has((user?.role || "").toLowerCase().trim())) {
+  const role = (user?.role || "").toLowerCase().trim();
+
+  if (blockedRoles && blockedRoles.has(role)) {
+    return <Navigate to="/dashboard" replace />;
+  }
+
+  // Generic allowlist enforcement for any role with a reduced nav
+  // (RESTRICTED_ROLE_NAV in navigation.ts - Shop Manager, Cashier, HR,
+  // Auditor) - covers every route automatically, including ones added
+  // later, rather than relying on each route remembering to opt into
+  // `blockedRoles`. Real enforcement is still server-side (rbacMiddleware);
+  // this just keeps a restricted role from landing on a page shell whose
+  // every action would 403 anyway.
+  const visibleHrefs = getVisibleHrefs(role);
+  if (visibleHrefs && !visibleHrefs.has(location.pathname)) {
     return <Navigate to="/dashboard" replace />;
   }
 

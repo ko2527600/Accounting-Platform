@@ -31,7 +31,7 @@ function handleError(res: Response, error: any, fallbackMessage: string): void {
  * GET /api/v1/expense-claims?status=PENDING_APPROVAL&mine=true
  * `mine=true` restricts to the caller's own claims.
  */
-router.get('/', requireRole('Viewer', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+router.get('/', requireRole('Viewer', 'Auditor', 'HR', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const status = typeof req.query.status === 'string' ? req.query.status : undefined;
@@ -46,7 +46,7 @@ router.get('/', requireRole('Viewer', 'Auditor', 'HR'), async (req: Request, res
 /**
  * GET /api/v1/expense-claims/:id
  */
-router.get('/:id', requireRole('Viewer', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+router.get('/:id', requireRole('Viewer', 'Auditor', 'HR', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const claim = await expenseClaimService.getExpenseClaimById(tenantId, req.params.id);
@@ -65,11 +65,12 @@ router.get('/:id', requireRole('Viewer', 'Auditor', 'HR'), async (req: Request, 
  * Any tenant member may file a claim for their own out-of-pocket spend -
  * intentionally the loosest role gate (mirrors GET /approval-workflows),
  * since deciding and reimbursing are the privileged steps, not filing.
- * Viewer/Auditor/HR are "scoped" roles (rbacMiddleware.ts) that only pass a
- * requireRole() check when named explicitly, so all three must be listed
- * here even though the intent is "any authenticated tenant member."
+ * Viewer/Auditor/HR/Shop Manager/Cashier are "scoped" roles
+ * (rbacMiddleware.ts) that only pass a requireRole() check when named
+ * explicitly, so all of them must be listed here even though the intent
+ * is "any authenticated tenant member."
  */
-router.post('/', requireRole('Viewer', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+router.post('/', requireRole('Viewer', 'Auditor', 'HR', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const actor = actorFromRequest(req);
