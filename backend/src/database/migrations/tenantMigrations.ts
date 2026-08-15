@@ -278,6 +278,60 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         END IF;
       END $$;
     `
+  },
+  {
+    version: 9,
+    name: '009_add_account_default_role',
+    sql: `
+      -- Which single account the auto-posting services (invoice payments,
+      -- credit/debit notes, vendor bill payments, expense reimbursements)
+      -- should target for the generic "cash"/"revenue"/"expense" side of a
+      -- transaction. Previously resolved by guessing a hardcoded account
+      -- CODE ('1010'/'4010'/'5010') with an index-based fallback
+      -- (accounts[1], accounts[accounts.length-1]) that silently posted to
+      -- the WRONG account - e.g. crediting an ASSET account as if it were
+      -- REVENUE - whenever a tenant's chart didn't happen to use those exact
+      -- codes. The platform's own built-in Ghana SME starter template
+      -- doesn't (Sales Revenue is coded 4000, not 4010, and no account is
+      -- coded 5010 at all) - a real, silent revenue/cash-recognition bug for
+      -- any tenant using that template unmodified. Explicit, tenant-visible
+      -- designation instead of a magic-number coincidence.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS default_role VARCHAR(20);
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role') THEN
+          ALTER TABLE accounts ADD CONSTRAINT chk_account_default_role CHECK (default_role IN ('CASH', 'REVENUE', 'EXPENSE'));
+        END IF;
+      END $$;
+
+      -- At most one account can hold a given role at a time.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_default_role_unique ON accounts(default_role) WHERE default_role IS NOT NULL;
+
+      -- Retroactive backfill for every tenant that already exists, not just
+      -- new signups - this bug was already live, so the fix must apply
+      -- automatically the next time each tenant's schema is touched, same
+      -- "no manual setup required" approach migration 004 used for
+      -- is_cash_equivalent. Deterministic lowest-code pick per role - fully
+      -- visible and changeable afterward in Chart of Accounts.
+      UPDATE accounts SET default_role = 'CASH'
+      WHERE id = (
+        SELECT id FROM accounts WHERE type = 'ASSET' AND is_cash_equivalent = true ORDER BY code ASC LIMIT 1
+      );
+
+      UPDATE accounts SET default_role = 'REVENUE'
+      WHERE id = (
+        SELECT id FROM accounts WHERE type = 'REVENUE' ORDER BY code ASC LIMIT 1
+      );
+
+      -- Prefer an account that reads like a catch-all ("Miscellaneous...")
+      -- over whatever merely has the lowest code, since this is the target
+      -- for expense postings that have no more specific category.
+      UPDATE accounts SET default_role = 'EXPENSE'
+      WHERE id = (
+        SELECT id FROM accounts WHERE type = 'EXPENSE' ORDER BY (name ILIKE '%miscellaneous%') DESC, code ASC LIMIT 1
+      );
+    `
   }
 ];
 

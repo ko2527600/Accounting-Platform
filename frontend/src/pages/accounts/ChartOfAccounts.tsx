@@ -1,9 +1,10 @@
 import { useState, useMemo } from "react";
-import { Plus, Search, Edit, History } from "lucide-react";
+import { Plus, Search, Edit, History, Star } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import type { Account, AccountType } from "../../types/accounting";
+import { useToast } from "../../contexts/ToastContext";
+import type { Account, AccountType, AccountDefaultRole } from "../../types/accounting";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
@@ -29,14 +30,48 @@ const TYPE_COLORS: Record<AccountType, 'success' | 'warning' | 'danger' | 'defau
 
 const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Cost of Sales', 'Expense'];
 
+// Which single default-posting role each account TYPE is eligible to hold -
+// see backend accountService.ts's REASONABLE_TYPES_FOR_ROLE (the same
+// mapping, enforced server-side too). Liability/Equity accounts can't hold
+// any role, so they get no toggle at all.
+const ROLE_FOR_TYPE: Partial<Record<AccountType, AccountDefaultRole>> = {
+  Asset: 'CASH',
+  Revenue: 'REVENUE',
+  Expense: 'EXPENSE',
+  'Cost of Sales': 'EXPENSE',
+};
+const ROLE_LABEL: Record<AccountDefaultRole, string> = {
+  CASH: 'Default Cash Account',
+  REVENUE: 'Default Revenue Account',
+  EXPENSE: 'Default Expense Account',
+};
+
 export function ChartOfAccounts() {
-  const { accounts, createAccount, updateAccount } = useAccounts();
+  const { accounts, createAccount, updateAccount, setAccountDefaultRole } = useAccounts();
   const { settings } = useTenantSettings();
+  const { showToast } = useToast();
   const navigate = useNavigate();
   const [searchTerm, setSearchTerm] = useState("");
   const [typeFilter, setTypeFilter] = useState<AccountType | "All">("All");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [selectedAccount, setSelectedAccount] = useState<Account | null>(null);
+  const [settingRoleForId, setSettingRoleForId] = useState<string | null>(null);
+
+  const handleToggleDefaultRole = async (account: Account, role: AccountDefaultRole) => {
+    setSettingRoleForId(account.id);
+    try {
+      const nextRole = account.defaultRole === role ? null : role;
+      await setAccountDefaultRole(account.id, nextRole);
+      showToast(
+        nextRole ? `"${account.name}" set as the ${ROLE_LABEL[role]}.` : `"${account.name}" is no longer the ${ROLE_LABEL[role]}.`,
+        "success"
+      );
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to update default account.", "error");
+    } finally {
+      setSettingRoleForId(null);
+    }
+  };
 
   const filteredAccounts = useMemo(() => {
     return accounts.filter((acc) =>
@@ -127,13 +162,14 @@ export function ChartOfAccounts() {
               <TableHead>Name</TableHead>
               <TableHead>Type</TableHead>
               <TableHead className="text-right">Balance</TableHead>
+              <TableHead>Default Posting</TableHead>
               <TableHead className="w-[100px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {filteredAccounts.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="h-32 text-center text-secondary-500">
+                <TableCell colSpan={6} className="h-32 text-center text-secondary-500">
                   No accounts found.
                 </TableCell>
               </TableRow>
@@ -175,6 +211,32 @@ export function ChartOfAccounts() {
                   </TableCell>
                   <TableCell className="text-right font-medium">
                     {formatCurrency(account.balance)}
+                  </TableCell>
+                  <TableCell>
+                    {ROLE_FOR_TYPE[account.type] ? (
+                      <button
+                        type="button"
+                        disabled={settingRoleForId === account.id}
+                        onClick={() => handleToggleDefaultRole(account, ROLE_FOR_TYPE[account.type]!)}
+                        title={
+                          account.defaultRole === ROLE_FOR_TYPE[account.type]
+                            ? `This is the ${ROLE_LABEL[ROLE_FOR_TYPE[account.type]!]} - invoices/bills/expense claims post here automatically. Click to unset.`
+                            : `Click to make this the ${ROLE_LABEL[ROLE_FOR_TYPE[account.type]!]}.`
+                        }
+                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                          account.defaultRole === ROLE_FOR_TYPE[account.type]
+                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                            : "border border-dashed border-secondary-300 text-secondary-400 opacity-0 group-hover:opacity-100 hover:text-secondary-600 dark:border-secondary-700 dark:hover:text-secondary-300"
+                        }`}
+                      >
+                        <Star className={`h-3 w-3 ${account.defaultRole === ROLE_FOR_TYPE[account.type] ? "fill-current" : ""}`} />
+                        {account.defaultRole === ROLE_FOR_TYPE[account.type]
+                          ? `Default ${ROLE_FOR_TYPE[account.type]!.charAt(0)}${ROLE_FOR_TYPE[account.type]!.slice(1).toLowerCase()}`
+                          : "Set as default"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-secondary-400">—</span>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -355,13 +355,14 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     // Opt-in approval gate: only blocks if approval was actually requested for this bill.
     await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'VendorBill', id);
 
-    // Find accounts for AP Posting (5010 Expense, 1010 Cash/Bank). See the identical
-    // note in invoices.ts's /pay handler: this must use accountRepository's raw SQL,
+    // Find accounts for AP Posting (default EXPENSE/CASH accounts, see
+    // accountRepository.resolveDefaultAccount). See the identical note in
+    // invoices.ts's /pay handler: this must use accountRepository's raw SQL,
     // not a Prisma-typed `client.account.findMany()` call, which always queries the
     // permanently-empty `public.accounts` table and silently skipped journal posting.
     const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-    const expenseAcc = accounts.find((a: any) => a.code === '5010') || accounts[accounts.length - 1] || accounts[0];
-    const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
+    const expenseAcc = accountRepository.resolveDefaultAccount(accounts, 'EXPENSE') || accounts[0];
+    const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
 
     // Same reasoning as invoices.ts's /pay handler: post the tenant-base-currency
     // equivalent, not the raw native-currency amount.

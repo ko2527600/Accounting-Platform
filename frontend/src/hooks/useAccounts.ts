@@ -108,11 +108,34 @@ export function useAccounts() {
     await updateAccountLocalFirst(id, payload);
   }, []);
 
+  // Not routed through the offline outbox like create/updateAccount above -
+  // designating a default posting account is a one-time setup action best
+  // done online, and a dedicated endpoint (not the generic account PUT), so
+  // it's a direct call. Updates the local mirror on success so the UI
+  // reflects it immediately rather than waiting on the next live push -
+  // including clearing the same role locally from whoever previously held
+  // it (the server already did this atomically), so the UI never shows two
+  // "default" badges for one role in the gap before that push arrives.
+  const setAccountDefaultRole = useCallback(async (id: string, role: 'CASH' | 'REVENUE' | 'EXPENSE' | null) => {
+    const res = await api.put(`/accounts/${id}/default-role`, { role });
+    const updated = res.data.data.account;
+    if (res.data.success) {
+      if (role) {
+        const all = await syncDb.accounts.toArray();
+        const previousHolders = all.filter((a) => a.defaultRole === role && a.id !== updated.id);
+        await Promise.all(previousHolders.map((a) => syncDb.accounts.put({ ...a, defaultRole: null })));
+      }
+      await syncDb.accounts.put(updated);
+    }
+    return updated;
+  }, []);
+
   return {
     accounts,
     isLoading,
     fetchAccounts: fetchBalances,
     createAccount,
-    updateAccount
+    updateAccount,
+    setAccountDefaultRole,
   };
 }

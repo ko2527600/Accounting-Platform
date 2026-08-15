@@ -88,8 +88,8 @@ export async function recordInvoicePayment(
   }
 
   const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-  const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
-  const revenueAcc = accounts.find((a: any) => a.code === '4010') || accounts[1] || accounts[0];
+  const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
+  const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
   const accountsById = new Map(accounts.map((a: any) => [a.id, a]));
 
   // Same base-currency conversion ratio for the whole invoice, applied to

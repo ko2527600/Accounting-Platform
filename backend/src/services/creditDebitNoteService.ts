@@ -126,8 +126,8 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
 
   if (reversalAmount > 0.001) {
     const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-    const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
-    const revenueAcc = accounts.find((a: any) => a.code === '4010') || accounts[1] || accounts[0];
+    const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
+    const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
     if (!cashAcc || !revenueAcc) {
       throw new CreditDebitNoteServiceError('No accounts available to post the credit note reversal - set up your Chart of Accounts first.', 400);
     }
@@ -254,8 +254,8 @@ export async function createDebitNote(billId: string, input: IssueNoteInput, act
 
   if (method === 'JOURNAL_REVERSAL') {
     const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-    const expenseAcc = accounts.find((a: any) => a.code === '5010') || accounts[accounts.length - 1] || accounts[0];
-    const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
+    const expenseAcc = accountRepository.resolveDefaultAccount(accounts, 'EXPENSE') || accounts[0];
+    const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     if (!expenseAcc || !cashAcc) {
       throw new CreditDebitNoteServiceError('No accounts available to post the debit note reversal - set up your Chart of Accounts first.', 400);
     }
