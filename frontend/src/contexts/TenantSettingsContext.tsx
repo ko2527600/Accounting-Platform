@@ -11,6 +11,7 @@ const DEFAULT_TENANT: TenantSettings = {
   financialYearStart: '01-01',
   timezone: 'UTC',
   bossPhone: null,
+  tier: 1,
   updatedAt: new Date().toISOString()
 };
 
@@ -50,6 +51,7 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           financialYearStart: '01-01',
           timezone: 'UTC',
           bossPhone: t.bossPhone ?? null,
+          tier: t.tier ?? 1,
           updatedAt: t.updatedAt || new Date().toISOString(),
         });
       }

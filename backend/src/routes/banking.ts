@@ -4,6 +4,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTier } from '../middleware/tierEnforcementMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as monoService from '../services/monoService';
 import { MonoServiceError } from '../services/monoService';
@@ -97,6 +98,7 @@ router.post('/webhooks/mono', async (req: Request, res: Response): Promise<void>
 
 router.use(authenticateJwt);
 router.use(tenantContextMiddleware);
+router.use(requireTier(2, 'Bank Reconciliation'));
 
 /**
  * GET /api/v1/banking/accounts

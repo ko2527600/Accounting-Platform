@@ -49,6 +49,7 @@ describe('Recurring Transactions API + cron generator', () => {
       adminEmail: admin1Email,
       adminPassword: 'Password123!',
       adminName: 'Recurring Corp 1 Admin',
+      tier: 3, // Recurring Transactions is a Business+ feature (requireTier gate) - not what this file tests.
     });
     token1 = onboard1.token;
     tenant1Id = onboard1.tenant.id;
@@ -59,6 +60,7 @@ describe('Recurring Transactions API + cron generator', () => {
       adminEmail: admin2Email,
       adminPassword: 'Password123!',
       adminName: 'Recurring Corp 2 Admin',
+      tier: 3, // Recurring Transactions is a Business+ feature (requireTier gate) - not what this file tests.
     });
     token2 = onboard2.token;
     tenant2Id = onboard2.tenant.id;

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy } from "lucide-react";
+import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy, Sparkles } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
@@ -7,6 +7,7 @@ import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
 import { api } from "../../lib/api";
 import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { TIER_NAMES } from "../../types/tenant";
 
 interface ExportManifestEntry {
   key: string;
@@ -337,7 +338,24 @@ export function Settings() {
 
       {/* Profile Settings */}
       {activeTab === "profile" && (
-        <form onSubmit={handleProfileSubmit}>
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-primary-600" />
+                Plan: {TIER_NAMES[settings.tier] || "Shop"}
+              </CardTitle>
+              <CardDescription>
+                {settings.tier >= 3
+                  ? "You have access to every feature on the platform, including unlimited team seats."
+                  : settings.tier === 2
+                  ? "Bank Reconciliation, Recurring Transactions, Budgets, and Approval Workflows are unlocked. Upgrade to Enterprise for unlimited team seats."
+                  : "Bank Reconciliation, Recurring Transactions, Budgets, and Approval Workflows unlock on the Business plan. Your data carries over automatically the moment you upgrade - nothing to migrate."}
+                {" "}Contact support to change your plan.
+              </CardDescription>
+            </CardHeader>
+          </Card>
+          <form onSubmit={handleProfileSubmit}>
           <Card>
             <CardHeader>
               <CardTitle>Organization Details</CardTitle>
@@ -365,7 +383,8 @@ export function Settings() {
               <Button type="submit" variant="primary">Save Changes</Button>
             </CardFooter>
           </Card>
-        </form>
+          </form>
+        </div>
       )}
 
       {/* Regional Settings */}

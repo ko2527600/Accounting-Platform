@@ -47,6 +47,7 @@ describe('Cash Flow Forecast (recurring-transaction + AR/AP-aware, event-grounde
       adminEmail,
       adminPassword: 'Password123!',
       adminName: 'Forecast Admin',
+      tier: 3, // Recurring Transactions is a Business+ feature (requireTier gate) - not what this file tests.
     });
     adminToken = onboard.token;
     tenantId = onboard.tenant.id;

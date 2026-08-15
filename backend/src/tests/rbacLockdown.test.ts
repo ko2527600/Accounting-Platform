@@ -68,6 +68,7 @@ describe('RBAC lockdown for Shop Manager / Cashier', () => {
       adminEmail,
       adminPassword: 'Password123!',
       adminName: 'Lockdown Admin',
+      tier: 3, // Banking is a Business+ feature (requireTier gate) - this file tests role scoping, not tiers, so the 403 assertions below must come from the role check.
     });
     adminToken = onboard.token;
     tenantId = onboard.tenant.id;

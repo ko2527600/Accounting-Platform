@@ -4,6 +4,8 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
 import { api } from "../../lib/api";
+import { useTenantSettings } from "../../contexts/TenantSettingsContext";
+import { UpgradeRequired } from "../../components/UpgradeRequired";
 
 interface ApprovalStep {
   level: number;
@@ -30,6 +32,7 @@ const statusColor: Record<string, string> = {
 };
 
 export function Approvals() {
+  const { settings: tenantSettings, isLoading: isLoadingTenantSettings } = useTenantSettings();
   const [workflows, setWorkflows] = useState<ApprovalWorkflow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -49,8 +52,12 @@ export function Approvals() {
   }, []);
 
   useEffect(() => {
-    fetchWorkflows();
-  }, [fetchWorkflows]);
+    if (!isLoadingTenantSettings && tenantSettings.tier >= 2) {
+      fetchWorkflows();
+    } else if (!isLoadingTenantSettings) {
+      setIsLoading(false);
+    }
+  }, [fetchWorkflows, isLoadingTenantSettings, tenantSettings.tier]);
 
   const handleRequest = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -74,6 +81,10 @@ export function Approvals() {
       setMessage(`❌ ${err.response?.data?.error || "Failed to record decision."}`);
     }
   };
+
+  if (!isLoadingTenantSettings && tenantSettings.tier < 2) {
+    return <UpgradeRequired featureLabel="Approval Workflows" requiredTier={2} currentTier={tenantSettings.tier} />;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto">

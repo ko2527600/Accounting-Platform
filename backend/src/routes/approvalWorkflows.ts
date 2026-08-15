@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTier } from '../middleware/tierEnforcementMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as approvalWorkflowService from '../services/approvalWorkflowService';
 import { ApprovalWorkflowServiceError } from '../services/approvalWorkflowService';
@@ -11,6 +12,7 @@ const router = Router();
 
 router.use(authenticateJwt);
 router.use(tenantContextMiddleware);
+router.use(requireTier(2, 'Approval Workflows'));
 
 function handleError(res: Response, error: any, fallbackMessage: string): void {
   if (error instanceof ApprovalWorkflowServiceError) {
