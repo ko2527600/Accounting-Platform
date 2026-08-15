@@ -160,6 +160,8 @@ export function WarehouseManagement() {
   const [sellingPrice, setSellingPrice] = useState("250");
   const [initialWarehouseId, setInitialWarehouseId] = useState("");
   const [initialQty, setInitialQty] = useState("50");
+  const [preferredVendorId, setPreferredVendorId] = useState("");
+  const [vendors, setVendors] = useState<{ id: string; name: string }[]>([]);
 
   // Transfer Form State
   const [fromWarehouseId, setFromWarehouseId] = useState("");
@@ -172,13 +174,15 @@ export function WarehouseManagement() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [whRes, itemRes] = await Promise.all([
+      const [whRes, itemRes, vendorRes] = await Promise.all([
         api.get("/inventory/warehouses"),
         api.get("/inventory/items"),
+        api.get("/bills/vendors"),
       ]);
 
       if (whRes.data.success) setWarehouses(whRes.data.data.warehouses);
       if (itemRes.data.success) setItems(itemRes.data.data.items);
+      if (vendorRes.data.success) setVendors(vendorRes.data.data.vendors);
     } catch (err) {
       console.error("Failed to load inventory data:", err);
     } finally {
@@ -227,11 +231,13 @@ export function WarehouseManagement() {
         sellingPrice: Number(sellingPrice),
         initialWarehouseId,
         initialQty: Number(initialQty),
+        preferredVendorId: preferredVendorId || undefined,
       });
 
       if (res.data.success) {
         setItemName("");
         setItemSku("");
+        setPreferredVendorId("");
         setIsItemModalOpen(false);
         fetchData();
       }
@@ -920,6 +926,22 @@ export function WarehouseManagement() {
               <label className="block text-sm font-medium mb-1">Initial Quantity</label>
               <Input type="number" value={initialQty} onChange={(e) => setInitialQty(e.target.value)} />
             </div>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Preferred Vendor (optional)</label>
+            <select
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
+              value={preferredVendorId}
+              onChange={(e) => setPreferredVendorId(e.target.value)}
+            >
+              <option value="">-- None --</option>
+              {vendors.map((v) => (
+                <option key={v.id} value={v.id}>{v.name}</option>
+              ))}
+            </select>
+            <p className="text-xs text-secondary-500 mt-1">
+              Who to auto-draft a reorder Purchase Order to once stock falls to the reorder level.
+            </p>
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsItemModalOpen(false)}>Cancel</Button>

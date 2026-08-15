@@ -45,6 +45,14 @@ const startServer = async () => {
     // Initialize daily Help Assistant conversation-log retention sweep
     const { HelpAssistantMaintenanceCronService } = require('./services/helpAssistantMaintenanceCronService');
     HelpAssistantMaintenanceCronService.init();
+
+    // Initialize daily scheduled vendor-bill payments sweep
+    const { VendorPaymentSchedulingCronService } = require('./services/vendorPaymentSchedulingCronService');
+    VendorPaymentSchedulingCronService.init();
+
+    // Initialize daily recurring-invoice generation sweep
+    const { RecurringInvoiceCronService } = require('./services/recurringInvoiceCronService');
+    RecurringInvoiceCronService.init();
   });
 
   const gracefulShutdown = async () => {

@@ -8,7 +8,7 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2, History } from "lucide-react";
+import { Plus, CheckCircle, Building2, CreditCard, AlertCircle, Package, Ship, Trash2, Undo2, History, Clock } from "lucide-react";
 
 interface Vendor {
   id: string;
@@ -39,6 +39,7 @@ interface VendorBill {
   landedCostForBillId?: string | null;
   warehouseId?: string | null;
   lines?: VendorBillLine[];
+  scheduledPaymentDate?: string | null;
 }
 
 interface WarehouseOption {
@@ -237,6 +238,27 @@ export function VendorBills() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
+    }
+  };
+
+  const [scheduleModalBill, setScheduleModalBill] = useState<VendorBill | null>(null);
+  const [scheduleDate, setScheduleDate] = useState("");
+
+  const openScheduleModal = (bill: VendorBill) => {
+    setScheduleModalBill(bill);
+    setScheduleDate(bill.scheduledPaymentDate ? bill.scheduledPaymentDate.slice(0, 10) : "");
+  };
+
+  const handleSaveSchedule = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!scheduleModalBill) return;
+    try {
+      await api.put(`/bills/${scheduleModalBill.id}/schedule-payment`, { scheduledPaymentDate: scheduleDate || null });
+      showToast(scheduleDate ? "Payment scheduled." : "Schedule cleared.", "success");
+      setScheduleModalBill(null);
+      fetchData();
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to set schedule.", "error");
     }
   };
 
@@ -459,9 +481,21 @@ export function VendorBills() {
                         </Button>
                       )}
                       {b.status !== "PAID" && (
-                        <Button variant="outline" size="sm" onClick={() => handlePayBill(b.id)} className="text-xs">
-                          Pay Bill
-                        </Button>
+                        <>
+                          <Button variant="outline" size="sm" onClick={() => handlePayBill(b.id)} className="text-xs">
+                            Pay Bill
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => openScheduleModal(b)}
+                            className="text-xs"
+                            title={b.scheduledPaymentDate ? `Scheduled to auto-pay ${new Date(b.scheduledPaymentDate).toLocaleDateString()}` : "Schedule auto-payment"}
+                          >
+                            <Clock className="mr-1 h-3 w-3" />
+                            {b.scheduledPaymentDate ? new Date(b.scheduledPaymentDate).toLocaleDateString() : "Schedule"}
+                          </Button>
+                        </>
                       )}
                       <Button variant="outline" size="sm" onClick={() => openDebitNoteModal(b)} className="text-xs">
                         <Undo2 className="mr-1 h-3 w-3" />
@@ -794,6 +828,23 @@ export function VendorBills() {
             <Button type="submit" variant="primary" disabled={isIssuingDebit}>
               {isIssuingDebit ? "Issuing..." : "Issue Debit Note"}
             </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal isOpen={!!scheduleModalBill} onClose={() => setScheduleModalBill(null)} title="Schedule Auto-Payment">
+        <form onSubmit={handleSaveSchedule} className="space-y-4">
+          <p className="text-xs text-secondary-500">
+            {scheduleModalBill?.billNumber} will be automatically paid (the same as clicking "Pay Bill" yourself) on
+            this date, if still unpaid then. Leave blank to clear the schedule.
+          </p>
+          <div>
+            <label className="block text-sm font-medium mb-1">Auto-Pay Date</label>
+            <Input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setScheduleModalBill(null)}>Cancel</Button>
+            <Button type="submit" variant="primary">Save</Button>
           </div>
         </form>
       </Modal>

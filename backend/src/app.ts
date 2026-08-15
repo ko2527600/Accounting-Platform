@@ -52,6 +52,10 @@ import dataExportRouter from './routes/dataExport';
 import complianceRouter from './routes/compliance';
 import onboardingWizardRouter from './routes/onboardingWizard';
 import helpAssistantRouter from './routes/helpAssistant';
+import pettyCashRouter from './routes/pettyCash';
+import purchaseOrdersRouter from './routes/purchaseOrders';
+import recurringInvoicesRouter from './routes/recurringInvoices';
+import paystackRouter from './routes/paystack';
 
 dotenv.config();
 
@@ -176,6 +180,14 @@ app.use('/api/v1/analytics', analyticsRouter);
 
 // In-app Help Assistant endpoints
 app.use('/api/v1/help-assistant', helpAssistantRouter);
+
+// Petty cash log endpoints
+app.use('/api/v1/petty-cash', pettyCashRouter);
+
+// Purchase Order endpoints
+app.use('/api/v1/purchase-orders', purchaseOrdersRouter);
+app.use('/api/v1/recurring-invoices', recurringInvoicesRouter);
+app.use('/api/v1/paystack', paystackRouter);
 
 // Real-Time & Persistent Notifications endpoints
 app.use('/api/v1/notifications', notificationsRouter);

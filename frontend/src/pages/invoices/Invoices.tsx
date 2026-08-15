@@ -18,6 +18,7 @@ interface Customer {
   name: string;
   email: string;
   phone?: string;
+  creditLimit?: number | null;
 }
 
 interface TaxRate {
@@ -125,6 +126,16 @@ interface TellerRequest {
   createdAt: string;
 }
 
+interface PaystackRequest {
+  id: string;
+  reference: string;
+  amount: number;
+  authorizationUrl: string;
+  status: "PENDING" | "SUCCESSFUL" | "FAILED";
+  failureReason: string | null;
+  createdAt: string;
+}
+
 const TELLER_NETWORKS: { value: string; label: string }[] = [
   { value: "VDF", label: "Telecel Cash" },
   { value: "ATL", label: "AirtelTigo Money (Airtel)" },
@@ -158,6 +169,7 @@ export function Invoices() {
   // Customer Form
   const [custName, setCustName] = useState("");
   const [custEmail, setCustEmail] = useState("");
+  const [custCreditLimit, setCustCreditLimit] = useState("");
 
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -208,6 +220,12 @@ export function Invoices() {
   const [tellerNetwork, setTellerNetwork] = useState("VDF");
   const [isSendingTeller, setIsSendingTeller] = useState(false);
   const [checkingTellerTxnId, setCheckingTellerTxnId] = useState<string | null>(null);
+
+  // Paystack "Pay Now" link (card/bank transfer) collection modal
+  const [paystackInvoice, setPaystackInvoice] = useState<Invoice | null>(null);
+  const [paystackRequests, setPaystackRequests] = useState<PaystackRequest[]>([]);
+  const [isGeneratingPaystackLink, setIsGeneratingPaystackLink] = useState(false);
+  const [verifyingPaystackRef, setVerifyingPaystackRef] = useState<string | null>(null);
 
   // Once the tenant's real base currency loads, default the new-invoice
   // currency picker to it instead of leaving it pinned to the initial "USD"
@@ -261,10 +279,15 @@ export function Invoices() {
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const res = await api.post("/invoices/customers", { name: custName, email: custEmail });
+      const res = await api.post("/invoices/customers", {
+        name: custName,
+        email: custEmail,
+        creditLimit: custCreditLimit.trim() ? Number(custCreditLimit) : null,
+      });
       if (res.data.success) {
         setCustName("");
         setCustEmail("");
+        setCustCreditLimit("");
         setIsCustomerOpen(false);
         fetchData();
       }
@@ -576,6 +599,61 @@ export function Invoices() {
     }
   };
 
+  const openPaystackModal = async (invoice: Invoice) => {
+    setPaystackInvoice(invoice);
+    setPaystackRequests([]);
+    try {
+      const res = await api.get(`/paystack/invoices/${invoice.id}/requests`);
+      if (res.data.success) setPaystackRequests(res.data.data.requests);
+    } catch (err) {
+      console.error("Failed to load Paystack request history:", err);
+    }
+  };
+
+  const handleGeneratePaystackLink = async () => {
+    if (!paystackInvoice) return;
+    setIsGeneratingPaystackLink(true);
+    try {
+      const res = await api.post(`/paystack/invoices/${paystackInvoice.id}/initialize`);
+      if (res.data.success) {
+        setPaystackRequests((prev) => [res.data.data.request, ...prev]);
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(res.data.data.request.authorizationUrl).catch(() => {});
+          showToast("Payment link generated and copied to clipboard. Share it with the customer.", "success");
+        } else {
+          showToast("Payment link generated. Share it with the customer.", "success");
+        }
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to generate Paystack payment link.", "error");
+    } finally {
+      setIsGeneratingPaystackLink(false);
+    }
+  };
+
+  const handleVerifyPaystack = async (reference: string) => {
+    setVerifyingPaystackRef(reference);
+    try {
+      const res = await api.post(`/paystack/requests/${reference}/verify`);
+      if (res.data.success) {
+        setPaystackRequests((prev) => prev.map((r) => (r.reference === reference ? res.data.data.request : r)));
+        if (res.data.data.request.status === "SUCCESSFUL") {
+          showToast("Payment confirmed - invoice marked PAID.", "success");
+          setPaystackInvoice(null);
+          resyncInvoicesFromServer();
+        } else if (res.data.data.request.status === "FAILED") {
+          showToast("Payment was not successful. See the reason below.", "error");
+        } else {
+          showToast("Still pending - the customer hasn't completed checkout yet.", "info");
+        }
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to verify Paystack payment.", "error");
+    } finally {
+      setVerifyingPaystackRef(null);
+    }
+  };
+
   // Defaults to the tenant's real configured base currency (not a hardcoded
   // "USD") for aggregate figures like the AR/Paid summary tiles that don't
   // pass an explicit currency. Individual invoice rows still pass
@@ -805,6 +883,15 @@ export function Invoices() {
                                 Collect via Mobile Money (Other Networks)
                               </button>
                             )}
+                            {inv.status !== "PAID" && inv.status !== "DRAFT" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); openPaystackModal(inv); }}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              >
+                                <DollarSign className="mr-2 h-3 w-3" />
+                                Pay Now Link (Paystack)
+                              </button>
+                            )}
                             {inv.status !== "DRAFT" && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openCreditNoteModal(inv); }}
@@ -837,6 +924,20 @@ export function Invoices() {
           <div>
             <label className="block text-sm font-medium mb-1">Billing Email</label>
             <Input type="email" required placeholder="billing@acmeclient.com" value={custEmail} onChange={(e) => setCustEmail(e.target.value)} />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Credit Limit (optional)</label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="No limit"
+              value={custCreditLimit}
+              onChange={(e) => setCustCreditLimit(e.target.value)}
+            />
+            <p className="text-xs text-secondary-500 mt-1">
+              New invoices for this customer are blocked once their outstanding balance would exceed this. Leave blank for no limit.
+            </p>
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsCustomerOpen(false)}>Cancel</Button>
@@ -1336,6 +1437,87 @@ export function Invoices() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Paystack "Pay Now" Link Modal */}
+      <Modal
+        isOpen={!!paystackInvoice}
+        onClose={() => setPaystackInvoice(null)}
+        title={`Pay Now Link (Paystack) - ${paystackInvoice?.invoiceNumber ?? ""}`}
+        description="Generates a hosted checkout link for card or bank transfer. Share it with the customer, then verify once they confirm payment."
+      >
+        <div className="space-y-4">
+          <div className="text-sm text-secondary-600 dark:text-secondary-400">
+            Outstanding balance: {paystackInvoice ? formatCurrency(Number(paystackInvoice.total) - Number(paystackInvoice.amountPaid || 0), paystackInvoice.currency) : ""}
+          </div>
+
+          {paystackRequests.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Payment Links</label>
+              <div className="space-y-2 max-h-48 overflow-y-auto text-xs">
+                {paystackRequests.map((r) => (
+                  <div key={r.id} className="flex items-center justify-between border-b border-secondary-100 dark:border-secondary-800 py-1.5">
+                    <div>
+                      <div className="text-secondary-900 dark:text-secondary-50">{formatCurrency(Number(r.amount), paystackInvoice?.currency || "GHS")}</div>
+                      <div className="text-secondary-500">{new Date(r.createdAt).toLocaleString()}</div>
+                      {r.status === "FAILED" && r.failureReason && (
+                        <div className="text-red-500 mt-0.5">{r.failureReason}</div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {r.status === "PENDING" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
+                          Pending
+                        </span>
+                      )}
+                      {r.status === "SUCCESSFUL" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
+                          Successful
+                        </span>
+                      )}
+                      {r.status === "FAILED" && (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
+                          Failed
+                        </span>
+                      )}
+                      {r.status === "PENDING" && (
+                        <>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-xs"
+                            onClick={() => navigator.clipboard?.writeText(r.authorizationUrl).then(() => showToast("Link copied.", "success")).catch(() => {})}
+                          >
+                            Copy Link
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="text-xs"
+                            disabled={verifyingPaystackRef === r.reference}
+                            onClick={() => handleVerifyPaystack(r.reference)}
+                          >
+                            <RefreshCw className="mr-1 h-3 w-3" />
+                            {verifyingPaystackRef === r.reference ? "Verifying..." : "Verify Payment"}
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setPaystackInvoice(null)}>Close</Button>
+            <Button type="button" variant="primary" disabled={isGeneratingPaystackLink} onClick={handleGeneratePaystackLink}>
+              {isGeneratingPaystackLink ? "Generating..." : "Generate Payment Link"}
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

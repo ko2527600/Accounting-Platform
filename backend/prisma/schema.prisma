@@ -330,9 +330,18 @@ model Customer {
   email     String
   phone     String?
   address   String?
+  // Optional ceiling on this customer's total outstanding balance (sum of
+  // every SENT/PARTIALLY_PAID invoice's balance due) - null means no limit
+  // (the default, and the only behavior every pre-existing customer had
+  // before this field existed). Enforced at invoice creation in
+  // routes/invoices.ts, not a soft warning - matches this app's existing
+  // pattern of hard-gating real business rules in code (e.g. insufficient
+  // stock, the trial-balance onboarding gate).
+  creditLimit Decimal? @map("credit_limit") @db.Decimal(15, 2)
   createdAt DateTime @default(now()) @map("created_at")
 
   invoices Invoice[]
+  recurringInvoices RecurringInvoice[]
 
   @@index([tenantId])
   @@map("customers")
@@ -404,9 +413,10 @@ model Invoice {
   warehouse    Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
   items        InvoiceItem[]
   creditNotes  CreditNote[]
-  payments       InvoicePayment[]
-  momoRequests   MomoPaymentRequest[]
-  tellerRequests TellerPaymentRequest[]
+  payments         InvoicePayment[]
+  momoRequests     MomoPaymentRequest[]
+  tellerRequests   TellerPaymentRequest[]
+  paystackRequests PaystackPaymentRequest[]
 
   @@unique([tenantId, invoiceNumber])
   @@unique([tenantId, clientTxnId])
@@ -516,6 +526,34 @@ model TellerPaymentRequest {
   @@map("teller_payment_requests")
 }
 
+// One row per Paystack hosted-checkout "Pay Now" link generated for an
+// invoice - the card/bank-rail counterpart to MomoPaymentRequest/
+// TellerPaymentRequest's mobile-money flow. reference is the value Paystack
+// itself uses to identify the transaction (sent as our own generated string
+// at initialize time, echoed back on both the redirect callback and the
+// verify API), so it's unique per tenant the same way transactionId is on
+// TellerPaymentRequest.
+model PaystackPaymentRequest {
+  id               String   @id @default(uuid())
+  tenantId         String   @map("tenant_id")
+  invoiceId        String   @map("invoice_id")
+  reference        String   @unique @map("reference")
+  amount           Decimal  @db.Decimal(15, 2)
+  currency         String   @default("GHS")
+  authorizationUrl String   @map("authorization_url")
+  status           String   @default("PENDING")
+  failureReason    String?  @map("failure_reason")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@index([status])
+  @@map("paystack_payment_requests")
+}
+
 // A correction/refund against an already-issued Invoice (returned goods,
 // overcharge, negotiated discount, etc.). Because this platform only
 // recognizes revenue at payment time (see invoices.ts's `/pay` handler -
@@ -582,6 +620,8 @@ model Vendor {
   createdAt DateTime @default(now()) @map("created_at")
 
   bills VendorBill[]
+  purchaseOrders PurchaseOrder[]
+  preferredForItems InventoryItem[]
 
   @@index([tenantId])
   @@map("vendors")
@@ -617,9 +657,27 @@ model VendorBill {
   // posted at payment time (see routes/bills.ts POST /:id/pay).
   fundId String? @map("fund_id")
 
+  // Optional link back to the Purchase Order this bill fulfills - set when
+  // a bill is created via "Create Bill from PO" (see purchaseOrders.ts).
+  // Nothing here blocks creating a bill without a PO (most bills still
+  // won't have one) - this is what lets the bill/PO matching view compare
+  // ordered vs. billed quantity/price, not a required workflow.
+  purchaseOrderId String? @map("purchase_order_id")
+
+  // Optional date to auto-pay this bill on (see
+  // vendorPaymentSchedulingCronService.ts's daily sweep, which calls the
+  // exact same vendorBillPaymentService.payVendorBill() the manual "Pay"
+  // button uses - this app records that a payment happened, it doesn't
+  // instruct a bank/payment rail to move money, same scope as every other
+  // payment-marking action here). Null (the default) means no change from
+  // before this field existed - a bill is only ever paid by an explicit
+  // manual action.
+  scheduledPaymentDate DateTime? @map("scheduled_payment_date")
+
   vendor     Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
   warehouse  Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
   fund       Fund?            @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
   lines      VendorBillLine[]
   debitNotes DebitNote[]
 
@@ -633,7 +691,64 @@ model VendorBill {
   @@index([warehouseId])
   @@index([landedCostForBillId])
   @@index([fundId])
+  @@index([purchaseOrderId])
+  @@index([status, scheduledPaymentDate])
   @@map("vendor_bills")
+}
+
+// A formal order sent to a vendor, ahead of actually receiving/billing for
+// the goods - the missing piece this app had no way to track before
+// (previously a VendorBill was the ONLY record of a purchase, created only
+// after goods already arrived). Matching against a bill is intentionally
+// lightweight (see purchaseOrders.ts's "Create Bill from PO" flow): it
+// compares ordered vs. billed quantity/unit cost per line and flags a
+// variance, rather than a strict blocking 3-way match against a separate
+// goods-receipt record - a real, useful improvement over today's zero
+// matching, without the much larger scope a full receiving workflow would need.
+model PurchaseOrder {
+  id           String    @id @default(uuid())
+  tenantId     String    @map("tenant_id")
+  poNumber     String    @map("po_number")
+  vendorId     String    @map("vendor_id")
+  orderDate    DateTime  @default(now()) @map("order_date")
+  expectedDate DateTime? @map("expected_date")
+  // DRAFT -> SENT -> BILLED (a bill has been created from this PO) or
+  // CANCELLED. No separate goods-receipt status - "received" is tracked
+  // implicitly by whether a bill (which itself may or may not be itemized
+  // against real warehouse stock) has been created against this PO.
+  status       String    @default("DRAFT")
+  currency     String    @default("USD")
+  warehouseId  String?   @map("warehouse_id")
+  notes        String?
+  createdAt    DateTime  @default(now()) @map("created_at")
+
+  vendor    Vendor              @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  warehouse Warehouse?          @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  lines     PurchaseOrderLine[]
+  bills     VendorBill[]
+
+  @@unique([tenantId, poNumber])
+  @@index([tenantId])
+  @@index([vendorId])
+  @@index([status])
+  @@map("purchase_orders")
+}
+
+model PurchaseOrderLine {
+  id              String  @id @default(uuid())
+  tenantId        String  @map("tenant_id")
+  purchaseOrderId String  @map("purchase_order_id")
+  itemId          String  @map("item_id")
+  description     String?
+  quantity        Int
+  unitCost        Decimal @db.Decimal(15, 2)
+
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  item          InventoryItem @relation(fields: [itemId], references: [id], onDelete: Cascade)
+
+  @@index([purchaseOrderId])
+  @@index([itemId])
+  @@map("purchase_order_lines")
 }
 
 // Mirror of CreditNote for the AP side: a correction/refund against an
@@ -702,6 +817,7 @@ model Warehouse {
   userAccess    WarehouseAccess[]
   vendorBills   VendorBill[]
   invoices      Invoice[]
+  purchaseOrders PurchaseOrder[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -718,12 +834,20 @@ model InventoryItem {
   costPrice     Decimal  @map("cost_price") @db.Decimal(15, 2)
   sellingPrice  Decimal  @map("selling_price") @db.Decimal(15, 2)
   reorderLevel  Int      @default(10) @map("reorder_level")
+  // Which vendor to auto-draft a reorder PO to when this item's stock falls
+  // below reorderLevel (see POST /purchase-orders/generate-for-reorder) -
+  // optional; an item with no preferred vendor is simply skipped by that
+  // endpoint (reported back, not silently dropped) rather than guessing
+  // which vendor to order from.
+  preferredVendorId String? @map("preferred_vendor_id")
   createdAt     DateTime @default(now()) @map("created_at")
 
   warehouseStocks WarehouseStock[]
   adjustments     StockAdjustment[]
   vendorBillLines VendorBillLine[]
   invoiceLines    InvoiceItem[]
+  purchaseOrderLines PurchaseOrderLine[]
+  preferredVendor Vendor? @relation(fields: [preferredVendorId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -1140,6 +1264,70 @@ model RecurringTransaction {
   @@index([isActive, nextRun])
   @@index([frequency])
   @@map("recurring_transactions")
+}
+
+// Recurring customer billing (subscriptions, retainers) - a parallel entity
+// to RecurringTransaction rather than extending it, since that engine's
+// templateData only ever produces a generic JournalEntry and has no
+// customerId concept at all. Deliberately Simple-Invoice-only scope (no
+// itemized/stock-deducting lines, no FX-layered tax breakdown snapshot) -
+// this is meant for recurring services/subscriptions, not recurring goods
+// shipments; a real, documented scope trim, not an oversight.
+model RecurringInvoice {
+  id         String              @id @default(uuid())
+  tenantId   String              @map("tenant_id")
+  customerId String              @map("customer_id")
+  name       String
+  frequency  RecurrenceFrequency
+  startDate  DateTime            @map("start_date")
+  endDate    DateTime?           @map("end_date")
+  lastRun    DateTime?           @map("last_run")
+  nextRun    DateTime            @map("next_run")
+  isActive   Boolean             @default(true) @map("is_active")
+  currency   String              @default("USD")
+  dueInDays  Int                 @default(14) @map("due_in_days")
+  taxRateId  String?             @map("tax_rate_id")
+  // [{ description, quantity, unitPrice }] - the invoice template, same
+  // shape as InvoiceItem minus the itemized-stock fields.
+  items      Json
+  createdAt  DateTime            @default(now()) @map("created_at")
+  updatedAt  DateTime            @updatedAt @map("updated_at")
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([isActive, nextRun])
+  @@map("recurring_invoices")
+}
+
+// Ad-hoc minor office cash disbursements/replenishments - distinct from
+// CashSale (POS sales) and ExpenseClaim (employee reimbursement, which goes
+// through an approval workflow). Each entry posts a real 2-line journal
+// entry immediately via journalEntryService.createJournalEntry (same
+// "constrained wrapper" pattern as Contra Vouchers), so the petty cash
+// account's own ledger balance is always the source of truth - this table
+// is a purpose-built log/UI layer over that, not a second balance.
+model PettyCashEntry {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  entryDate          DateTime @default(now()) @map("entry_date")
+  // "DISBURSEMENT" (money spent out of the petty cash tin - Debit the
+  // chosen expense account, Credit petty cash) or "REPLENISHMENT" (topping
+  // the tin back up from a bank/cash account - Debit petty cash, Credit the
+  // funding account).
+  direction          String
+  description        String
+  amount             Decimal  @db.Decimal(15, 2)
+  pettyCashAccountId String   @map("petty_cash_account_id")
+  counterAccountId   String   @map("counter_account_id")
+  journalId          String?  @map("journal_id")
+  recordedByUserId   String?  @map("recorded_by_user_id")
+  recordedByEmail    String?  @map("recorded_by_email")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, entryDate])
+  @@index([tenantId, pettyCashAccountId])
+  @@map("petty_cash_entries")
 }
 
 enum DocumentType {

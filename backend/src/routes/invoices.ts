@@ -76,15 +76,19 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
 router.post('/customers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, email, phone, address } = req.body;
+    const { name, email, phone, address, creditLimit } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Customer name and email are required.' });
+      return;
+    }
+    if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
+      res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
       return;
     }
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.create({
-        data: { tenantId, name: name.trim(), email: email.trim().toLowerCase(), phone, address },
+        data: { tenantId, name: name.trim(), email: email.trim().toLowerCase(), phone, address, creditLimit: creditLimit ?? null },
       });
     });
 
@@ -92,6 +96,48 @@ router.post('/customers', requireRole('Accountant'), async (req: Request, res: R
   } catch (error: any) {
     console.error('[Invoices] Error creating customer:', error);
     res.status(500).json({ success: false, error: 'Failed to create customer.' });
+  }
+});
+
+/**
+ * PUT /api/v1/customers/:id
+ * Updates a customer's contact details and/or credit limit.
+ */
+router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+    const { name, email, phone, address, creditLimit } = req.body;
+
+    if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
+      res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
+      return;
+    }
+
+    const updated = await withCurrentTenantDb(prisma, async (client) => {
+      const existing = await (client as any).customer.findFirst({ where: { id, tenantId } });
+      if (!existing) return null;
+      return (client as any).customer.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name: String(name).trim() }),
+          ...(email !== undefined && { email: String(email).trim().toLowerCase() }),
+          ...(phone !== undefined && { phone }),
+          ...(address !== undefined && { address }),
+          ...(creditLimit !== undefined && { creditLimit }),
+        },
+      });
+    });
+
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Customer not found.' });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: { customer: updated } });
+  } catch (error: any) {
+    console.error('[Invoices] Error updating customer:', error);
+    res.status(500).json({ success: false, error: 'Failed to update customer.' });
   }
 });
 
@@ -215,6 +261,54 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       // rather than silently guessing a percentage.
     }
     const total = subtotal + tax;
+
+    // Customer credit limit (optional, null means no limit) - blocks outright
+    // rather than just warning, matching this app's existing pattern of
+    // hard-gating real business rules in code (insufficient stock, the
+    // trial-balance onboarding gate). Checked against every other
+    // outstanding invoice's balance due (total - amountPaid), not the raw
+    // total, so a customer paying down old invoices genuinely frees up
+    // headroom rather than being permanently blocked by history.
+    const customerForLimit: any = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).customer.findFirst({ where: { id: customerId, tenantId } });
+    });
+    if (!customerForLimit) {
+      res.status(404).json({ success: false, error: 'Customer not found.' });
+      return;
+    }
+    // Skip the check entirely for an idempotent retry (same clientTxnId
+    // already created an invoice) - the request below will just return that
+    // existing invoice, not create a new charge, so there's nothing new to
+    // check against the limit, and re-checking here would double-count that
+    // invoice's own total against itself.
+    const isReplay = clientTxnId
+      ? Boolean(
+          await withCurrentTenantDb(prisma, (client) =>
+            (client as any).invoice.findFirst({ where: { tenantId, clientTxnId }, select: { id: true } })
+          )
+        )
+      : false;
+
+    if (!isReplay && customerForLimit.creditLimit !== null && customerForLimit.creditLimit !== undefined) {
+      const outstandingInvoices: any[] = await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).invoice.findMany({
+          where: { tenantId, customerId, status: { in: ['SENT', 'PARTIALLY_PAID'] } },
+          select: { total: true, amountPaid: true },
+        });
+      });
+      const currentOutstanding = outstandingInvoices.reduce(
+        (sum: number, inv: any) => sum + (Number(inv.total) - Number(inv.amountPaid)),
+        0
+      );
+      const limit = Number(customerForLimit.creditLimit);
+      if (currentOutstanding + total > limit) {
+        res.status(400).json({
+          success: false,
+          error: `This invoice would push ${customerForLimit.name}'s outstanding balance to ${(currentOutstanding + total).toFixed(2)}, over their credit limit of ${limit.toFixed(2)} (currently owes ${currentOutstanding.toFixed(2)}).`,
+        });
+        return;
+      }
+    }
 
     // Convert to the tenant's base currency at creation time so the ledger
     // (implicitly single-currency) can post the right figure on payment,
