@@ -23,6 +23,7 @@ import {
   Wallet,
   TrendingUp,
   Rocket,
+  Bot,
 } from "lucide-react";
 
 export interface NavItem {
@@ -91,6 +92,7 @@ export const navigationGroups: NavGroup[] = [
     items: [
       { name: "Approvals", href: "/approvals", icon: ShieldCheck },
       { name: "Audit Trail", href: "/audit-logs", icon: ShieldCheck },
+      { name: "AI Assistant Activity", href: "/help-assistant/activity", icon: Bot },
       { name: "Bulk Data Import", href: "/import", icon: FileUp },
       { name: "Team Management", href: "/team", icon: Users },
     ],
@@ -128,6 +130,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/kpis",
     "/reports/budgets",
     "/audit-logs",
+    "/help-assistant/activity",
   ],
 };
 

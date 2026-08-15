@@ -48,6 +48,7 @@ describe('Approval Workflows API (multi-level, opt-in posting/payment gate)', ()
       adminEmail: admin1Email,
       adminPassword: 'Password123!',
       adminName: 'Approval Corp 1 Admin',
+      tier: 3, // Approval Workflows is a Business+ feature (requireTier gate) - not what this file tests.
     });
     token1 = onboard1.token;
     tenant1Id = onboard1.tenant.id;
@@ -58,6 +59,7 @@ describe('Approval Workflows API (multi-level, opt-in posting/payment gate)', ()
       adminEmail: admin2Email,
       adminPassword: 'Password123!',
       adminName: 'Approval Corp 2 Admin',
+      tier: 3, // Approval Workflows is a Business+ feature (requireTier gate) - not what this file tests.
     });
     token2 = onboard2.token;
     tenant2Id = onboard2.tenant.id;

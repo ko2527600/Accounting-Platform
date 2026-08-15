@@ -146,6 +146,9 @@ export function invoiceToSyncPayload(invoice: any): Record<string, unknown> {
       invoice.baseCurrencyAmount !== null && invoice.baseCurrencyAmount !== undefined
         ? Number(invoice.baseCurrencyAmount)
         : null,
+    amountPaid: Number(invoice.amountPaid || 0),
+    warehouseId: invoice.warehouseId || null,
+    stockDeducted: Boolean(invoice.stockDeducted),
     status: invoice.status,
     emailedAt: invoice.emailedAt?.toISOString?.() ?? invoice.emailedAt ?? null,
     lastReminderSentAt: invoice.lastReminderSentAt?.toISOString?.() ?? invoice.lastReminderSentAt ?? null,

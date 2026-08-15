@@ -137,6 +137,25 @@ export async function seedChartOfAccounts(
     created += 1;
   }
 
+  // Auto-designate the default Cash/Revenue/Expense posting targets so
+  // invoices/bills/expense-claims post correctly from day one - see
+  // accountRepository.resolveDefaultAccount's own comment for the bug this
+  // closes (posting used to guess a hardcoded account CODE this template
+  // doesn't actually use, e.g. Sales Revenue is coded 4000 here, not the
+  // '4010' the old fallback looked for). Only fills in a role that's still
+  // unset - never overrides a designation the tenant, or an earlier partial
+  // wizard run, already made.
+  if (created > 0) {
+    const freshAccounts = await withCurrentTenantDb(prisma, async (client) => accountRepository.listAccounts(client));
+    for (const role of ['CASH', 'REVENUE', 'EXPENSE'] as const) {
+      if (freshAccounts.some((a) => a.defaultRole === role)) continue;
+      const candidate = accountRepository.pickAutoDefaultCandidate(freshAccounts, role);
+      if (candidate) {
+        await accountService.setDefaultRole(candidate.id, role, actor);
+      }
+    }
+  }
+
   return { created, skippedExisting };
 }
 

@@ -75,6 +75,7 @@ describe('Bank reconciliation matching logic (GET suggestions / POST reconcile v
       adminEmail,
       adminPassword: 'Password123!',
       adminName: 'Bank Rec Admin',
+      tier: 3, // Bank Reconciliation is a Business+ feature (requireTier gate) - not what this file tests.
     });
     adminToken = onboard.token;
     tenantId = onboard.tenant.id;

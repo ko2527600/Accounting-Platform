@@ -61,6 +61,7 @@ describe('Expense Claims (submit / approve / reject / reimburse)', () => {
       adminEmail,
       adminPassword: 'Password123!',
       adminName: 'Expense Admin',
+      tier: 3, // Approval Workflows (GET /approval-workflows/:id used below) is a Business+ feature (requireTier gate) - not what this file tests.
     });
     adminToken = onboard.token;
     tenantId = onboard.tenant.id;

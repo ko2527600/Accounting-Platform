@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTier } from '../middleware/tierEnforcementMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as recurringTransactionService from '../services/recurringTransactionService';
 import { RecurringTransactionServiceError } from '../services/recurringTransactionService';
@@ -11,6 +12,7 @@ const router = Router();
 
 router.use(authenticateJwt);
 router.use(tenantContextMiddleware);
+router.use(requireTier(2, 'Recurring Transactions'));
 
 function handleError(res: Response, error: any, fallbackMessage: string): void {
   if (error instanceof RecurringTransactionServiceError) {

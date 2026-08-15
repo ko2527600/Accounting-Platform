@@ -204,8 +204,9 @@ describe('Legal Policy & Customization Enforcement API', () => {
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('Customization Tier Restriction');
-      expect(res.body.message).toContain('requires Customization Tier 2 or higher');
+      expect(res.body.success).toBe(false);
+      expect(res.body.upgradeRequired).toBe(true);
+      expect(res.body.error).toContain('Custom Fields requires the Business plan or higher');
       expect(res.body.currentTier).toBe(1);
       expect(res.body.requiredTier).toBe(2);
     });

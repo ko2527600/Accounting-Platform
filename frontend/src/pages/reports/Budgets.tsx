@@ -5,6 +5,8 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
 import { api } from "../../lib/api";
+import { useTenantSettings } from "../../contexts/TenantSettingsContext";
+import { UpgradeRequired } from "../../components/UpgradeRequired";
 
 interface FiscalPeriod {
   id: string;
@@ -24,6 +26,7 @@ interface Budget {
 
 export function Budgets() {
   const { accounts } = useAccounts();
+  const { settings: tenantSettings, isLoading: isLoadingTenantSettings } = useTenantSettings();
   const [periods, setPeriods] = useState<FiscalPeriod[]>([]);
   const [selectedPeriodId, setSelectedPeriodId] = useState("");
   const [budgets, setBudgets] = useState<Budget[]>([]);
@@ -63,8 +66,12 @@ export function Budgets() {
   }, [fetchPeriods]);
 
   useEffect(() => {
-    fetchBudgets(selectedPeriodId);
-  }, [selectedPeriodId, fetchBudgets]);
+    if (!isLoadingTenantSettings && tenantSettings.tier >= 2) {
+      fetchBudgets(selectedPeriodId);
+    } else if (!isLoadingTenantSettings) {
+      setIsLoading(false);
+    }
+  }, [selectedPeriodId, fetchBudgets, isLoadingTenantSettings, tenantSettings.tier]);
 
   const accountName = (id: string) => accounts.find((a: any) => a.id === id)?.name || id;
 
@@ -84,6 +91,10 @@ export function Budgets() {
       setMessage(`❌ ${err.response?.data?.error || "Failed to create budget."}`);
     }
   };
+
+  if (!isLoadingTenantSettings && tenantSettings.tier < 2) {
+    return <UpgradeRequired featureLabel="Budgets" requiredTier={2} currentTier={tenantSettings.tier} />;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto">

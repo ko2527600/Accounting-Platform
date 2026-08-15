@@ -1,6 +1,13 @@
 export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense' | 'Cost of Sales';
 export type AccountStatus = 'Active' | 'Archived';
 
+// Which single account auto-posting features (invoice payments, credit/
+// debit notes, vendor bill payments, expense reimbursements) target for the
+// generic cash/revenue/expense side of a transaction - see backend
+// accountRepository.ts's resolveDefaultAccount. At most one account per
+// role at a time.
+export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE';
+
 export interface Account {
   id: string;
   code: string;
@@ -11,6 +18,7 @@ export interface Account {
   balance: number;
   currency: string;
   isCashEquivalent?: boolean;
+  defaultRole?: AccountDefaultRole | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -91,6 +91,7 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
       adminEmail: admin1Email,
       adminPassword: 'Password123!',
       adminName: 'Bank Corp 1 Admin',
+      tier: 3, // Bank Reconciliation is a Business+ feature (requireTier gate) - not what this file tests.
     });
     token1 = onboard1.token;
     tenant1Id = onboard1.tenant.id;
@@ -101,6 +102,7 @@ describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions,
       adminEmail: admin2Email,
       adminPassword: 'Password123!',
       adminName: 'Bank Corp 2 Admin',
+      tier: 3, // Bank Reconciliation is a Business+ feature (requireTier gate) - not what this file tests.
     });
     token2 = onboard2.token;
     tenant2Id = onboard2.tenant.id;

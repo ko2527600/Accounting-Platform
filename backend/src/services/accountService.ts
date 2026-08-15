@@ -2,7 +2,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import { getTenantContext } from '../context/tenantContext';
 import * as accountRepository from '../repository/accountRepository';
-import { AccountRecord, AccountType, CreateAccountData } from '../repository/accountRepository';
+import { AccountRecord, AccountType, AccountDefaultRole, CreateAccountData } from '../repository/accountRepository';
 import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 import { recordChange, notifyChange } from './syncChangeLogService';
 
@@ -20,6 +20,7 @@ function accountSyncPayload(account: AccountRecord): Record<string, unknown> {
     currency: account.currency,
     isActive: account.isActive,
     isCashEquivalent: account.isCashEquivalent,
+    defaultRole: account.defaultRole,
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString(),
   };
@@ -325,6 +326,97 @@ export async function updateAccount(
     });
 
     return updated;
+  });
+
+  if (syncSeq !== null) {
+    notifyChange({
+      tenantId: getTenantContext()!.tenantId,
+      entityType: 'Account',
+      entityId: updated.id,
+      operation: 'UPDATE',
+      payload: accountSyncPayload(updated),
+      sequence: syncSeq,
+    });
+  }
+
+  return updated;
+}
+
+// Which account TYPE is a sane fit for each default role - not a hard
+// block (a business might reasonably want a LIABILITY account to soak up
+// "expense" postings in an unusual setup), just a guardrail against an
+// obvious mismatch like designating a LIABILITY account as the default
+// CASH target.
+const REASONABLE_TYPES_FOR_ROLE: Record<AccountDefaultRole, AccountType[]> = {
+  CASH: ['ASSET'],
+  REVENUE: ['REVENUE'],
+  EXPENSE: ['EXPENSE', 'COST_OF_SALES'],
+};
+
+/**
+ * Designates (or clears, when role is null) which single account the
+ * auto-posting services (invoice payments, credit/debit notes, vendor bill
+ * payments, expense reimbursements) should target for the generic
+ * cash/revenue/expense side of a transaction - see
+ * accountRepository.setAccountDefaultRole's own comment for why this exists
+ * (replaces a hardcoded-account-code guess that silently posted to the
+ * wrong account for any tenant whose chart didn't happen to use those exact
+ * codes). Assigning a role away from whoever currently holds it is allowed
+ * without confirmation - Chart of Accounts is expected to show the reader
+ * exactly one holder per role at a time, so reassigning is a normal,
+ * reversible action, not a destructive one.
+ */
+export async function setDefaultRole(
+  id: string,
+  role: AccountDefaultRole | null,
+  actor?: AuditActor
+): Promise<AccountRecord> {
+  if (!id || typeof id !== 'string') {
+    throw new AccountServiceError('Account ID is required.', 400);
+  }
+  if (role !== null && !REASONABLE_TYPES_FOR_ROLE[role]) {
+    throw new AccountServiceError(`Invalid default role "${role}". Allowed: CASH, REVENUE, EXPENSE, or null to clear.`, 400);
+  }
+
+  let syncSeq: bigint | null = null;
+
+  const updated = await withCurrentTenantDb(prisma, async (client) => {
+    const existing = await accountRepository.getAccountById(client, id);
+    if (!existing) {
+      throw new AccountServiceError(`Account with ID "${id}" not found.`, 404);
+    }
+
+    if (role !== null && !REASONABLE_TYPES_FOR_ROLE[role].includes(existing.type)) {
+      throw new AccountServiceError(
+        `"${existing.name}" is a ${existing.type} account - the default ${role} account should be ${REASONABLE_TYPES_FOR_ROLE[role].join(' or ')}.`,
+        400
+      );
+    }
+
+    const result = await accountRepository.setAccountDefaultRole(client, id, role);
+    if (!result) {
+      throw new AccountServiceError(`Failed to update default role for account "${id}".`, 500);
+    }
+
+    syncSeq = await recordChange(client, {
+      tenantId: getTenantContext()!.tenantId,
+      entityType: 'Account',
+      entityId: result.id,
+      operation: 'UPDATE',
+      payload: accountSyncPayload(result),
+    });
+
+    await recordAuditLogTx(client, {
+      action: 'ACCOUNT.DEFAULT_ROLE_CHANGED',
+      entity: 'Account',
+      entityId: result.id,
+      actor,
+      details: role
+        ? `Account ${result.code} - ${result.name} designated as the default ${role} account.`
+        : `Account ${result.code} - ${result.name} unset as a default posting account.`,
+    });
+
+    return result;
   });
 
   if (syncSeq !== null) {

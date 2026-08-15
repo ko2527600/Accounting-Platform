@@ -6,6 +6,8 @@ import * as tenantRepository from '../repository/tenantRepository';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { seatLimitForTier, planName } from '../middleware/tierEnforcementMiddleware';
+import { invalidateTenantCacheById } from '../cache/tenantCache';
 import { BroadcastService } from '../services/broadcastService';
 import { CLOSED_ROLES, isLocationScopedRole } from '../services/warehouseAccessService';
 import { recordAuditLog, recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
@@ -125,6 +127,55 @@ router.post('/admin-onboard', onboardingRateLimiter, async (req: Request, res: R
 });
 
 /**
+ * PUT /api/v1/tenants/:id/tier
+ * Sets a tenant's plan tier (1=Shop, 2=Business, 3=Enterprise). There is no
+ * self-serve billing yet, so upgrading/downgrading a tenant is a
+ * platform-admin action through the passcode-gated Admin Core Engine
+ * console, same auth pattern as admin-onboard - never a tenant JWT.
+ */
+router.put('/:id/tier', async (req: Request, res: Response) => {
+  try {
+    const passcode = (req.body?.passcode as string) || (req.query.passcode as string) || req.headers['x-admin-passcode'];
+    if (!passcode || !BroadcastService.verifyPasscode(passcode as string)) {
+      return res.status(401).json({ success: false, error: 'Unauthorized: valid master passcode required.' });
+    }
+
+    const tier = Number(req.body?.tier);
+    if (![1, 2, 3].includes(tier)) {
+      return res.status(400).json({ success: false, error: 'Tier must be 1 (Shop), 2 (Business), or 3 (Enterprise).' });
+    }
+
+    const before = await tenantRepository.findTenantById(prisma, req.params.id);
+    if (!before) {
+      return res.status(404).json({ success: false, error: 'Tenant not found.' });
+    }
+
+    const updated = await prisma.tenant.update({ where: { id: req.params.id }, data: { tier } });
+
+    // tenantContextMiddleware reads tier off a 30-minute Redis cache keyed
+    // by id/slug/schema (see cache/tenantCache.ts) - without invalidating
+    // it here, an upgrade wouldn't actually unlock anything until that
+    // cache happened to expire, which would make this endpoint's whole
+    // purpose silently not work for up to half an hour.
+    await invalidateTenantCacheById(updated.id);
+
+    await recordAuditLog({
+      action: 'TENANT.TIER_CHANGED',
+      entity: 'Tenant',
+      entityId: updated.id,
+      tenantId: updated.id,
+      actor: { ipAddress: req.ip || req.socket?.remoteAddress || null },
+      details: `Tenant "${updated.name}" (${updated.slug}) plan tier changed from ${before.tier} to ${tier} by platform admin.`,
+    });
+
+    return res.status(200).json({ success: true, message: 'Tenant tier updated.', data: { tenant: updated } });
+  } catch (error: any) {
+    console.error('[TenantTierUpdate] Unexpected error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to update tenant tier.' });
+  }
+});
+
+/**
  * GET /api/v1/tenants/current
  * Returns active workspace profile settings.
  */
@@ -157,11 +208,28 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug, baseCurrency } = req.body;
+    const { companyName, name, slug, baseCurrency, bossPhone } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
       return res.status(400).json({ success: false, error: 'Tenant ID context required.' });
+    }
+
+    // Same tolerant shape SmsService.send() already normalizes at send time
+    // (optional leading +, spaces/dashes/parens, 7-15 digits) - reject
+    // obvious garbage early rather than storing something that will always
+    // fail to send. An empty string clears the field (opts back out of SMS
+    // alerts) - only reject a non-empty value that doesn't look like a phone.
+    let normalizedBossPhone: string | null | undefined;
+    if (bossPhone !== undefined) {
+      const trimmed = String(bossPhone).trim();
+      if (trimmed === '') {
+        normalizedBossPhone = null;
+      } else if (!/^\+?[\d\s\-()]{7,20}$/.test(trimmed)) {
+        return res.status(400).json({ success: false, error: 'Boss phone number is not a valid phone number.' });
+      } else {
+        normalizedBossPhone = trimmed;
+      }
     }
 
     const before = await tenantRepository.findTenantById(prisma, tenantId);
@@ -173,6 +241,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           ...(newName && { name: newName }),
           ...(slug && { slug: slug.trim().toLowerCase() }),
           ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
+          ...(normalizedBossPhone !== undefined && { bossPhone: normalizedBossPhone }),
         },
       });
 
@@ -181,7 +250,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         entity: 'Tenant',
         entityId: tenantId,
         actor: actorFromRequest(req),
-        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency']),
+        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone']),
       });
 
       return updated;
@@ -227,6 +296,27 @@ router.post('/invite', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         success: false,
         error: `Please select a valid role: ${CLOSED_ROLES.join(', ')}.`,
       });
+    }
+
+    // Plan seat limit - counts every real member of this tenant (a pending
+    // invite doesn't consume a seat until accepted, so this only ever
+    // blocks the invite that would actually push the tenant over its
+    // plan's cap). Deliberately NOT filtered to isActive:true - that flag
+    // means "has verified their email" here (tenantService.ts), not
+    // "occupies a seat" - an admin mid-verification still fully counts.
+    const currentTier = req.tenantContext?.tenantTier ?? 1;
+    const seatLimit = seatLimitForTier(currentTier);
+    if (Number.isFinite(seatLimit)) {
+      const memberCount = await prisma.user.count({ where: { tenantId } });
+      if (memberCount >= seatLimit) {
+        return res.status(403).json({
+          success: false,
+          error: `Your ${planName(currentTier)} plan is limited to ${seatLimit} team members. Upgrade your plan to invite more.`,
+          upgradeRequired: true,
+          currentTier,
+          seatLimit,
+        });
+      }
     }
     const assignedRole = matchedRole;
 

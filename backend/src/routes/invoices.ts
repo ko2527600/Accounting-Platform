@@ -27,6 +27,19 @@ import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/sy
 // race (see the POST / handler) - never surfaced to a caller directly.
 class DuplicateInvoiceReplayError extends Error {}
 
+// Thrown when an itemized invoice can't deduct the stock it requires
+// (missing warehouse/item, insufficient quantity, or a genuine concurrent
+// race losing the atomic guarded decrement) - caught in the POST / handler
+// to surface the right status code instead of a generic 500.
+class InvoiceStockError extends Error {
+  statusCode: number;
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = 'InvoiceStockError';
+    this.statusCode = statusCode;
+  }
+}
+
 const router = Router();
 
 router.use(authenticateJwt);
@@ -111,12 +124,19 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId, fundId, clientTxnId } = req.body;
+    const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId, fundId, warehouseId, clientTxnId } = req.body;
 
     if (!customerId || !items || !Array.isArray(items) || items.length === 0) {
       res.status(400).json({ success: false, error: 'Customer and at least one item are required.' });
       return;
     }
+    // Itemized invoice (deducts real stock at issue time) vs. a plain
+    // "Simple Invoice" line-item-only-in-name record: mirrors
+    // VendorBill's Simple/Itemized toggle on the purchase side.
+    // warehouseId is what makes this itemized - a line without a matching
+    // inventoryItemId still posts fine (e.g. a service line on an otherwise
+    // itemized invoice), it just has nothing to deduct.
+    const isItemized = Boolean(warehouseId);
     if (clientTxnId !== undefined && (typeof clientTxnId !== 'string' || !clientTxnId)) {
       res.status(400).json({ success: false, error: 'clientTxnId, if provided, must be a non-empty string.' });
       return;
@@ -145,6 +165,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
         quantity: qty,
         unitPrice: price,
         amount: amt,
+        ...(isItemized && it.inventoryItemId ? { inventoryItemId: it.inventoryItemId } : {}),
       };
     });
 
@@ -230,6 +251,61 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           throw new Error('Customer not found.');
         }
 
+        let stockDeducted = false;
+        if (isItemized) {
+          const warehouse = await (client as any).warehouse.findFirst({ where: { id: warehouseId, tenantId } });
+          if (!warehouse) {
+            throw new InvoiceStockError('Warehouse not found.', 404);
+          }
+
+          const stockLines = itemData
+            .map((it: any, i: number) => ({ inventoryItemId: it.inventoryItemId as string | undefined, quantity: Number(items[i].quantity) || 1, description: it.description }))
+            .filter((l: any) => l.inventoryItemId);
+
+          if (stockLines.length > 0) {
+            const itemIds = [...new Set(stockLines.map((l: any) => l.inventoryItemId))];
+            const invItems = await (client as any).inventoryItem.findMany({ where: { id: { in: itemIds }, tenantId } });
+            const itemsById = new Map(invItems.map((it: any) => [it.id, it]));
+            const missingId = itemIds.find((id) => !itemsById.has(id));
+            if (missingId) {
+              throw new InvoiceStockError('Inventory item not found.', 404);
+            }
+
+            const stocks = await (client as any).warehouseStock.findMany({
+              where: { warehouseId, itemId: { in: itemIds } },
+            });
+            const stockByItemId = new Map(stocks.map((s: any) => [s.itemId, s]));
+
+            // Friendly pre-check for every line before touching anything - the
+            // actual deduction below is still atomically guarded per line to
+            // protect against a genuine concurrent race (mirrors
+            // cashTill.ts's POST /tills/sales stock-deduction pattern).
+            for (const line of stockLines) {
+              const item = itemsById.get(line.inventoryItemId) as any;
+              const stock = stockByItemId.get(line.inventoryItemId) as any;
+              if (!stock || stock.quantityOnHand < line.quantity) {
+                throw new InvoiceStockError(
+                  `Insufficient stock for ${item.name} in ${warehouse.name} (Available: ${stock?.quantityOnHand || 0} ${item.unitOfMeasure}).`,
+                  400
+                );
+              }
+            }
+
+            for (const line of stockLines) {
+              const stock = stockByItemId.get(line.inventoryItemId) as any;
+              const deduction = await (client as any).warehouseStock.updateMany({
+                where: { id: stock.id, quantityOnHand: { gte: line.quantity } },
+                data: { quantityOnHand: { decrement: line.quantity } },
+              });
+              if (deduction.count === 0) {
+                const item = itemsById.get(line.inventoryItemId) as any;
+                throw new InvoiceStockError(`Insufficient stock for ${item?.name || line.inventoryItemId} - another sale just took the remaining units.`, 409);
+              }
+            }
+            stockDeducted = true;
+          }
+        }
+
         let invoice;
         try {
           invoice = await (client as any).invoice.create({
@@ -248,6 +324,8 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
               total,
               baseCurrencyAmount,
               fundId: fundId || null,
+              warehouseId: isItemized ? warehouseId : null,
+              stockDeducted,
               status: 'SENT',
               clientTxnId: clientTxnId || null,
               items: { create: itemData },
@@ -313,6 +391,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
     res.status(replayed ? 200 : 201).json({ success: true, message: 'Invoice created successfully', data: { invoice: created } });
   } catch (error: any) {
     console.error('[Invoices] Error creating invoice:', error);
+    if (error instanceof InvoiceStockError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     if (error.message === 'Customer not found.') {
       res.status(404).json({ success: false, error: error.message });
       return;
@@ -332,11 +414,16 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = actorFromRequest(req);
-    const updated = await invoicePaymentService.markInvoicePaid(req.params.id, actor);
+    // `amount` is optional - omitted (or the existing no-body call every
+    // pre-partial-payment client still makes) pays off whatever remains.
+    const { amount } = req.body || {};
+    const updated = await invoicePaymentService.recordInvoicePayment(req.params.id, actor, {
+      amount: amount !== undefined ? Number(amount) : undefined,
+    });
 
     res.status(200).json({
       success: true,
-      message: 'Invoice marked as PAID and Journal Entry posted.',
+      message: updated.status === 'PAID' ? 'Invoice marked as PAID and Journal Entry posted.' : 'Partial payment recorded and Journal Entry posted.',
       data: { invoice: updated },
     });
   } catch (error: any) {
@@ -346,6 +433,20 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     }
     console.error('[Invoices] Error paying invoice:', error);
     res.status(500).json({ success: false, error: 'Failed to record invoice payment.' });
+  }
+});
+
+/**
+ * GET /api/v1/invoices/:id/payments
+ * Full payment history for an invoice, newest first.
+ */
+router.get('/:id/payments', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const payments = await invoicePaymentService.listPaymentsForInvoice(req.params.id);
+    res.status(200).json({ success: true, data: { payments } });
+  } catch (error: any) {
+    console.error('[Invoices] Error listing payments:', error);
+    res.status(500).json({ success: false, error: 'Failed to retrieve payment history.' });
   }
 });
 

@@ -8,6 +8,16 @@ interface ShortageAlertDTO {
   recipientPhone: string;
 }
 
+interface TillCloseAlertDTO {
+  shopName: string;
+  staffName: string;
+  cashSales: string;
+  expectedCash: string;
+  actualCash: string;
+  discrepancyText: string;
+  recipientPhone: string;
+}
+
 export class SmsService {
   private static get gatewayUrl() {
     return process.env.SMS_GATEWAY_URL || 'https://api.sms-gate.app/3rdparty/v1/message';
@@ -157,6 +167,17 @@ export class SmsService {
    */
   public static async sendShortageAlert(dto: ShortageAlertDTO): Promise<boolean> {
     const message = `Ledgio Alert: ${dto.shopName} till closed by ${dto.staffName}. Shortage: ${dto.shortageAmount}. Please check the system.`;
+    return this.send(dto.recipientPhone, message);
+  }
+
+  /**
+   * Helper to format and dispatch a till-close summary to the tenant's
+   * configured boss number - fires on every close (balanced, over, or
+   * short), not just shortages, so the owner has a running record of every
+   * shift's cash count without having to open the app.
+   */
+  public static async sendTillCloseAlert(dto: TillCloseAlertDTO): Promise<boolean> {
+    const message = `Ledgio Alert: ${dto.shopName} till closed by ${dto.staffName}. Cash Sales: ${dto.cashSales}. Expected: ${dto.expectedCash}, Actual: ${dto.actualCash}. ${dto.discrepancyText}.`;
     return this.send(dto.recipientPhone, message);
   }
 }

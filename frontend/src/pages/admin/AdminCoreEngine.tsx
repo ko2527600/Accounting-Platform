@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ShieldAlert,
@@ -68,6 +68,11 @@ export function AdminCoreEngine() {
   >(null);
   const [tenantsError, setTenantsError] = useState<string | null>(null);
   const [isLoadingTenants, setIsLoadingTenants] = useState(false);
+  // No self-serve billing yet - a tenant's plan tier is set here by a
+  // platform admin. Draft value per row so the dropdown doesn't jump back
+  // to the saved tier while a change is pending.
+  const [tierDrafts, setTierDrafts] = useState<Record<string, number>>({});
+  const [savingTierId, setSavingTierId] = useState<string | null>(null);
 
   // Platform-wide Audit Logs state
   const [auditLogs, setAuditLogs] = useState<
@@ -165,29 +170,46 @@ export function AdminCoreEngine() {
   // Fetch the real platform-wide tenant roster for the "Tenant Schemas & Tiers"
   // tab once unlocked, using the same master passcode already used to unlock
   // this console (GET /api/v1/tenants is passcode-gated, not tenant-JWT-scoped).
-  useEffect(() => {
-    if (!isUnlocked) return;
-
-    let cancelled = false;
+  const fetchTenants = useCallback(() => {
     setIsLoadingTenants(true);
     setTenantsError(null);
-
-    api
+    return api
       .get("/tenants", { params: { passcode } })
       .then((res) => {
-        if (!cancelled) setTenants(res.data.data.tenants);
+        setTenants(res.data.data.tenants);
+        setTierDrafts(Object.fromEntries(res.data.data.tenants.map((t: any) => [t.id, t.tier])));
       })
       .catch(() => {
-        if (!cancelled) setTenantsError("Failed to load the tenant roster.");
+        setTenantsError("Failed to load the tenant roster.");
       })
       .finally(() => {
-        if (!cancelled) setIsLoadingTenants(false);
+        setIsLoadingTenants(false);
       });
+  }, [passcode]);
 
-    return () => {
-      cancelled = true;
-    };
+  useEffect(() => {
+    if (!isUnlocked) return;
+    fetchTenants();
+    // fetchTenants intentionally omitted - it's recreated per passcode change,
+    // which already re-runs this effect via the passcode dependency below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isUnlocked, passcode]);
+
+  const handleSaveTier = async (tenantId: string) => {
+    const tier = tierDrafts[tenantId];
+    setSavingTierId(tenantId);
+    try {
+      const res = await api.put(`/tenants/${tenantId}/tier`, { tier, passcode });
+      if (res.data.success) {
+        showToast(`Plan updated to ${res.data.data.tenant.tier === 1 ? "Shop" : res.data.data.tenant.tier === 2 ? "Business" : "Enterprise"}.`, "success");
+        fetchTenants();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to update tenant plan.", "error");
+    } finally {
+      setSavingTierId(null);
+    }
+  };
 
   const buildAuditLogParams = (filters: typeof EMPTY_AUDIT_FILTERS) => {
     const params: Record<string, string | number> = { passcode, limit: 50 };
@@ -837,7 +859,7 @@ export function AdminCoreEngine() {
                             <TableHead className="text-secondary-400">Name</TableHead>
                             <TableHead className="text-secondary-400">Slug</TableHead>
                             <TableHead className="text-secondary-400">Schema</TableHead>
-                            <TableHead className="text-secondary-400">Tier</TableHead>
+                            <TableHead className="text-secondary-400">Plan</TableHead>
                             <TableHead className="text-secondary-400">Onboarded</TableHead>
                           </TableRow>
                         </TableHeader>
@@ -847,7 +869,30 @@ export function AdminCoreEngine() {
                               <TableCell className="font-semibold text-white">{t.name}</TableCell>
                               <TableCell className="font-mono text-secondary-300">{t.slug}</TableCell>
                               <TableCell className="font-mono text-secondary-300">{t.schema}</TableCell>
-                              <TableCell className="text-secondary-300">Tier {t.tier}</TableCell>
+                              <TableCell className="text-secondary-300">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className="h-8 px-2 rounded-md border border-secondary-700 bg-secondary-950 text-secondary-100 text-xs"
+                                    value={tierDrafts[t.id] ?? t.tier}
+                                    onChange={(e) => setTierDrafts((prev) => ({ ...prev, [t.id]: Number(e.target.value) }))}
+                                  >
+                                    <option value={1}>Shop</option>
+                                    <option value={2}>Business</option>
+                                    <option value={3}>Enterprise</option>
+                                  </select>
+                                  {(tierDrafts[t.id] ?? t.tier) !== t.tier && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs"
+                                      disabled={savingTierId === t.id}
+                                      onClick={() => handleSaveTier(t.id)}
+                                    >
+                                      {savingTierId === t.id ? "Saving..." : "Save"}
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
                               <TableCell className="text-secondary-300">{new Date(t.createdAt).toLocaleDateString()}</TableCell>
                             </TableRow>
                           ))}

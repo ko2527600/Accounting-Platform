@@ -5,6 +5,8 @@ import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
 import { api } from "../../lib/api";
+import { useTenantSettings } from "../../contexts/TenantSettingsContext";
+import { UpgradeRequired } from "../../components/UpgradeRequired";
 
 interface RecurringTransaction {
   id: string;
@@ -18,6 +20,7 @@ interface RecurringTransaction {
 
 export function RecurringTransactions() {
   const { accounts } = useAccounts();
+  const { settings: tenantSettings, isLoading: isLoadingTenantSettings } = useTenantSettings();
   const [items, setItems] = useState<RecurringTransaction[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -45,8 +48,12 @@ export function RecurringTransactions() {
   }, []);
 
   useEffect(() => {
-    fetchItems();
-  }, [fetchItems]);
+    if (!isLoadingTenantSettings && tenantSettings.tier >= 2) {
+      fetchItems();
+    } else if (!isLoadingTenantSettings) {
+      setIsLoading(false);
+    }
+  }, [fetchItems, isLoadingTenantSettings, tenantSettings.tier]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -82,6 +89,10 @@ export function RecurringTransactions() {
       setMessage(`❌ ${err.response?.data?.error || "Failed to delete recurring transaction."}`);
     }
   };
+
+  if (!isLoadingTenantSettings && tenantSettings.tier < 2) {
+    return <UpgradeRequired featureLabel="Recurring Transactions" requiredTier={2} currentTier={tenantSettings.tier} />;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 max-w-4xl mx-auto">

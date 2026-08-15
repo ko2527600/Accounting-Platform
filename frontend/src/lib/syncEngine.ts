@@ -18,6 +18,7 @@ export interface LocalAccount {
   currency: string;
   isActive: boolean;
   isCashEquivalent: boolean;
+  defaultRole: 'CASH' | 'REVENUE' | 'EXPENSE' | null;
   createdAt: string;
   updatedAt: string;
   // Present only on a record still in flight through the outbox - never
@@ -54,6 +55,9 @@ export interface LocalInvoice {
   taxBreakdown: unknown;
   total: number;
   baseCurrencyAmount: number | null;
+  amountPaid: number;
+  warehouseId?: string | null;
+  stockDeducted?: boolean;
   status: string;
   emailedAt?: string | null;
   lastReminderSentAt?: string | null;
@@ -101,6 +105,9 @@ type OutboxEntry =
       kind: 'PAY_INVOICE';
       clientTxnId: string;
       invoiceId: string;
+      // Omitted means "pay off whatever remains" - same default the
+      // backend applies (see invoicePaymentService.recordInvoicePayment).
+      amount?: number;
       status: 'pending' | 'failed';
       failureReason?: string;
       createdAt: string;
@@ -331,6 +338,7 @@ export async function createAccountLocalFirst(body: Record<string, unknown>): Pr
     currency: (body.currency as string) ?? 'USD',
     isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,
     isCashEquivalent: Boolean(body.isCashEquivalent),
+    defaultRole: null,
     createdAt: now,
     updatedAt: now,
     _pending: true,
@@ -395,6 +403,7 @@ export async function createInvoiceLocalFirst(body: Record<string, unknown>, cus
     taxBreakdown: null,
     total: subtotal,
     baseCurrencyAmount: null,
+    amountPaid: 0,
     status: 'SENT',
     fundId: (body.fundId as string) || null,
     createdAt: now,
@@ -414,17 +423,26 @@ export async function createInvoiceLocalFirst(body: Record<string, unknown>, cus
   return optimistic;
 }
 
-export async function payInvoiceLocalFirst(invoiceId: string): Promise<void> {
+export async function payInvoiceLocalFirst(invoiceId: string, amount?: number): Promise<void> {
   const clientTxnId = newClientTxnId();
   const existing = await syncDb.invoices.get(invoiceId);
   if (existing) {
-    await syncDb.invoices.put({ ...existing, status: 'PAID', _pending: true });
+    // Best-effort optimistic guess at the resulting status/amountPaid,
+    // mirroring invoicePaymentService.recordInvoicePayment's own math - the
+    // server remains the source of truth and overwrites this the moment the
+    // real response comes back (see processOutboxEntry below).
+    const remaining = Math.round((existing.total - (existing.amountPaid || 0)) * 100) / 100;
+    const paying = amount !== undefined ? Math.min(amount, remaining) : remaining;
+    const newAmountPaid = Math.round(((existing.amountPaid || 0) + paying) * 100) / 100;
+    const newStatus = newAmountPaid >= existing.total - 0.01 ? 'PAID' : 'PARTIALLY_PAID';
+    await syncDb.invoices.put({ ...existing, status: newStatus, amountPaid: newAmountPaid, _pending: true });
   }
 
   await enqueue({
     kind: 'PAY_INVOICE',
     clientTxnId,
     invoiceId,
+    amount,
     status: 'pending',
     createdAt: new Date().toISOString(),
   });
@@ -489,7 +507,7 @@ async function processOutboxEntry(entry: OutboxEntry): Promise<void> {
       await syncDb.invoices.put(real);
     });
   } else if (entry.kind === 'PAY_INVOICE') {
-    const res = await api.post(`/invoices/${entry.invoiceId}/pay`);
+    const res = await api.post(`/invoices/${entry.invoiceId}/pay`, entry.amount !== undefined ? { amount: entry.amount } : {});
     const real: LocalInvoice = res.data.data.invoice;
     await syncDb.invoices.put(real);
   }

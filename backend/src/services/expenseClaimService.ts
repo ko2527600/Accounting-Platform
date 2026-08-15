@@ -197,10 +197,10 @@ export async function reimburseExpenseClaim(
   }
 
   const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-  const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts.find((a: any) => a.type === 'ASSET') || accounts[0];
+  const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
   const expenseAcc = claim.expenseAccountId
     ? accounts.find((a: any) => a.id === claim.expenseAccountId)
-    : accounts.find((a: any) => a.code === '5010') || accounts.find((a: any) => a.type === 'EXPENSE');
+    : accountRepository.resolveDefaultAccount(accounts, 'EXPENSE');
 
   if (!cashAcc || !expenseAcc) {
     throw new ExpenseClaimServiceError('No Cash/Bank or Expense account exists to post this reimbursement to.', 400);

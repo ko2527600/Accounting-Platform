@@ -3,7 +3,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
-import { requireCustomizationTier } from '../middleware/tierEnforcementMiddleware';
+import { requireTier } from '../middleware/tierEnforcementMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 
 const router = Router();
@@ -49,7 +49,7 @@ router.post(
   '/',
   authenticateJwt,
   tenantContextMiddleware,
-  requireCustomizationTier(2), // Requires Tier 2 (Functional Customization)
+  requireTier(2, 'Custom Fields'),
   async (req: Request, res: Response): Promise<void> => {
     try {
       const { tenantId } = requireTenantContext();

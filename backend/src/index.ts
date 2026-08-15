@@ -41,6 +41,10 @@ const startServer = async () => {
     // Initialize daily overdue-invoice payment reminder (dunning) sweep
     const { DunningReminderCronService } = require('./services/dunningReminderService');
     DunningReminderCronService.init();
+
+    // Initialize daily Help Assistant conversation-log retention sweep
+    const { HelpAssistantMaintenanceCronService } = require('./services/helpAssistantMaintenanceCronService');
+    HelpAssistantMaintenanceCronService.init();
   });
 
   const gracefulShutdown = async () => {

@@ -11,6 +11,7 @@ export interface TenantRecord {
   tier: number;
   baseCurrency: string;
   orgType: string;
+  bossPhone: string | null;
   createdAt: Date;
   updatedAt: Date;
 }

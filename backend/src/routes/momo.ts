@@ -106,7 +106,10 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
       return;
     }
 
-    const amount = Number(invoice.total);
+    // The remaining balance, not the original total - a prior manual
+    // partial payment (or an earlier failed/expired MoMo attempt that still
+    // partially posted) must not be re-requested from the customer.
+    const amount = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
     const externalId = `${invoice.invoiceNumber}-${Date.now()}`;
 
     const { referenceId } = await momoService.requestToPay({
@@ -209,11 +212,13 @@ router.post('/requests/:referenceId/check-status', requireRole('Accountant'), as
 
     if (result.status === 'SUCCESSFUL') {
       const actor = actorFromRequest(req);
-      await invoicePaymentService.markInvoicePaid(
-        request.invoiceId,
-        actor,
-        `MTN MoMo payment received (ref ${referenceId.slice(0, 8)})`
-      );
+      // No `amount` - the request itself was already sized to the
+      // remaining balance at send time (see POST /request-to-pay above), so
+      // this pays off whatever's still outstanding now.
+      await invoicePaymentService.recordInvoicePayment(request.invoiceId, actor, {
+        method: 'MOMO',
+        description: `MTN MoMo payment received (ref ${referenceId.slice(0, 8)})`,
+      });
     }
 
     res.status(200).json({

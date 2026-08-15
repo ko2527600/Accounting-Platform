@@ -145,6 +145,40 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
 });
 
 /**
+ * PUT /api/v1/accounts/:id/default-role
+ * Designates (or clears) which single account auto-posting services
+ * (invoice payments, credit/debit notes, vendor bill payments, expense
+ * reimbursements) should target for the generic cash/revenue/expense side
+ * of a transaction - see accountService.setDefaultRole for why this exists.
+ * Body: { role: 'CASH' | 'REVENUE' | 'EXPENSE' | null }
+ * Access: Accountant role or higher
+ */
+router.put('/:id/default-role', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { role } = req.body;
+    if (role !== null && role !== 'CASH' && role !== 'REVENUE' && role !== 'EXPENSE') {
+      res.status(400).json({ success: false, error: 'role must be "CASH", "REVENUE", "EXPENSE", or null.' });
+      return;
+    }
+    const account = await accountService.setDefaultRole(req.params.id, role, actorFromRequest(req));
+    res.status(200).json({
+      success: true,
+      message: role ? `Set as the default ${role} account.` : 'Default role cleared.',
+      data: { account },
+    });
+  } catch (error: any) {
+    if (error instanceof AccountServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while updating account default role.',
+    });
+  }
+});
+
+/**
  * DELETE /api/v1/accounts/:id
  * Description: Delete an account by ID for the active tenant.
  * Access: Accountant role or higher

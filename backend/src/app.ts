@@ -51,6 +51,7 @@ import syncRouter from './routes/sync';
 import dataExportRouter from './routes/dataExport';
 import complianceRouter from './routes/compliance';
 import onboardingWizardRouter from './routes/onboardingWizard';
+import helpAssistantRouter from './routes/helpAssistant';
 
 dotenv.config();
 
@@ -172,6 +173,9 @@ app.use('/api/v1/tills', cashTillRouter);
 
 // Intelligent Analytics & Decision Engine endpoints
 app.use('/api/v1/analytics', analyticsRouter);
+
+// In-app Help Assistant endpoints
+app.use('/api/v1/help-assistant', helpAssistantRouter);
 
 // Real-Time & Persistent Notifications endpoints
 app.use('/api/v1/notifications', notificationsRouter);

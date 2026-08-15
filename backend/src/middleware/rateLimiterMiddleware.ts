@@ -113,3 +113,16 @@ export const onboardingRateLimiter = createRateLimiter({
   windowMs: 60 * 1000,
   message: 'Too many onboarding requests. Please wait before creating another tenant.',
 });
+
+/**
+ * Help Assistant rate limiter: 40 chat messages per hour per tenant - each
+ * one is a paid LLM API call (plus however many tool-lookup round trips it
+ * makes), so this caps runaway cost from one tenant without meaningfully
+ * limiting normal back-and-forth support use.
+ */
+export const helpAssistantRateLimiter = createRateLimiter({
+  name: 'help_assistant',
+  maxRequests: 40,
+  windowMs: 60 * 60 * 1000,
+  message: 'Too many Help Assistant messages this hour. Please try again shortly.',
+});

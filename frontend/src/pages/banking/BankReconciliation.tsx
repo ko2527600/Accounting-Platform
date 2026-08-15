@@ -6,6 +6,8 @@ import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from ".
 import { api } from "../../lib/api";
 import { useAuth } from "../../contexts/AuthContext";
 import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../contexts/TenantSettingsContext";
+import { UpgradeRequired } from "../../components/UpgradeRequired";
 import { Landmark, Plus, CheckCircle, RefreshCw, ArrowUpRight, ArrowDownLeft, Search, X } from "lucide-react";
 
 const MONO_PUBLIC_KEY = import.meta.env.VITE_MONO_PUBLIC_KEY as string | undefined;
@@ -45,6 +47,7 @@ interface LedgerCandidate {
 export function BankReconciliation() {
   const { user } = useAuth();
   const { showToast } = useToast();
+  const { settings: tenantSettings, isLoading: isLoadingTenantSettings } = useTenantSettings();
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [transactions, setTransactions] = useState<BankTx[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -74,8 +77,15 @@ export function BankReconciliation() {
   }, []);
 
   useEffect(() => {
-    fetchBankingData();
-  }, [fetchBankingData]);
+    // Skip the fetch entirely below Business tier - avoids a guaranteed 403
+    // round trip (see requireTier() gating this router) before the locked
+    // state below even has a chance to render.
+    if (!isLoadingTenantSettings && tenantSettings.tier >= 2) {
+      fetchBankingData();
+    } else if (!isLoadingTenantSettings) {
+      setIsLoading(false);
+    }
+  }, [fetchBankingData, isLoadingTenantSettings, tenantSettings.tier]);
 
   const handleMonoCode = useCallback(
     async ({ code }: { code: string }) => {
@@ -156,6 +166,10 @@ export function BankReconciliation() {
   const formatCurrency = (amt: number, currency: string = "USD") => {
     return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(amt);
   };
+
+  if (!isLoadingTenantSettings && tenantSettings.tier < 2) {
+    return <UpgradeRequired featureLabel="Bank Reconciliation" requiredTier={2} currentTier={tenantSettings.tier} />;
+  }
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">

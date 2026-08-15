@@ -41,6 +41,10 @@ model Tenant {
   vatRegistered        Boolean   @default(false) @map("vat_registered")
   graTin               String?   @map("gra_tin")
   isLive               Boolean   @default(false) @map("is_live")
+  // Owner/manager phone number that automated SMS alerts (till-close
+  // summaries, cash shortage warnings) go to. Optional - alerts are skipped
+  // (not sent to a shared/hardcoded fallback) when unset for this tenant.
+  bossPhone            String?   @map("boss_phone")
   createdAt            DateTime  @default(now()) @map("created_at")
   updatedAt            DateTime  @updatedAt @map("updated_at")
 
@@ -235,6 +239,32 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// One row per Help Assistant chat turn - the raw material for the "learn
+// from usage" loop: a daily background job (helpAssistantMaintenanceCronService.ts)
+// prunes rows past the retention window, and an Admin-only review screen
+// surfaces `flagged` turns (a tool lookup was denied/failed, or the
+// assistant gave up after too many lookups) so a human can decide whether
+// the static knowledge base (helpAssistantKnowledge.ts) needs updating.
+// Never used to auto-rewrite that knowledge base or to answer one tenant's
+// questions using another tenant's data - see the tenantId scoping below
+// and every read site in helpAssistantConversationRepository.ts.
+model HelpAssistantConversation {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  userId         String   @map("user_id")
+  userEmail      String   @map("user_email")
+  userMessage    String   @map("user_message")
+  assistantReply String   @map("assistant_reply")
+  toolsUsed      String[] @default([]) @map("tools_used")
+  flagged        Boolean  @default(false)
+  flagReason     String?  @map("flag_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, flagged])
+  @@map("help_assistant_conversations")
+}
+
 model ReportSchedule {
   id         String    @id @default(uuid())
   tenantId   String    @unique @map("tenant_id")
@@ -327,6 +357,15 @@ model Invoice {
   taxBreakdown       Json?    @map("tax_breakdown")
   total              Decimal  @db.Decimal(15, 2)
   baseCurrencyAmount Decimal? @map("base_currency_amount") @db.Decimal(15, 2)
+  // Cumulative amount actually received against this invoice, in the
+  // invoice's own (native) currency - same currency `total` is in, not
+  // `baseCurrencyAmount`. Each InvoicePayment row is the audit trail of how
+  // this figure was built up; this column exists so "how much is still
+  // owed" (total - amountPaid) never requires summing the history at read
+  // time. status moves DRAFT -> SENT -> PARTIALLY_PAID -> PAID as this
+  // grows from 0 to total (a credit note can also move it back down - see
+  // creditDebitNoteService.ts).
+  amountPaid         Decimal  @default(0.00) @map("amount_paid") @db.Decimal(15, 2)
   status             String   @default("DRAFT")
   // When the invoice document was last actually emailed to the customer -
   // distinct from `status`, which already gets set to "SENT" at creation
@@ -344,6 +383,12 @@ model Invoice {
   // posted at payment time (see invoicePaymentService.markInvoicePaid), so
   // the whole payment stays within one fund by construction.
   fundId             String?  @map("fund_id")
+  // Set together, only on an itemized invoice (mirrors VendorBill's
+  // warehouseId/lines shape for the purchase side) - the shop/warehouse
+  // stock is deducted from at issue time. Null/false on a plain "Simple
+  // Invoice" line-item-only-in-name record with no real stock effect.
+  warehouseId        String?  @map("warehouse_id")
+  stockDeducted      Boolean  @default(false) @map("stock_deducted")
   createdAt          DateTime @default(now()) @map("created_at")
   // Client-generated dedup key for offline-queued/retried invoice creation
   // (local-first sync pilot, see STATUS.md) - same pattern already proven
@@ -356,8 +401,10 @@ model Invoice {
   customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
   taxRate      TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
   fund         Fund?                @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  warehouse    Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
   items        InvoiceItem[]
   creditNotes  CreditNote[]
+  payments       InvoicePayment[]
   momoRequests   MomoPaymentRequest[]
   tellerRequests TellerPaymentRequest[]
 
@@ -367,8 +414,39 @@ model Invoice {
   @@index([customerId])
   @@index([status])
   @@index([taxRateId])
+  @@index([warehouseId])
   @@index([fundId])
   @@map("invoices")
+}
+
+// One row per payment (full or partial) actually recorded against an
+// invoice - the audit trail Invoice.amountPaid's running total is built
+// from. Each row is exactly one journal entry's worth of Cash/Revenue
+// posting (see invoicePaymentService.recordInvoicePayment), so "what did
+// this invoice's ledger impact actually consist of" is always fully
+// reconstructable from this table alone, not just the current total.
+model InvoicePayment {
+  id                 String   @id @default(uuid())
+  tenantId           String   @map("tenant_id")
+  invoiceId          String   @map("invoice_id")
+  // Native-currency amount of this specific payment (same currency as
+  // Invoice.total) - what the accountant actually entered/collected.
+  amount             Decimal  @db.Decimal(15, 2)
+  // What was actually posted to the ledger for this payment, after the
+  // same base-currency conversion invoicePaymentService already applies to
+  // the invoice as a whole.
+  baseCurrencyAmount Decimal  @map("base_currency_amount") @db.Decimal(15, 2)
+  method             String   @default("MANUAL") @map("method")
+  journalId          String?  @map("journal_id")
+  recordedByUserId   String?  @map("recorded_by_user_id")
+  recordedByEmail    String?  @map("recorded_by_email")
+  createdAt          DateTime @default(now()) @map("created_at")
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@index([invoiceId])
+  @@map("invoice_payments")
 }
 
 // A real MTN Mobile Money "Request to Pay" collection attempt against an
@@ -480,10 +558,17 @@ model InvoiceItem {
   quantity    Decimal @db.Decimal(10, 2)
   unitPrice   Decimal @map("unit_price") @db.Decimal(15, 2)
   amount      Decimal @db.Decimal(15, 2)
+  // Set only on an itemized invoice (Invoice.warehouseId is also set in that
+  // case) - links this line to a real Chart of Accounts-adjacent inventory
+  // item so its stock can be deducted at issue time. Null on a plain/simple
+  // invoice line (a service, or any line with nothing to deduct from stock).
+  inventoryItemId String? @map("inventory_item_id")
 
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  invoice       Invoice        @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  inventoryItem InventoryItem? @relation(fields: [inventoryItemId], references: [id], onDelete: SetNull)
 
   @@index([tenantId])
+  @@index([inventoryItemId])
   @@map("invoice_items")
 }
 
@@ -616,6 +701,7 @@ model Warehouse {
   adjustments   StockAdjustment[]
   userAccess    WarehouseAccess[]
   vendorBills   VendorBill[]
+  invoices      Invoice[]
 
   @@unique([tenantId, code])
   @@index([tenantId])
@@ -637,6 +723,7 @@ model InventoryItem {
   warehouseStocks WarehouseStock[]
   adjustments     StockAdjustment[]
   vendorBillLines VendorBillLine[]
+  invoiceLines    InvoiceItem[]
 
   @@unique([tenantId, sku])
   @@index([tenantId])
