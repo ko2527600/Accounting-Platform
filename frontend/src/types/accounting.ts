@@ -2,11 +2,11 @@ export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expens
 export type AccountStatus = 'Active' | 'Archived';
 
 // Which single account auto-posting features (invoice payments, credit/
-// debit notes, vendor bill payments, expense reimbursements) target for the
-// generic cash/revenue/expense side of a transaction - see backend
-// accountRepository.ts's resolveDefaultAccount. At most one account per
-// role at a time.
-export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE';
+// debit notes, vendor bill payments, expense reimbursements, fixed-asset
+// depreciation) target for the generic cash/revenue/expense/depreciation
+// side of a transaction - see backend accountRepository.ts's
+// resolveDefaultAccount. At most one account per role at a time.
+export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION';
 
 export interface Account {
   id: string;
@@ -18,6 +18,10 @@ export interface Account {
   balance: number;
   currency: string;
   isCashEquivalent?: boolean;
+  // Which ASSET accounts represent long-lived fixed assets (Vehicles,
+  // Equipment, etc.) - drives the Cash Flow Statement's Investing section.
+  // Unlike defaultRole, multiple accounts can hold this flag.
+  isFixedAsset?: boolean;
   defaultRole?: AccountDefaultRole | null;
   createdAt: string;
   updatedAt: string;

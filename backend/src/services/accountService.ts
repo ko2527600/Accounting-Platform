@@ -20,6 +20,7 @@ function accountSyncPayload(account: AccountRecord): Record<string, unknown> {
     currency: account.currency,
     isActive: account.isActive,
     isCashEquivalent: account.isCashEquivalent,
+    isFixedAsset: account.isFixedAsset,
     defaultRole: account.defaultRole,
     createdAt: account.createdAt.toISOString(),
     updatedAt: account.updatedAt.toISOString(),
@@ -322,7 +323,7 @@ export async function updateAccount(
       entity: 'Account',
       entityId: updated.id,
       actor,
-      changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId', 'isCashEquivalent']),
+      changes: diffFields(previous, updated, ['code', 'name', 'type', 'isActive', 'parentId', 'isCashEquivalent', 'isFixedAsset']),
     });
 
     return updated;
@@ -351,6 +352,8 @@ const REASONABLE_TYPES_FOR_ROLE: Record<AccountDefaultRole, AccountType[]> = {
   CASH: ['ASSET'],
   REVENUE: ['REVENUE'],
   EXPENSE: ['EXPENSE', 'COST_OF_SALES'],
+  DEPRECIATION_EXPENSE: ['EXPENSE'],
+  ACCUMULATED_DEPRECIATION: ['ASSET'],
 };
 
 /**
@@ -375,7 +378,7 @@ export async function setDefaultRole(
     throw new AccountServiceError('Account ID is required.', 400);
   }
   if (role !== null && !REASONABLE_TYPES_FOR_ROLE[role]) {
-    throw new AccountServiceError(`Invalid default role "${role}". Allowed: CASH, REVENUE, EXPENSE, or null to clear.`, 400);
+    throw new AccountServiceError(`Invalid default role "${role}". Allowed: CASH, REVENUE, EXPENSE, DEPRECIATION_EXPENSE, ACCUMULATED_DEPRECIATION, or null to clear.`, 400);
   }
 
   let syncSeq: bigint | null = null;

@@ -231,8 +231,8 @@ router.get('/profit-loss/export', requireRole('Viewer'), async (req: Request, re
 
 /**
  * GET /api/v1/reports/cash-flow
- * Description: Indirect-method Cash Flow Statement (Operating/Financing activities,
- * Net Change in Cash) over a date range. Omit startDate/endDate for since-inception.
+ * Description: Indirect-method Cash Flow Statement (Operating/Investing/Financing
+ * activities, Net Change in Cash) over a date range. Omit startDate/endDate for since-inception.
  * Access: Viewer role or higher
  */
 router.get('/cash-flow', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {

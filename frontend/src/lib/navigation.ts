@@ -26,6 +26,7 @@ import {
   Bot,
   Clock,
   Wallet2,
+  Building2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -77,6 +78,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Tax Rates", href: "/settings/tax-rates", icon: Percent },
       { name: "Fiscal Periods", href: "/settings/fiscal-periods", icon: CalendarClock },
       { name: "Recurring Transactions", href: "/settings/recurring-transactions", icon: Repeat },
+      { name: "Fixed Assets", href: "/fixed-assets", icon: Building2 },
     ],
   },
   {
@@ -124,6 +126,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/accounts",
     "/journals",
     "/banking",
+    "/fixed-assets",
     "/invoices",
     "/bills",
     "/recurring-invoices",

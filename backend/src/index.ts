@@ -53,6 +53,10 @@ const startServer = async () => {
     // Initialize daily recurring-invoice generation sweep
     const { RecurringInvoiceCronService } = require('./services/recurringInvoiceCronService');
     RecurringInvoiceCronService.init();
+
+    // Initialize daily fixed-asset depreciation sweep
+    const { FixedAssetDepreciationCronService } = require('./services/fixedAssetDepreciationCronService');
+    FixedAssetDepreciationCronService.init();
   });
 
   const gracefulShutdown = async () => {

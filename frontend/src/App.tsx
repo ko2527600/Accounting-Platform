@@ -54,6 +54,7 @@ import { AgingReport } from "./pages/reports/AgingReport";
 import { PettyCash } from "./pages/pettycash/PettyCash";
 import { PurchaseOrders } from "./pages/purchaseorders/PurchaseOrders";
 import { RecurringInvoices } from "./pages/recurringinvoices/RecurringInvoices";
+import { FixedAssets } from "./pages/fixedassets/FixedAssets";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 
@@ -253,6 +254,7 @@ function App() {
             <Route path="/petty-cash" element={<ProtectedRoute><MainLayout><PettyCash /></MainLayout></ProtectedRoute>} />
             <Route path="/purchase-orders" element={<ProtectedRoute><MainLayout><PurchaseOrders /></MainLayout></ProtectedRoute>} />
             <Route path="/recurring-invoices" element={<ProtectedRoute><MainLayout><RecurringInvoices /></MainLayout></ProtectedRoute>} />
+            <Route path="/fixed-assets" element={<ProtectedRoute><MainLayout><FixedAssets /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

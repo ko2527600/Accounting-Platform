@@ -56,6 +56,7 @@ import pettyCashRouter from './routes/pettyCash';
 import purchaseOrdersRouter from './routes/purchaseOrders';
 import recurringInvoicesRouter from './routes/recurringInvoices';
 import paystackRouter from './routes/paystack';
+import fixedAssetsRouter from './routes/fixedAssets';
 
 dotenv.config();
 
@@ -188,6 +189,7 @@ app.use('/api/v1/petty-cash', pettyCashRouter);
 app.use('/api/v1/purchase-orders', purchaseOrdersRouter);
 app.use('/api/v1/recurring-invoices', recurringInvoicesRouter);
 app.use('/api/v1/paystack', paystackRouter);
+app.use('/api/v1/fixed-assets', fixedAssetsRouter);
 
 // Real-Time & Persistent Notifications endpoints
 app.use('/api/v1/notifications', notificationsRouter);

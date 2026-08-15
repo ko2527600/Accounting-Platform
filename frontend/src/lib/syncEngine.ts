@@ -18,7 +18,8 @@ export interface LocalAccount {
   currency: string;
   isActive: boolean;
   isCashEquivalent: boolean;
-  defaultRole: 'CASH' | 'REVENUE' | 'EXPENSE' | null;
+  isFixedAsset: boolean;
+  defaultRole: 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION' | null;
   createdAt: string;
   updatedAt: string;
   // Present only on a record still in flight through the outbox - never
@@ -338,6 +339,7 @@ export async function createAccountLocalFirst(body: Record<string, unknown>): Pr
     currency: (body.currency as string) ?? 'USD',
     isActive: body.isActive !== undefined ? Boolean(body.isActive) : true,
     isCashEquivalent: Boolean(body.isCashEquivalent),
+    isFixedAsset: Boolean(body.isFixedAsset),
     defaultRole: null,
     createdAt: now,
     updatedAt: now,

@@ -30,20 +30,33 @@ const TYPE_COLORS: Record<AccountType, 'success' | 'warning' | 'danger' | 'defau
 
 const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue', 'Cost of Sales', 'Expense'];
 
-// Which single default-posting role each account TYPE is eligible to hold -
-// see backend accountService.ts's REASONABLE_TYPES_FOR_ROLE (the same
-// mapping, enforced server-side too). Liability/Equity accounts can't hold
-// any role, so they get no toggle at all.
-const ROLE_FOR_TYPE: Partial<Record<AccountType, AccountDefaultRole>> = {
-  Asset: 'CASH',
-  Revenue: 'REVENUE',
-  Expense: 'EXPENSE',
-  'Cost of Sales': 'EXPENSE',
+// Which default-posting role(s) each account TYPE is eligible to hold - see
+// backend accountService.ts's REASONABLE_TYPES_FOR_ROLE (the same mapping,
+// enforced server-side too). ASSET and EXPENSE can each hold two distinct
+// roles (a tenant might designate one ASSET account as the default CASH
+// target and a different ASSET account as ACCUMULATED_DEPRECIATION), so
+// this renders one independent toggle per applicable role rather than
+// assuming a single role per type. Liability/Equity accounts can't hold any
+// role, so they get no toggle at all.
+const ROLES_FOR_TYPE: Partial<Record<AccountType, AccountDefaultRole[]>> = {
+  Asset: ['CASH', 'ACCUMULATED_DEPRECIATION'],
+  Revenue: ['REVENUE'],
+  Expense: ['EXPENSE', 'DEPRECIATION_EXPENSE'],
+  'Cost of Sales': ['EXPENSE'],
 };
 const ROLE_LABEL: Record<AccountDefaultRole, string> = {
   CASH: 'Default Cash Account',
   REVENUE: 'Default Revenue Account',
   EXPENSE: 'Default Expense Account',
+  DEPRECIATION_EXPENSE: 'Default Depreciation Expense Account',
+  ACCUMULATED_DEPRECIATION: 'Default Accumulated Depreciation Account',
+};
+const ROLE_SHORT_LABEL: Record<AccountDefaultRole, string> = {
+  CASH: 'Default Cash',
+  REVENUE: 'Default Revenue',
+  EXPENSE: 'Default Expense',
+  DEPRECIATION_EXPENSE: 'Default Depreciation Exp.',
+  ACCUMULATED_DEPRECIATION: 'Default Accum. Depreciation',
 };
 
 export function ChartOfAccounts() {
@@ -213,27 +226,33 @@ export function ChartOfAccounts() {
                     {formatCurrency(account.balance)}
                   </TableCell>
                   <TableCell>
-                    {ROLE_FOR_TYPE[account.type] ? (
-                      <button
-                        type="button"
-                        disabled={settingRoleForId === account.id}
-                        onClick={() => handleToggleDefaultRole(account, ROLE_FOR_TYPE[account.type]!)}
-                        title={
-                          account.defaultRole === ROLE_FOR_TYPE[account.type]
-                            ? `This is the ${ROLE_LABEL[ROLE_FOR_TYPE[account.type]!]} - invoices/bills/expense claims post here automatically. Click to unset.`
-                            : `Click to make this the ${ROLE_LABEL[ROLE_FOR_TYPE[account.type]!]}.`
-                        }
-                        className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
-                          account.defaultRole === ROLE_FOR_TYPE[account.type]
-                            ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
-                            : "border border-dashed border-secondary-300 text-secondary-400 opacity-0 group-hover:opacity-100 hover:text-secondary-600 dark:border-secondary-700 dark:hover:text-secondary-300"
-                        }`}
-                      >
-                        <Star className={`h-3 w-3 ${account.defaultRole === ROLE_FOR_TYPE[account.type] ? "fill-current" : ""}`} />
-                        {account.defaultRole === ROLE_FOR_TYPE[account.type]
-                          ? `Default ${ROLE_FOR_TYPE[account.type]!.charAt(0)}${ROLE_FOR_TYPE[account.type]!.slice(1).toLowerCase()}`
-                          : "Set as default"}
-                      </button>
+                    {ROLES_FOR_TYPE[account.type]?.length ? (
+                      <div className="flex flex-wrap items-center gap-1">
+                        {ROLES_FOR_TYPE[account.type]!.map((role) => {
+                          const isHeld = account.defaultRole === role;
+                          return (
+                            <button
+                              key={role}
+                              type="button"
+                              disabled={settingRoleForId === account.id}
+                              onClick={() => handleToggleDefaultRole(account, role)}
+                              title={
+                                isHeld
+                                  ? `This is the ${ROLE_LABEL[role]} - relevant postings target this account automatically. Click to unset.`
+                                  : `Click to make this the ${ROLE_LABEL[role]}.`
+                              }
+                              className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
+                                isHeld
+                                  ? "bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-300"
+                                  : "border border-dashed border-secondary-300 text-secondary-400 opacity-0 group-hover:opacity-100 hover:text-secondary-600 dark:border-secondary-700 dark:hover:text-secondary-300"
+                              }`}
+                            >
+                              <Star className={`h-3 w-3 ${isHeld ? "fill-current" : ""}`} />
+                              {isHeld ? ROLE_SHORT_LABEL[role] : `Set as ${ROLE_SHORT_LABEL[role].replace("Default ", "")}`}
+                            </button>
+                          );
+                        })}
+                      </div>
                     ) : (
                       <span className="text-xs text-secondary-400">—</span>
                     )}

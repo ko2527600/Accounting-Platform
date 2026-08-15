@@ -19,6 +19,7 @@ function makeAccount(overrides: Partial<AccountRecord>): AccountRecord {
     currency: 'USD',
     isActive: true,
     isCashEquivalent: false,
+    isFixedAsset: false,
     defaultRole: null,
     createdAt: new Date(),
     updatedAt: new Date(),

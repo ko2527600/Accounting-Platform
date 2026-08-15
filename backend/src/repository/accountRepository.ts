@@ -5,7 +5,9 @@ export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENS
 // The single account each auto-posting service should target for the
 // generic cash/revenue/expense side of a transaction - see migration
 // 009_add_account_default_role. At most one account per role per tenant.
-export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE';
+// DEPRECIATION_EXPENSE/ACCUMULATED_DEPRECIATION added by migration
+// 010_add_fixed_asset_support for fixedAssetService.ts's monthly postings.
+export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION';
 
 export interface AccountRecord {
   id: string;
@@ -16,6 +18,10 @@ export interface AccountRecord {
   currency: string;
   isActive: boolean;
   isCashEquivalent: boolean;
+  // Which ASSET accounts represent long-lived fixed assets (Vehicles,
+  // Equipment, etc.) rather than ordinary working-capital assets - see
+  // migration 010. Unlike defaultRole, multiple accounts can hold this flag.
+  isFixedAsset: boolean;
   defaultRole: AccountDefaultRole | null;
   createdAt: Date;
   updatedAt: Date;
@@ -29,6 +35,7 @@ export interface CreateAccountData {
   currency?: string;
   isActive?: boolean;
   isCashEquivalent?: boolean;
+  isFixedAsset?: boolean;
   // Client-generated dedup key for offline-queued/retried account creation
   // (local-first sync pilot) - see createAccount's P2002-equivalent handling.
   clientTxnId?: string | null;
@@ -44,13 +51,14 @@ function mapAccountRow(row: any): AccountRecord {
     currency: row.currency || 'USD',
     isActive: Boolean(row.is_active),
     isCashEquivalent: Boolean(row.is_cash_equivalent),
+    isFixedAsset: Boolean(row.is_fixed_asset),
     defaultRole: (row.default_role as AccountDefaultRole) || null,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
   };
 }
 
-const ACCOUNT_COLUMNS = 'id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, default_role, created_at, updated_at';
+const ACCOUNT_COLUMNS = 'id, code, name, type, parent_id, currency, is_active, is_cash_equivalent, is_fixed_asset, default_role, created_at, updated_at';
 
 /**
  * Default for isCashEquivalent when not explicitly supplied: ASSET accounts
@@ -86,20 +94,27 @@ export function defaultIsCashEquivalent(type: AccountType, name: string): boolea
  * all for this role - callers already handle "no accounts configured" as an
  * error case.
  */
-const LEGACY_ROLE_CODES: Record<AccountDefaultRole, string> = { CASH: '1010', REVENUE: '4010', EXPENSE: '5010' };
+// Partial: DEPRECIATION_EXPENSE/ACCUMULATED_DEPRECIATION are new roles with
+// no pre-existing account-code convention to fall back to - a tenant must
+// explicitly designate both, same "clear error over silent wrong guess"
+// philosophy the whole defaultRole mechanism was built on.
+const LEGACY_ROLE_CODES: Partial<Record<AccountDefaultRole, string>> = { CASH: '1010', REVENUE: '4010', EXPENSE: '5010' };
 const PLAUSIBLE_TYPES_FOR_ROLE: Record<AccountDefaultRole, AccountType[]> = {
   CASH: ['ASSET'],
   REVENUE: ['REVENUE'],
   EXPENSE: ['EXPENSE', 'COST_OF_SALES'],
+  DEPRECIATION_EXPENSE: ['EXPENSE'],
+  ACCUMULATED_DEPRECIATION: ['ASSET'],
 };
 
 export function resolveDefaultAccount(
   accounts: AccountRecord[],
   role: AccountDefaultRole
 ): AccountRecord | undefined {
+  const legacyCode = LEGACY_ROLE_CODES[role];
   return (
     accounts.find((a) => a.defaultRole === role) ||
-    accounts.find((a) => a.code === LEGACY_ROLE_CODES[role]) ||
+    (legacyCode ? accounts.find((a) => a.code === legacyCode) : undefined) ||
     accounts.find((a) => PLAUSIBLE_TYPES_FOR_ROLE[role].includes(a.type))
   );
 }
@@ -154,8 +169,8 @@ export async function createAccount(
     data.isCashEquivalent !== undefined ? data.isCashEquivalent : defaultIsCashEquivalent(data.type, name);
 
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `INSERT INTO accounts (code, name, type, parent_id, currency, is_active, is_cash_equivalent, client_txn_id)
-     VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, $8::uuid)
+    `INSERT INTO accounts (code, name, type, parent_id, currency, is_active, is_cash_equivalent, is_fixed_asset, client_txn_id)
+     VALUES ($1, $2, $3, $4::uuid, $5, $6, $7, $8, $9::uuid)
      RETURNING ${ACCOUNT_COLUMNS}`,
     data.code.trim(),
     name,
@@ -164,6 +179,7 @@ export async function createAccount(
     data.currency || 'USD',
     data.isActive !== undefined ? data.isActive : true,
     isCashEquivalent,
+    data.isFixedAsset !== undefined ? data.isFixedAsset : false,
     data.clientTxnId || null
   );
 
@@ -245,11 +261,12 @@ export async function updateAccount(
   const currency = data.currency !== undefined ? data.currency : existing.currency;
   const isActive = data.isActive !== undefined ? data.isActive : existing.isActive;
   const isCashEquivalent = data.isCashEquivalent !== undefined ? data.isCashEquivalent : existing.isCashEquivalent;
+  const isFixedAsset = data.isFixedAsset !== undefined ? data.isFixedAsset : existing.isFixedAsset;
 
   const rows: any[] = await prisma.$queryRawUnsafe(
     `UPDATE accounts
-     SET code = $1, name = $2, type = $3, parent_id = $4::uuid, currency = $5, is_active = $6, is_cash_equivalent = $7, updated_at = CURRENT_TIMESTAMP
-     WHERE id = $8::uuid
+     SET code = $1, name = $2, type = $3, parent_id = $4::uuid, currency = $5, is_active = $6, is_cash_equivalent = $7, is_fixed_asset = $8, updated_at = CURRENT_TIMESTAMP
+     WHERE id = $9::uuid
      RETURNING ${ACCOUNT_COLUMNS}`,
     code,
     name,
@@ -258,6 +275,7 @@ export async function updateAccount(
     currency,
     isActive,
     isCashEquivalent,
+    isFixedAsset,
     id
   );
 

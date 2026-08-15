@@ -1330,6 +1330,93 @@ model PettyCashEntry {
   @@map("petty_cash_entries")
 }
 
+enum DepreciationMethod {
+  STRAIGHT_LINE
+  REDUCING_BALANCE
+}
+
+enum FixedAssetStatus {
+  ACTIVE
+  FULLY_DEPRECIATED
+  DISPOSED
+}
+
+// A register entry for one long-lived asset (vehicle, equipment, furniture,
+// etc.), plus the schedule/state driving its monthly depreciation. Lives in
+// the shared schema with plain string references to Account/JournalEntry
+// (same soft-reference pattern as PettyCashEntry above) since those live in
+// each tenant's raw-SQL-migrated schema, not this Prisma-managed one.
+// Acquisition posts a real journal entry immediately (Debit assetAccountId,
+// Credit paymentAccountId) - deliberately scoped to "paid for immediately"
+// (cash/bank/MoMo), matching how most Ghana SME capital purchases are
+// actually paid; buying a fixed asset on extended vendor credit terms is
+// out of scope for this pass.
+model FixedAsset {
+  id        String @id @default(uuid())
+  tenantId  String @map("tenant_id")
+  name      String
+  category  String?
+  serialNumber String? @map("serial_number")
+
+  acquisitionDate DateTime @map("acquisition_date")
+  cost            Decimal  @db.Decimal(15, 2)
+  // Estimated value left once fully depreciated - depreciation never reduces
+  // net book value below this floor. Defaults to 0 (fully written off).
+  residualValue   Decimal  @default(0.00) @map("residual_value") @db.Decimal(15, 2)
+
+  depreciationMethod DepreciationMethod @map("depreciation_method")
+  // Required for STRAIGHT_LINE: (cost - residualValue) / usefulLifeMonths per month.
+  usefulLifeMonths   Int?               @map("useful_life_months")
+  // Required for REDUCING_BALANCE: an explicit annual rate applied to net
+  // book value each month (rate/100/12) - not derived from residualValue,
+  // which would need a residual > 0 and a less transparent formula.
+  depreciationRatePercent Decimal?      @map("depreciation_rate_percent") @db.Decimal(5, 2)
+
+  accumulatedDepreciation Decimal   @default(0.00) @map("accumulated_depreciation") @db.Decimal(15, 2)
+  // First-of-month marker for the last period actually depreciated - the
+  // cron's idempotency guard alongside DepreciationEntry's own unique index.
+  lastDepreciatedThrough  DateTime? @map("last_depreciated_through")
+
+  status         FixedAssetStatus @default(ACTIVE)
+  disposalDate   DateTime?        @map("disposal_date")
+  disposalNotes  String?          @map("disposal_notes")
+
+  assetAccountId   String  @map("asset_account_id")
+  paymentAccountId String  @map("payment_account_id")
+  acquisitionJournalId String? @map("acquisition_journal_id")
+
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  depreciationEntries DepreciationEntry[]
+
+  @@index([tenantId])
+  @@index([tenantId, status])
+  @@map("fixed_assets")
+}
+
+// One row per period a FixedAsset was actually depreciated - the audit
+// trail FixedAsset.accumulatedDepreciation's running total is built from,
+// same "sub-ledger proves the total" role as InvoicePayment/PettyCashEntry.
+model DepreciationEntry {
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  fixedAssetId      String   @map("fixed_asset_id")
+  // "YYYY-MM" - the calendar month this entry covers.
+  period            String
+  amount            Decimal  @db.Decimal(15, 2)
+  netBookValueAfter Decimal  @map("net_book_value_after") @db.Decimal(15, 2)
+  journalId         String?  @map("journal_id")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  fixedAsset FixedAsset @relation(fields: [fixedAssetId], references: [id], onDelete: Cascade)
+
+  @@unique([fixedAssetId, period])
+  @@index([tenantId])
+  @@map("depreciation_entries")
+}
+
 enum DocumentType {
   INVOICE
   RECEIPT

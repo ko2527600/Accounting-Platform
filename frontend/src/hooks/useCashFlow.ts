@@ -14,6 +14,8 @@ export interface CashFlowReport {
   netIncome: number;
   operatingAdjustments: CashFlowLineItem[];
   netCashFromOperating: number;
+  investingAdjustments: CashFlowLineItem[];
+  netCashFromInvesting: number;
   financingAdjustments: CashFlowLineItem[];
   netCashFromFinancing: number;
   netChangeInCash: number;
@@ -31,6 +33,8 @@ export function useCashFlow(): CashFlowReport {
     netIncome: 0,
     operatingAdjustments: [],
     netCashFromOperating: 0,
+    investingAdjustments: [],
+    netCashFromInvesting: 0,
     financingAdjustments: [],
     netCashFromFinancing: 0,
     netChangeInCash: 0,
