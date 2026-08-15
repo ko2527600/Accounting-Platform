@@ -32,6 +32,7 @@ import { ExpenseClaims } from "./pages/expenses/ExpenseClaims";
 import { Budgets } from "./pages/reports/Budgets";
 import { TeamManagement } from "./pages/team/TeamManagement";
 import { AuditLogs } from "./pages/audit/AuditLogs";
+import { HelpAssistantActivity } from "./pages/help/HelpAssistantActivity";
 import { BulkImportWizard } from "./pages/import/BulkImportWizard";
 import { BankReconciliation } from "./pages/banking/BankReconciliation";
 import { Invoices } from "./pages/invoices/Invoices";
@@ -226,6 +227,7 @@ function App() {
             <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
             <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
             <Route path="/audit-logs" element={<ProtectedRoute><MainLayout><AuditLogs /></MainLayout></ProtectedRoute>} />
+            <Route path="/help-assistant/activity" element={<ProtectedRoute><MainLayout><HelpAssistantActivity /></MainLayout></ProtectedRoute>} />
             <Route path="/import" element={<ProtectedRoute><MainLayout><BulkImportWizard /></MainLayout></ProtectedRoute>} />
             <Route path="/banking" element={<ProtectedRoute><MainLayout><BankReconciliation /></MainLayout></ProtectedRoute>} />
             <Route path="/invoices" element={<ProtectedRoute><MainLayout><Invoices /></MainLayout></ProtectedRoute>} />

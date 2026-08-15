@@ -239,6 +239,32 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+// One row per Help Assistant chat turn - the raw material for the "learn
+// from usage" loop: a daily background job (helpAssistantMaintenanceCronService.ts)
+// prunes rows past the retention window, and an Admin-only review screen
+// surfaces `flagged` turns (a tool lookup was denied/failed, or the
+// assistant gave up after too many lookups) so a human can decide whether
+// the static knowledge base (helpAssistantKnowledge.ts) needs updating.
+// Never used to auto-rewrite that knowledge base or to answer one tenant's
+// questions using another tenant's data - see the tenantId scoping below
+// and every read site in helpAssistantConversationRepository.ts.
+model HelpAssistantConversation {
+  id             String   @id @default(uuid())
+  tenantId       String   @map("tenant_id")
+  userId         String   @map("user_id")
+  userEmail      String   @map("user_email")
+  userMessage    String   @map("user_message")
+  assistantReply String   @map("assistant_reply")
+  toolsUsed      String[] @default([]) @map("tools_used")
+  flagged        Boolean  @default(false)
+  flagReason     String?  @map("flag_reason")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, flagged])
+  @@map("help_assistant_conversations")
+}
+
 model ReportSchedule {
   id         String    @id @default(uuid())
   tenantId   String    @unique @map("tenant_id")

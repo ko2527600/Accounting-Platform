@@ -162,7 +162,7 @@ export async function chat(
   history: ChatMessage[],
   authHeader: string,
   tenantHeader: string
-): Promise<{ reply: string; history: ChatMessage[] }> {
+): Promise<{ reply: string; history: ChatMessage[]; toolsUsed: string[]; hadToolError: boolean }> {
   if (!userMessage || typeof userMessage !== 'string' || !userMessage.trim()) {
     throw new HelpAssistantServiceError('A message is required.', 400);
   }
@@ -172,6 +172,13 @@ export async function chat(
     ...history.map((m) => ({ role: m.role, content: m.content })),
     { role: 'user', content: userMessage.trim() },
   ];
+
+  // Tracked across the whole turn (every iteration of the loop below) so the
+  // caller can log what actually happened - see
+  // helpAssistantConversationRepository.ts and the "learn from usage" review
+  // queue this feeds.
+  const toolsUsed = new Set<string>();
+  let hadToolError = false;
 
   for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
     const response = await callAnthropic(messages, TOOLS);
@@ -183,7 +190,12 @@ export async function chat(
         .join('\n')
         .trim();
       const finalHistory: ChatMessage[] = [...history, { role: 'user', content: userMessage.trim() }, { role: 'assistant', content: reply }];
-      return { reply: reply || "I wasn't able to come up with an answer for that - could you rephrase?", history: finalHistory };
+      return {
+        reply: reply || "I wasn't able to come up with an answer for that - could you rephrase?",
+        history: finalHistory,
+        toolsUsed: [...toolsUsed],
+        hadToolError,
+      };
     }
 
     messages.push({ role: 'assistant', content: response.content });
@@ -192,14 +204,17 @@ export async function chat(
       response.content
         .filter((block: any) => block.type === 'tool_use')
         .map(async (block: any) => {
+          toolsUsed.add(block.name);
           const tool = TOOLS.find((t) => t.name === block.name);
           if (!tool) {
+            hadToolError = true;
             return { type: 'tool_result', tool_use_id: block.id, content: `Unknown tool "${block.name}".`, is_error: true };
           }
           try {
             const { method, path, params } = tool.call(block.input || {});
             const apiRes = await apiClient.request({ method, url: path, params });
             if (apiRes.status >= 400) {
+              hadToolError = true;
               return {
                 type: 'tool_result',
                 tool_use_id: block.id,
@@ -209,6 +224,7 @@ export async function chat(
             }
             return { type: 'tool_result', tool_use_id: block.id, content: JSON.stringify(apiRes.data?.data ?? apiRes.data) };
           } catch (err: any) {
+            hadToolError = true;
             return { type: 'tool_result', tool_use_id: block.id, content: `Lookup failed: ${err.message}`, is_error: true };
           }
         })
