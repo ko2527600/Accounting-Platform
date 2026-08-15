@@ -18,9 +18,18 @@ export class CreditDebitNoteServiceError extends Error {
 export interface IssueNoteInput {
   amount: number;
   reason: string;
+  // Credit notes only, and only meaningful against an itemized invoice
+  // (Invoice.stockDeducted). Restoring stock requires knowing exactly which
+  // units are coming back - this platform's credit notes are a lump amount,
+  // not itemized, so the only case that can be restored *accurately* is a
+  // credit that fully cancels the invoice (nothing left owed after it),
+  // where every original line quantity can be put back exactly. A partial
+  // credit note can't be tied to specific returned units, so requesting
+  // returnToStock on one is rejected rather than guessed at proportionally.
+  returnToStock?: boolean;
 }
 
-function validateInput(input: IssueNoteInput): { amount: number; reason: string } {
+function validateInput(input: IssueNoteInput): { amount: number; reason: string; returnToStock: boolean } {
   const amount = Number(input?.amount);
   if (!amount || isNaN(amount) || amount <= 0) {
     throw new CreditDebitNoteServiceError('Amount must be a number greater than 0.', 400);
@@ -29,31 +38,35 @@ function validateInput(input: IssueNoteInput): { amount: number; reason: string 
   if (!reason) {
     throw new CreditDebitNoteServiceError('A reason is required.', 400);
   }
-  return { amount: Math.round(amount * 100) / 100, reason };
+  return { amount: Math.round(amount * 100) / 100, reason, returnToStock: Boolean(input?.returnToStock) };
 }
 
 /**
  * Issues a Credit Note against an Invoice (returned goods, overcharge,
  * negotiated discount, etc.).
  *
- * This platform only recognizes revenue at payment time (see invoices.ts's
- * `/pay` handler - no separate Accounts Receivable posting happens at
- * invoice creation), so the correct treatment genuinely differs by whether
- * the invoice has already been paid:
- *  - Unpaid invoice: nothing has been posted to the ledger yet, so the note
- *    simply reduces what the invoice will charge on payment - no journal
- *    entry (`method: 'INVOICE_REDUCTION'`).
- *  - Paid invoice: revenue and cash were already recognized at the original
- *    total, so the note posts a real reversing entry (Debit Revenue, Credit
- *    Cash) and leaves the invoice's own total/status untouched as the
- *    historical record of what was actually paid (`method: 'JOURNAL_REVERSAL'`).
+ * This platform only recognizes revenue as cash is actually received (see
+ * invoicePaymentService.recordInvoicePayment - no separate Accounts
+ * Receivable posting happens at invoice creation), so the correct treatment
+ * genuinely depends on how much of this invoice has already been paid:
+ *  - The portion of the credit that falls within the invoice's still-unpaid
+ *    balance simply reduces what's left to charge - no journal entry
+ *    (`method: 'INVOICE_REDUCTION'`), exactly as for a fully-unpaid invoice.
+ *  - Any portion beyond that overlaps money already recognized as revenue,
+ *    so it posts a real reversing entry (Debit Revenue, Credit Cash) for
+ *    just that overlapping amount and claws back the invoice's own
+ *    `amountPaid` by the same amount (`method: 'JOURNAL_REVERSAL'`), since
+ *    that revenue is no longer actually being kept.
+ * A note against a fully unpaid invoice is 100% INVOICE_REDUCTION and a note
+ * against a fully paid one is 100% JOURNAL_REVERSAL - the partially-paid
+ * case is a proportional split between the two, not a third code path.
  */
 export async function createCreditNote(invoiceId: string, input: IssueNoteInput, actor?: AuditActor) {
   const { tenantId } = requireTenantContext();
-  const { amount, reason } = validateInput(input);
+  const { amount, reason, returnToStock } = validateInput(input);
 
   const invoice = await withCurrentTenantDb(prisma, async (client) => {
-    return (client as any).invoice.findFirst({ where: { id: invoiceId, tenantId }, include: { customer: true } });
+    return (client as any).invoice.findFirst({ where: { id: invoiceId, tenantId }, include: { customer: true, items: true } });
   });
   if (!invoice) {
     throw new CreditDebitNoteServiceError('Invoice not found.', 404);
@@ -80,11 +93,38 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
     );
   }
 
+  if (returnToStock) {
+    if (!invoice.stockDeducted || !invoice.warehouseId) {
+      throw new CreditDebitNoteServiceError('This invoice has no linked stock to return - it was not an itemized invoice.', 400);
+    }
+    // Restoring stock requires knowing exactly which units are coming back.
+    // A credit note is a lump amount, not itemized, so the only case that
+    // can be restored accurately (rather than guessed at proportionally) is
+    // one that fully cancels what's left owed on the invoice - then every
+    // original line quantity can be put back exactly.
+    if (amount < remainingCreditable - 0.01) {
+      throw new CreditDebitNoteServiceError(
+        `Returning stock is only supported when the credit note covers the full remaining balance (${remainingCreditable.toFixed(2)}) - a partial credit can't be tied to specific returned units. Use a manual Stock Adjustment for a partial return.`,
+        400
+      );
+    }
+  }
+
   const creditNoteNumber = `CN-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
-  const method: 'INVOICE_REDUCTION' | 'JOURNAL_REVERSAL' = invoice.status === 'PAID' ? 'JOURNAL_REVERSAL' : 'INVOICE_REDUCTION';
+
+  // Split the credit amount across the two treatments based on how much of
+  // the invoice is currently unpaid. unpaidRemaining=total for a fully
+  // unpaid invoice (100% INVOICE_REDUCTION, matching the old behavior
+  // exactly) and 0 for a fully paid one (100% JOURNAL_REVERSAL, also
+  // matching the old behavior exactly).
+  const unpaidRemaining = Math.max(0, Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100);
+  const reductionAmount = Math.min(amount, unpaidRemaining);
+  const reversalAmount = Math.round((amount - reductionAmount) * 100) / 100;
+  const method: 'INVOICE_REDUCTION' | 'JOURNAL_REVERSAL' | 'MIXED' =
+    reductionAmount > 0 && reversalAmount > 0 ? 'MIXED' : reversalAmount > 0 ? 'JOURNAL_REVERSAL' : 'INVOICE_REDUCTION';
   let journalId: string | null = null;
 
-  if (method === 'JOURNAL_REVERSAL') {
+  if (reversalAmount > 0.001) {
     const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
     const cashAcc = accounts.find((a: any) => a.code === '1010') || accounts[0];
     const revenueAcc = accounts.find((a: any) => a.code === '4010') || accounts[1] || accounts[0];
@@ -97,8 +137,8 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
         lines: [
-          { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${creditNoteNumber}`, fundId: invoice.fundId || undefined },
-          { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash refund - ${creditNoteNumber}`, fundId: invoice.fundId || undefined },
+          { accountId: revenueAcc.id, debit: reversalAmount, credit: 0, description: `Revenue reversal - ${creditNoteNumber}`, fundId: invoice.fundId || undefined },
+          { accountId: cashAcc.id, debit: 0, credit: reversalAmount, description: `Cash refund - ${creditNoteNumber}`, fundId: invoice.fundId || undefined },
         ],
       },
       actor
@@ -111,17 +151,39 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
       data: { tenantId, creditNoteNumber, invoiceId, amount, reason, method, journalId },
     });
 
-    if (method === 'INVOICE_REDUCTION') {
+    const invoiceUpdate: Record<string, unknown> = {};
+
+    if (reductionAmount > 0.001) {
       const originalTotal = Number(invoice.total);
-      const newTotal = Math.round((originalTotal - amount) * 100) / 100;
-      const newBaseCurrencyAmount =
+      const newTotal = Math.round((originalTotal - reductionAmount) * 100) / 100;
+      invoiceUpdate.total = newTotal;
+      invoiceUpdate.baseCurrencyAmount =
         invoice.baseCurrencyAmount != null && originalTotal > 0
           ? Math.round(((Number(invoice.baseCurrencyAmount) * newTotal) / originalTotal) * 100) / 100
           : invoice.baseCurrencyAmount;
-      await (client as any).invoice.update({
-        where: { id: invoiceId },
-        data: { total: newTotal, baseCurrencyAmount: newBaseCurrencyAmount },
-      });
+    }
+    if (reversalAmount > 0.001) {
+      // Claw back amountPaid by the reversed portion - that revenue is no
+      // longer being kept, so it must stop counting as "paid" too, or the
+      // invoice would show a balance due that no longer matches
+      // total - amountPaid once total also shrinks above.
+      invoiceUpdate.amountPaid = Math.max(0, Math.round((Number(invoice.amountPaid) - reversalAmount) * 100) / 100);
+    }
+    if (Object.keys(invoiceUpdate).length > 0) {
+      await (client as any).invoice.update({ where: { id: invoiceId }, data: invoiceUpdate });
+    }
+
+    let restoredLines = 0;
+    if (returnToStock) {
+      for (const line of invoice.items as any[]) {
+        if (!line.inventoryItemId) continue;
+        await (client as any).warehouseStock.upsert({
+          where: { warehouseId_itemId: { warehouseId: invoice.warehouseId, itemId: line.inventoryItemId } },
+          update: { quantityOnHand: { increment: Number(line.quantity) } },
+          create: { tenantId, warehouseId: invoice.warehouseId, itemId: line.inventoryItemId, quantityOnHand: Number(line.quantity) },
+        });
+        restoredLines += 1;
+      }
     }
 
     await recordAuditLogTx(client, {
@@ -129,7 +191,7 @@ export async function createCreditNote(invoiceId: string, input: IssueNoteInput,
       entity: 'CreditNote',
       entityId: note.id,
       actor,
-      details: `Credit note ${creditNoteNumber} for ${amount.toFixed(2)} against invoice ${invoice.invoiceNumber} (${method}). Reason: ${reason}`,
+      details: `Credit note ${creditNoteNumber} for ${amount.toFixed(2)} against invoice ${invoice.invoiceNumber} (${method}).${restoredLines > 0 ? ` Stock restored for ${restoredLines} line(s).` : ''} Reason: ${reason}`,
     });
 
     return note;

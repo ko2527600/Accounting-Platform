@@ -79,6 +79,11 @@ export class DunningReminderCronService {
                 try {
                   const daysOverdue = daysBetween(invoice.dueDate, now);
 
+                  // The remaining balance, not the original total - a
+                  // partially-paid invoice must not remind the customer for
+                  // more than they actually still owe.
+                  const balanceDue = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
+
                   const sent = await EmailService.sendPaymentReminderEmail(
                     invoice.customer.email,
                     invoice.customer.name,
@@ -87,7 +92,7 @@ export class DunningReminderCronService {
                       invoiceNumber: invoice.invoiceNumber,
                       dueDateLabel: formatDateLabel(invoice.dueDate),
                       currency: invoice.currency,
-                      total: Number(invoice.total),
+                      total: balanceDue,
                       daysOverdue,
                     }
                   );

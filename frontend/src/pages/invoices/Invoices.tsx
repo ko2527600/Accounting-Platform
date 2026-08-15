@@ -33,11 +33,27 @@ interface Fund {
   code: string;
 }
 
+interface WarehouseOption {
+  id: string;
+  name: string;
+}
+
+interface InventoryItemOption {
+  id: string;
+  sku: string;
+  name: string;
+  sellingPrice: number;
+}
+
 interface InvoiceItem {
   description: string;
   quantity: number;
   unitPrice: number;
   amount: number;
+  // Set only when this line is issued against a real inventory item on an
+  // Itemized Invoice - see the Simple/Itemized toggle in the Create
+  // Invoice modal. Mirrors VendorBills' itemized purchase line shape.
+  inventoryItemId?: string;
 }
 
 interface TaxBreakdownLine {
@@ -57,7 +73,10 @@ interface Invoice {
   tax: number;
   taxBreakdown: TaxBreakdownLine[] | null;
   total: number;
+  amountPaid: number;
   status: string;
+  warehouseId?: string | null;
+  stockDeducted?: boolean;
   emailedAt?: string | null;
   // Present only on a record still in flight through the local-first sync
   // outbox (see lib/syncEngine.ts) - a real network round-trip hasn't
@@ -72,8 +91,17 @@ interface CreditNote {
   creditNoteNumber: string;
   amount: number;
   reason: string;
-  method: "INVOICE_REDUCTION" | "JOURNAL_REVERSAL";
+  method: "INVOICE_REDUCTION" | "JOURNAL_REVERSAL" | "MIXED";
   issueDate: string;
+}
+
+interface InvoicePaymentRecord {
+  id: string;
+  amount: number;
+  baseCurrencyAmount: number;
+  method: string;
+  recordedByEmail?: string | null;
+  createdAt: string;
 }
 
 interface MomoRequest {
@@ -119,6 +147,8 @@ export function Invoices() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [taxRates, setTaxRates] = useState<TaxRate[]>([]);
   const [funds, setFunds] = useState<Fund[]>([]);
+  const [warehouses, setWarehouses] = useState<WarehouseOption[]>([]);
+  const [inventoryItems, setInventoryItems] = useState<InventoryItemOption[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Modals
@@ -137,6 +167,11 @@ export function Invoices() {
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
   ]);
+  // Simple Invoice (no stock effect, the long-standing default) vs.
+  // Itemized Invoice (deducts real stock at issue time) - mirrors
+  // VendorBills' Simple Bill / Itemized Purchase toggle on the buying side.
+  const [isItemizedInvoice, setIsItemizedInvoice] = useState(false);
+  const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // Credit Note modal
@@ -144,7 +179,20 @@ export function Invoices() {
   const [creditNotesHistory, setCreditNotesHistory] = useState<CreditNote[]>([]);
   const [creditAmount, setCreditAmount] = useState("");
   const [creditReason, setCreditReason] = useState("");
+  const [creditReturnToStock, setCreditReturnToStock] = useState(false);
   const [isIssuingCredit, setIsIssuingCredit] = useState(false);
+
+  // Record Payment modal - defaults to the full remaining balance, but the
+  // amount is editable so a partial payment can be recorded instead.
+  const [paymentInvoice, setPaymentInvoice] = useState<Invoice | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState("");
+  const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+
+  // Payment History modal - read-only list of every payment (full or
+  // partial) ever recorded against an invoice.
+  const [paymentHistoryInvoice, setPaymentHistoryInvoice] = useState<Invoice | null>(null);
+  const [paymentHistory, setPaymentHistory] = useState<InvoicePaymentRecord[]>([]);
+  const [isLoadingPaymentHistory, setIsLoadingPaymentHistory] = useState(false);
 
   // Mobile Money (MTN MoMo) collection modal
   const [momoInvoice, setMomoInvoice] = useState<Invoice | null>(null);
@@ -177,15 +225,28 @@ export function Invoices() {
   const fetchData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [custRes, taxRes, fundsRes] = await Promise.all([
+      const [custRes, taxRes, fundsRes, whRes, itemsRes] = await Promise.all([
         api.get("/invoices/customers"),
         api.get("/tax-rates"),
         api.get("/funds"),
+        api.get("/inventory/warehouses"),
+        api.get("/inventory/items"),
       ]);
 
       if (custRes.data.success) setCustomers(custRes.data.data.customers);
       if (taxRes.data.success) setTaxRates(taxRes.data.data.taxRates.filter((t: any) => t.isActive));
       if (fundsRes.data.success) setFunds(fundsRes.data.data.funds.filter((f: any) => f.isActive));
+      if (whRes.data.success) setWarehouses(whRes.data.data.warehouses.map((w: any) => ({ id: w.id, name: w.name })));
+      if (itemsRes.data.success) {
+        setInventoryItems(
+          itemsRes.data.data.items.map((it: any) => ({
+            id: it.id,
+            sku: it.sku,
+            name: it.name,
+            sellingPrice: Number(it.sellingPrice),
+          }))
+        );
+      }
     } catch (err) {
       console.error("Failed to load invoice data:", err);
     } finally {
@@ -218,6 +279,10 @@ export function Invoices() {
       showToast("Please select or add a customer first.", "error");
       return;
     }
+    if (isItemizedInvoice && !selectedWarehouseId) {
+      showToast("Select which warehouse this invoice ships stock from.", "error");
+      return;
+    }
     setIsSubmitting(true);
     try {
       // Writes locally first (instant) and queues the real request in the
@@ -231,10 +296,13 @@ export function Invoices() {
           items,
           ...(selectedTaxRateId ? { taxRateId: selectedTaxRateId } : {}),
           ...(selectedFundId ? { fundId: selectedFundId } : {}),
+          ...(isItemizedInvoice ? { warehouseId: selectedWarehouseId } : {}),
         },
         customer
       );
       setIsInvoiceOpen(false);
+      setIsItemizedInvoice(false);
+      setSelectedWarehouseId("");
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to create invoice.", "error");
     } finally {
@@ -242,11 +310,51 @@ export function Invoices() {
     }
   };
 
-  const handlePayInvoice = async (id: string) => {
+  const balanceDue = (inv: Invoice) => Math.round((Number(inv.total) - Number(inv.amountPaid || 0)) * 100) / 100;
+
+  const openPaymentModal = (inv: Invoice) => {
+    setPaymentInvoice(inv);
+    setPaymentAmount(balanceDue(inv).toFixed(2));
+  };
+
+  const handleSubmitPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!paymentInvoice) return;
+    const amount = Number(paymentAmount);
+    if (!amount || amount <= 0) {
+      showToast("Enter a payment amount greater than 0.", "error");
+      return;
+    }
+    const remaining = balanceDue(paymentInvoice);
+    if (amount > remaining + 0.01) {
+      showToast(`Payment amount cannot exceed the remaining balance (${formatCurrency(remaining, paymentInvoice.currency)}).`, "error");
+      return;
+    }
+    setIsRecordingPayment(true);
     try {
-      await payInvoiceLocalFirst(id);
+      await payInvoiceLocalFirst(paymentInvoice.id, amount);
+      showToast(
+        amount >= remaining - 0.01 ? "Payment recorded - invoice paid in full." : "Partial payment recorded.",
+        "success"
+      );
+      setPaymentInvoice(null);
     } catch (err: any) {
       showToast(err.response?.data?.error || "Payment recording failed.", "error");
+    } finally {
+      setIsRecordingPayment(false);
+    }
+  };
+
+  const openPaymentHistory = async (inv: Invoice) => {
+    setPaymentHistoryInvoice(inv);
+    setIsLoadingPaymentHistory(true);
+    try {
+      const res = await api.get(`/invoices/${inv.id}/payments`);
+      if (res.data.success) setPaymentHistory(res.data.data.payments);
+    } catch (err) {
+      console.error("Failed to load payment history:", err);
+    } finally {
+      setIsLoadingPaymentHistory(false);
     }
   };
 
@@ -315,6 +423,7 @@ export function Invoices() {
     setCreditNoteInvoice(invoice);
     setCreditAmount("");
     setCreditReason("");
+    setCreditReturnToStock(false);
     setCreditNotesHistory([]);
     try {
       const res = await api.get(`/invoices/${invoice.id}/credit-notes`);
@@ -332,10 +441,12 @@ export function Invoices() {
       const res = await api.post(`/invoices/${creditNoteInvoice.id}/credit-notes`, {
         amount: Number(creditAmount),
         reason: creditReason,
+        ...(creditReturnToStock ? { returnToStock: true } : {}),
       });
       if (res.data.success) {
         showToast(`Credit note ${res.data.data.creditNote.creditNoteNumber} issued.`, "success");
         setCreditNoteInvoice(null);
+        setCreditReturnToStock(false);
         resyncInvoicesFromServer();
       }
     } catch (err: any) {
@@ -474,8 +585,10 @@ export function Invoices() {
     return new Intl.NumberFormat("en-US", { style: "currency", currency: curr }).format(amt);
   };
 
-  const totalAR = invoices.reduce((acc, inv) => acc + (inv.status !== "PAID" ? Number(inv.total) : 0), 0);
-  const totalPaid = invoices.reduce((acc, inv) => acc + (inv.status === "PAID" ? Number(inv.total) : 0), 0);
+  // Balance still owed, not the original total - a partially-paid invoice
+  // must only count what's actually still outstanding.
+  const totalAR = invoices.reduce((acc, inv) => acc + (inv.status !== "PAID" ? Number(inv.total) - Number(inv.amountPaid || 0) : 0), 0);
+  const totalPaid = invoices.reduce((acc, inv) => acc + Number(inv.amountPaid || 0), 0);
 
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -598,11 +711,20 @@ export function Invoices() {
                     </TableCell>
                     <TableCell className="font-bold text-secondary-900 dark:text-secondary-50">
                       {formatCurrency(Number(inv.total), inv.currency)}
+                      {inv.status === "PARTIALLY_PAID" && (
+                        <div className="font-normal text-[11px] text-secondary-500 dark:text-secondary-400">
+                          {formatCurrency(balanceDue(inv), inv.currency)} still due
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       {inv.status === "PAID" ? (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
                           <CheckCircle className="mr-1 h-3 w-3" /> Paid
+                        </span>
+                      ) : inv.status === "PARTIALLY_PAID" ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400">
+                          Partially Paid
                         </span>
                       ) : (
                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
@@ -649,11 +771,20 @@ export function Invoices() {
                             )}
                             {inv.status !== "PAID" && (
                               <button
-                                onClick={() => { setOpenActionsMenuId(null); handlePayInvoice(inv.id); }}
+                                onClick={() => { setOpenActionsMenuId(null); openPaymentModal(inv); }}
                                 className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
                               >
                                 <DollarSign className="mr-2 h-3 w-3" />
                                 Record Payment
+                              </button>
+                            )}
+                            {inv.status !== "DRAFT" && Number(inv.amountPaid || 0) > 0 && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); openPaymentHistory(inv); }}
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              >
+                                <History className="mr-2 h-3 w-3" />
+                                Payment History
                               </button>
                             )}
                             {inv.status !== "PAID" && inv.status !== "DRAFT" && (
@@ -782,10 +913,66 @@ export function Invoices() {
             </div>
           )}
 
+          <div className="flex rounded-md border border-secondary-200 dark:border-secondary-800 p-1 text-sm">
+            <button
+              type="button"
+              onClick={() => setIsItemizedInvoice(false)}
+              className={`flex-1 py-1.5 rounded ${!isItemizedInvoice ? "bg-primary-600 text-white" : "text-secondary-500"}`}
+            >
+              Simple Invoice
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsItemizedInvoice(true)}
+              className={`flex-1 py-1.5 rounded ${isItemizedInvoice ? "bg-primary-600 text-white" : "text-secondary-500"}`}
+            >
+              Itemized Invoice (Deducts Stock)
+            </button>
+          </div>
+
+          {isItemizedInvoice && (
+            <div>
+              <label className="block text-sm font-medium mb-1">Shipping Warehouse</label>
+              <select
+                required={isItemizedInvoice}
+                className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+                value={selectedWarehouseId}
+                onChange={(e) => setSelectedWarehouseId(e.target.value)}
+              >
+                <option value="">-- Choose Warehouse --</option>
+                {warehouses.map((w) => (
+                  <option key={w.id} value={w.id}>{w.name}</option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div>
             <label className="block text-sm font-medium mb-1">Line Items</label>
             {items.map((it, idx) => (
               <div key={idx} className="flex gap-2 mb-2">
+                {isItemizedInvoice && (
+                  <select
+                    className="w-40 h-9 px-2 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-xs"
+                    value={it.inventoryItemId || ""}
+                    onChange={(e) => {
+                      const selected = inventoryItems.find((inv) => inv.id === e.target.value);
+                      const newIt = [...items];
+                      newIt[idx].inventoryItemId = e.target.value || undefined;
+                      if (selected) {
+                        newIt[idx].description = selected.name;
+                        newIt[idx].unitPrice = selected.sellingPrice;
+                        newIt[idx].amount = newIt[idx].quantity * selected.sellingPrice;
+                      }
+                      setItems(newIt);
+                    }}
+                  >
+                    <option value="">-- Stock Item --</option>
+                    {inventoryItems.map((inv) => (
+                      <option key={inv.id} value={inv.id}>{inv.name} ({inv.sku})</option>
+                    ))}
+                  </select>
+                )}
                 <Input
                   className="flex-1"
                   placeholder="Description"
@@ -841,6 +1028,8 @@ export function Invoices() {
         description={
           creditNoteInvoice?.status === "PAID"
             ? "This invoice is already paid, so the credit will post a real refund entry (Cash out, Revenue reversed)."
+            : creditNoteInvoice?.status === "PARTIALLY_PAID"
+            ? "This invoice is partially paid - the credit will reduce what's still owed first, and only post a refund entry (Cash out, Revenue reversed) for any amount beyond what's still unpaid."
             : "This invoice is unpaid, so the credit simply reduces the amount that will be charged on payment."
         }
       >
@@ -869,6 +1058,24 @@ export function Invoices() {
             />
           </div>
 
+          {creditNoteInvoice?.stockDeducted && (
+            <label className="flex items-start space-x-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={creditReturnToStock}
+                onChange={(e) => setCreditReturnToStock(e.target.checked)}
+              />
+              <span>
+                Return items to stock
+                <span className="block text-[11px] text-secondary-500 dark:text-secondary-400">
+                  Only works when this credit note covers the invoice's full remaining balance - a
+                  partial credit can't be tied to specific returned units.
+                </span>
+              </span>
+            </label>
+          )}
+
           {creditNotesHistory.length > 0 && (
             <div>
               <label className="block text-sm font-medium mb-1">Previously Issued</label>
@@ -894,6 +1101,70 @@ export function Invoices() {
             </Button>
           </div>
         </form>
+      </Modal>
+
+      {/* Record Payment Modal */}
+      <Modal
+        isOpen={!!paymentInvoice}
+        onClose={() => setPaymentInvoice(null)}
+        title={`Record Payment - ${paymentInvoice?.invoiceNumber ?? ""}`}
+        description={
+          paymentInvoice
+            ? `Balance due: ${formatCurrency(balanceDue(paymentInvoice), paymentInvoice.currency)}. Enter the full balance to mark this invoice Paid, or a smaller amount to record a partial payment.`
+            : undefined
+        }
+      >
+        <form onSubmit={handleSubmitPayment} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Amount Received ({paymentInvoice?.currency ?? "USD"})
+            </label>
+            <Input
+              type="number"
+              step="0.01"
+              min="0.01"
+              required
+              placeholder="0.00"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(e.target.value)}
+            />
+          </div>
+          <div className="flex justify-end space-x-3 pt-2">
+            <Button type="button" variant="outline" onClick={() => setPaymentInvoice(null)}>Cancel</Button>
+            <Button type="submit" variant="primary" disabled={isRecordingPayment}>
+              {isRecordingPayment ? "Recording..." : "Record Payment"}
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Payment History Modal (read-only) */}
+      <Modal
+        isOpen={!!paymentHistoryInvoice}
+        onClose={() => setPaymentHistoryInvoice(null)}
+        title={`Payment History - ${paymentHistoryInvoice?.invoiceNumber ?? ""}`}
+      >
+        {isLoadingPaymentHistory ? (
+          <p className="text-sm text-secondary-500">Loading...</p>
+        ) : paymentHistory.length === 0 ? (
+          <p className="text-sm text-secondary-500">No payments recorded yet.</p>
+        ) : (
+          <div className="space-y-1 max-h-80 overflow-y-auto text-xs">
+            {paymentHistory.map((pmt) => (
+              <div key={pmt.id} className="flex justify-between items-center border-b border-secondary-100 dark:border-secondary-800 py-2">
+                <div>
+                  <div className="font-medium text-secondary-900 dark:text-secondary-50">
+                    {formatCurrency(Number(pmt.amount), paymentHistoryInvoice?.currency)}
+                  </div>
+                  <div className="text-secondary-500 dark:text-secondary-400">
+                    {new Date(pmt.createdAt).toLocaleString()} - {pmt.method}
+                    {pmt.recordedByEmail ? ` - ${pmt.recordedByEmail}` : ""}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </Modal>
 
       {/* Collect via MoMo Modal */}

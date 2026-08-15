@@ -96,7 +96,9 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
       return;
     }
 
-    const amount = Number(invoice.total);
+    // The remaining balance, not the original total - a prior partial
+    // payment must not be re-requested from the customer.
+    const amount = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
 
     const result = await tellerService.processTransaction({
       amount,
@@ -139,11 +141,10 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     // to make for no reason.
     if (result.status === 'SUCCESSFUL') {
       const actor = actorFromRequest(req);
-      await invoicePaymentService.markInvoicePaid(
-        invoiceId,
-        actor,
-        `TheTeller ${network} payment received (txn ${result.transactionId})`
-      );
+      await invoicePaymentService.recordInvoicePayment(invoiceId, actor, {
+        method: 'TELLER',
+        description: `TheTeller ${network} payment received (txn ${result.transactionId})`,
+      });
     }
 
     res.status(201).json({
@@ -212,11 +213,10 @@ router.post('/requests/:transactionId/check-status', requireRole('Accountant'), 
 
     if (result.status === 'SUCCESSFUL') {
       const actor = actorFromRequest(req);
-      await invoicePaymentService.markInvoicePaid(
-        request.invoiceId,
-        actor,
-        `TheTeller ${request.network} payment received (txn ${transactionId})`
-      );
+      await invoicePaymentService.recordInvoicePayment(request.invoiceId, actor, {
+        method: 'TELLER',
+        description: `TheTeller ${request.network} payment received (txn ${transactionId})`,
+      });
     }
 
     res.status(200).json({
