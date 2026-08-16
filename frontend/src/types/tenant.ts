@@ -20,8 +20,23 @@ export interface TenantSettings {
   // alerts go to. Null/empty when this tenant hasn't configured one - alerts
   // are skipped rather than falling back to a shared number.
   bossPhone: string | null;
+  // GRA E-VAT / VAT registration details - a VAT-registered business needs
+  // its real TIN on file before it's even eligible to start GRA's own
+  // Certified Invoicing System onboarding process (see graEvatService.ts).
+  graTin: string | null;
+  vatRegistered: boolean;
+  // GRA VSDC credentials (device/branch number + security_key GRA assigns
+  // during onboarding). graSecurityKeyConfigured reflects whether one is on
+  // file - the actual key is write-only, never returned by the API once saved.
+  graDeviceNumber: string | null;
+  graSecurityKeyConfigured: boolean;
   tier: TenantTier;
   updatedAt: string;
 }
 
-export type UpdateTenantSettingsDTO = Partial<Omit<TenantSettings, 'id' | 'updatedAt' | 'tier'>>;
+export type UpdateTenantSettingsDTO = Partial<Omit<TenantSettings, 'id' | 'updatedAt' | 'tier' | 'graSecurityKeyConfigured'>> & {
+  // Write-only plaintext GRA security_key - encrypted server-side before
+  // storage, never echoed back in any response. Omit to leave the currently
+  // stored key untouched; send '' to clear it.
+  graSecurityKey?: string;
+};

@@ -560,6 +560,8 @@ export function generateCashFlowPdf(
     netIncome: number;
     operatingAdjustments: CashFlowLineItem[];
     netCashFromOperating: number;
+    investingAdjustments: CashFlowLineItem[];
+    netCashFromInvesting: number;
     financingAdjustments: CashFlowLineItem[];
     netCashFromFinancing: number;
     netChangeInCash: number;
@@ -589,6 +591,10 @@ export function generateCashFlowPdf(
     doc.moveDown(0.5);
     drawSimpleTable(doc, columns, data.operatingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)]));
     drawTotalRow(doc, 'Net Cash from Operating Activities', formatMoney(data.netCashFromOperating, currency));
+
+    addSectionHeading(doc, 'Investing Activities');
+    drawSimpleTable(doc, columns, data.investingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)]));
+    drawTotalRow(doc, 'Net Cash from Investing Activities', formatMoney(data.netCashFromInvesting, currency));
 
     addSectionHeading(doc, 'Financing Activities');
     drawSimpleTable(doc, columns, data.financingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)]));

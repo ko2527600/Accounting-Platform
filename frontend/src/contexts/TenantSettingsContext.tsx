@@ -11,6 +11,10 @@ const DEFAULT_TENANT: TenantSettings = {
   financialYearStart: '01-01',
   timezone: 'UTC',
   bossPhone: null,
+  graTin: null,
+  vatRegistered: false,
+  graDeviceNumber: null,
+  graSecurityKeyConfigured: false,
   tier: 1,
   updatedAt: new Date().toISOString()
 };
@@ -51,6 +55,10 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           financialYearStart: '01-01',
           timezone: 'UTC',
           bossPhone: t.bossPhone ?? null,
+          graTin: t.graTin ?? null,
+          vatRegistered: Boolean(t.vatRegistered),
+          graDeviceNumber: t.graDeviceNumber ?? null,
+          graSecurityKeyConfigured: Boolean(t.graSecurityKeyConfigured),
           tier: t.tier ?? 1,
           updatedAt: t.updatedAt || new Date().toISOString(),
         });
@@ -80,6 +88,10 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           companyName: t.name,
           slug: t.slug,
           ...data,
+          // Server-computed, not an echo of the request DTO (the request
+          // sends a write-only graSecurityKey, never this field) - must come
+          // from the real response, not the `...data` spread above.
+          graSecurityKeyConfigured: Boolean(t.graSecurityKeyConfigured),
           updatedAt: new Date().toISOString()
         };
         setSettings(updated);

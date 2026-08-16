@@ -90,6 +90,7 @@ export function useAccounts() {
       isActive: true,
     };
     if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
+    if (data.isFixedAsset !== undefined) payload.isFixedAsset = data.isFixedAsset;
 
     // Writes locally first (instant) and queues the real request in the
     // background - see createAccountLocalFirst. The live query above picks
@@ -104,6 +105,7 @@ export function useAccounts() {
     if (data.type) payload.type = accountTypeToBackend(data.type);
     if (data.status) payload.isActive = data.status === 'Active';
     if (data.isCashEquivalent !== undefined) payload.isCashEquivalent = data.isCashEquivalent;
+    if (data.isFixedAsset !== undefined) payload.isFixedAsset = data.isFixedAsset;
 
     await updateAccountLocalFirst(id, payload);
   }, []);
@@ -116,7 +118,7 @@ export function useAccounts() {
   // including clearing the same role locally from whoever previously held
   // it (the server already did this atomically), so the UI never shows two
   // "default" badges for one role in the gap before that push arrives.
-  const setAccountDefaultRole = useCallback(async (id: string, role: 'CASH' | 'REVENUE' | 'EXPENSE' | null) => {
+  const setAccountDefaultRole = useCallback(async (id: string, role: 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION' | null) => {
     const res = await api.put(`/accounts/${id}/default-role`, { role });
     const updated = res.data.data.account;
     if (res.data.success) {

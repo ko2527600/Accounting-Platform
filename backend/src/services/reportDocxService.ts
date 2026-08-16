@@ -153,6 +153,8 @@ export interface CashFlowDocxData {
   netIncome: number;
   operatingAdjustments: CashFlowLineItem[];
   netCashFromOperating: number;
+  investingAdjustments: CashFlowLineItem[];
+  netCashFromInvesting: number;
   financingAdjustments: CashFlowLineItem[];
   netCashFromFinancing: number;
   netChangeInCash: number;
@@ -173,6 +175,9 @@ export function generateCashFlowDocx(
     new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: `Net Income: ${formatMoney(data.netIncome, currency)}` })] }),
     buildSimpleDocxTable(['Code', 'Account', 'Change in Cash'], data.operatingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)])),
     new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: `Net Cash from Operating Activities: ${formatMoney(data.netCashFromOperating, currency)}`, bold: true })] }),
+    headingParagraph('Investing Activities'),
+    buildSimpleDocxTable(['Code', 'Account', 'Change in Cash'], data.investingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)])),
+    new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: `Net Cash from Investing Activities: ${formatMoney(data.netCashFromInvesting, currency)}`, bold: true })] }),
     headingParagraph('Financing Activities'),
     buildSimpleDocxTable(['Code', 'Account', 'Change in Cash'], data.financingAdjustments.map(a => [a.code, a.name, formatMoney(a.change, currency)])),
     new Paragraph({ spacing: { before: 120 }, children: [new TextRun({ text: `Net Cash from Financing Activities: ${formatMoney(data.netCashFromFinancing, currency)}`, bold: true })] }),

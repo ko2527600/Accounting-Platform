@@ -150,14 +150,15 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
  * (invoice payments, credit/debit notes, vendor bill payments, expense
  * reimbursements) should target for the generic cash/revenue/expense side
  * of a transaction - see accountService.setDefaultRole for why this exists.
- * Body: { role: 'CASH' | 'REVENUE' | 'EXPENSE' | null }
+ * Body: { role: 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION' | null }
  * Access: Accountant role or higher
  */
 router.put('/:id/default-role', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { role } = req.body;
-    if (role !== null && role !== 'CASH' && role !== 'REVENUE' && role !== 'EXPENSE') {
-      res.status(400).json({ success: false, error: 'role must be "CASH", "REVENUE", "EXPENSE", or null.' });
+    const VALID_ROLES = ['CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION'];
+    if (role !== null && !VALID_ROLES.includes(role)) {
+      res.status(400).json({ success: false, error: `role must be one of ${VALID_ROLES.join(', ')}, or null.` });
       return;
     }
     const account = await accountService.setDefaultRole(req.params.id, role, actorFromRequest(req));

@@ -180,7 +180,7 @@ router.get('/items', async (req: Request, res: Response): Promise<void> => {
 router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0 } = req.body;
+    const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0, reorderLevel, preferredVendorId } = req.body;
 
     if (!name || !costPrice || !sellingPrice) {
       res.status(400).json({ success: false, error: 'Item name, cost price, and selling price are required.' });
@@ -197,6 +197,12 @@ router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), asyn
         }
         await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, initialWarehouseId);
       }
+      if (preferredVendorId) {
+        const vendor = await (client as any).vendor.findFirst({ where: { id: preferredVendorId, tenantId } });
+        if (!vendor) {
+          throw new Error('Preferred vendor not found.');
+        }
+      }
 
       const item = await (client as any).inventoryItem.create({
         data: {
@@ -207,6 +213,8 @@ router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), asyn
           unitOfMeasure,
           costPrice: Number(costPrice),
           sellingPrice: Number(sellingPrice),
+          ...(reorderLevel !== undefined && { reorderLevel: Number(reorderLevel) }),
+          preferredVendorId: preferredVendorId || null,
         },
       });
 
@@ -236,7 +244,7 @@ router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), asyn
     res.status(201).json({ success: true, message: 'Item created successfully', data: { item: createdItem } });
   } catch (error: any) {
     console.error('[Inventory] Error creating item:', error);
-    if (error.message === 'Initial warehouse not found.') {
+    if (error.message === 'Initial warehouse not found.' || error.message === 'Preferred vendor not found.') {
       res.status(404).json({ success: false, error: error.message });
       return;
     }
@@ -245,6 +253,54 @@ router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), asyn
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to create inventory item.' });
+  }
+});
+
+/**
+ * PUT /api/v1/inventory/items/:id
+ * Updates an item's reorder threshold and/or preferred vendor (the fields
+ * this feature needs editable after creation) - not a general-purpose item
+ * editor, since no other field currently needs post-creation editing.
+ */
+router.put('/items/:id', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+    const { reorderLevel, preferredVendorId } = req.body;
+
+    const updated = await withCurrentTenantDb(prisma, async (client) => {
+      const existing = await (client as any).inventoryItem.findFirst({ where: { id, tenantId } });
+      if (!existing) return null;
+
+      if (preferredVendorId) {
+        const vendor = await (client as any).vendor.findFirst({ where: { id: preferredVendorId, tenantId } });
+        if (!vendor) {
+          throw new Error('Preferred vendor not found.');
+        }
+      }
+
+      return (client as any).inventoryItem.update({
+        where: { id },
+        data: {
+          ...(reorderLevel !== undefined && { reorderLevel: Number(reorderLevel) }),
+          ...(preferredVendorId !== undefined && { preferredVendorId: preferredVendorId || null }),
+        },
+      });
+    });
+
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Item not found.' });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: { item: updated } });
+  } catch (error: any) {
+    if (error.message === 'Preferred vendor not found.') {
+      res.status(404).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Inventory] Error updating item:', error);
+    res.status(500).json({ success: false, error: 'Failed to update item.' });
   }
 });
 

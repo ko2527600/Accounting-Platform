@@ -24,7 +24,7 @@ export interface RecordInvoicePaymentOptions {
   // route with no body, MoMo/TheTeller collecting their full requested
   // amount) keeps working unchanged.
   amount?: number;
-  method?: 'MANUAL' | 'MOMO' | 'TELLER';
+  method?: 'MANUAL' | 'MOMO' | 'TELLER' | 'PAYSTACK';
   description?: string;
 }
 

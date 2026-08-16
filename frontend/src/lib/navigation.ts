@@ -24,6 +24,9 @@ import {
   TrendingUp,
   Rocket,
   Bot,
+  Clock,
+  Wallet2,
+  Building2,
 } from "lucide-react";
 
 export interface NavItem {
@@ -60,7 +63,10 @@ export const navigationGroups: NavGroup[] = [
       { name: "Point of Sale", href: "/pos", icon: ShoppingCart },
       { name: "Invoices (AR)", href: "/invoices", icon: FileText },
       { name: "Vendor Bills (AP)", href: "/bills", icon: Receipt },
+      { name: "Purchase Orders", href: "/purchase-orders", icon: FileSpreadsheet },
+      { name: "Recurring Invoices", href: "/recurring-invoices", icon: Repeat },
       { name: "Expense Claims", href: "/expenses", icon: Wallet },
+      { name: "Petty Cash", href: "/petty-cash", icon: Wallet2 },
     ],
   },
   {
@@ -72,6 +78,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Tax Rates", href: "/settings/tax-rates", icon: Percent },
       { name: "Fiscal Periods", href: "/settings/fiscal-periods", icon: CalendarClock },
       { name: "Recurring Transactions", href: "/settings/recurring-transactions", icon: Repeat },
+      { name: "Fixed Assets", href: "/fixed-assets", icon: Building2 },
     ],
   },
   {
@@ -84,6 +91,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Cash Flow Statement", href: "/reports/cash-flow", icon: Waves },
       { name: "Cash Flow Forecast", href: "/reports/cash-flow-forecast", icon: TrendingUp },
       { name: "KPI Dashboard", href: "/reports/kpis", icon: Gauge },
+      { name: "AP/AR Aging", href: "/reports/aging", icon: Clock },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
@@ -118,8 +126,10 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/accounts",
     "/journals",
     "/banking",
+    "/fixed-assets",
     "/invoices",
     "/bills",
+    "/recurring-invoices",
     "/expenses",
     "/reports/executive",
     "/reports/ledger",
@@ -128,6 +138,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/cash-flow",
     "/reports/cash-flow-forecast",
     "/reports/kpis",
+    "/reports/aging",
     "/reports/budgets",
     "/audit-logs",
     "/help-assistant/activity",

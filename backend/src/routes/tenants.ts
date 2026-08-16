@@ -12,8 +12,20 @@ import { BroadcastService } from '../services/broadcastService';
 import { CLOSED_ROLES, isLocationScopedRole } from '../services/warehouseAccessService';
 import { recordAuditLog, recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
 import { onboardingRateLimiter } from '../middleware/rateLimiterMiddleware';
+import { encryptCredential } from '../utils/credentialEncryption';
 
 const router = Router();
+
+/**
+ * Never return the encrypted GRA security_key ciphertext to a client -
+ * replace it with a plain boolean so the frontend can show "configured"
+ * without ever having a chance to leak or re-display the key.
+ */
+function sanitizeTenantForResponse(tenant: any) {
+  if (!tenant) return tenant;
+  const { graSecurityKeyEncrypted, ...rest } = tenant;
+  return { ...rest, graSecurityKeyConfigured: Boolean(graSecurityKeyEncrypted) };
+}
 
 /**
  * POST /api/v1/tenants/onboard
@@ -64,7 +76,7 @@ router.get('/', async (req: Request, res: Response) => {
     const tenants = await tenantRepository.listTenants(prisma);
     return res.status(200).json({
       success: true,
-      data: { tenants },
+      data: { tenants: tenants.map(sanitizeTenantForResponse) },
     });
   } catch (error: any) {
     console.error('[TenantsList] Unexpected error:', error);
@@ -168,7 +180,7 @@ router.put('/:id/tier', async (req: Request, res: Response) => {
       details: `Tenant "${updated.name}" (${updated.slug}) plan tier changed from ${before.tier} to ${tier} by platform admin.`,
     });
 
-    return res.status(200).json({ success: true, message: 'Tenant tier updated.', data: { tenant: updated } });
+    return res.status(200).json({ success: true, message: 'Tenant tier updated.', data: { tenant: sanitizeTenantForResponse(updated) } });
   } catch (error: any) {
     console.error('[TenantTierUpdate] Unexpected error:', error);
     return res.status(500).json({ success: false, error: 'Failed to update tenant tier.' });
@@ -193,7 +205,7 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 
     return res.status(200).json({
       success: true,
-      data: { tenant },
+      data: { tenant: sanitizeTenantForResponse(tenant) },
     });
   } catch (error: any) {
     console.error('[TenantCurrent] Error:', error);
@@ -208,7 +220,7 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug, baseCurrency, bossPhone } = req.body;
+    const { companyName, name, slug, baseCurrency, bossPhone, graTin, vatRegistered, graDeviceNumber, graSecurityKey } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
@@ -232,6 +244,34 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       }
     }
 
+    // Previously only settable once, at onboarding (see
+    // onboardingWizardService.ts) - a business whose TIN was wrong or
+    // unregistered at the time had no way to correct it afterward.
+    let normalizedGraTin: string | null | undefined;
+    if (graTin !== undefined) {
+      const trimmed = String(graTin).trim();
+      normalizedGraTin = trimmed === '' ? null : trimmed;
+    }
+
+    // Device/branch suffix GRA appends to the TIN in the VSDC API URL path
+    // (see graEvatService.ts) - assigned by GRA during onboarding, not
+    // invented here.
+    let normalizedGraDeviceNumber: string | null | undefined;
+    if (graDeviceNumber !== undefined) {
+      const trimmed = String(graDeviceNumber).trim();
+      normalizedGraDeviceNumber = trimmed === '' ? null : trimmed;
+    }
+
+    // Write-only: an empty string clears the stored credential (tenant wants
+    // to remove it), any other value is encrypted before storage. Omitting
+    // the field entirely (undefined) leaves whatever is already stored
+    // untouched - the frontend never has the plaintext to re-send anyway.
+    let normalizedGraSecurityKeyEncrypted: string | null | undefined;
+    if (graSecurityKey !== undefined) {
+      const trimmed = String(graSecurityKey).trim();
+      normalizedGraSecurityKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
+    }
+
     const before = await tenantRepository.findTenantById(prisma, tenantId);
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -242,6 +282,10 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           ...(slug && { slug: slug.trim().toLowerCase() }),
           ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
           ...(normalizedBossPhone !== undefined && { bossPhone: normalizedBossPhone }),
+          ...(normalizedGraTin !== undefined && { graTin: normalizedGraTin }),
+          ...(vatRegistered !== undefined && { vatRegistered: Boolean(vatRegistered) }),
+          ...(normalizedGraDeviceNumber !== undefined && { graDeviceNumber: normalizedGraDeviceNumber }),
+          ...(normalizedGraSecurityKeyEncrypted !== undefined && { graSecurityKeyEncrypted: normalizedGraSecurityKeyEncrypted }),
         },
       });
 
@@ -250,7 +294,9 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         entity: 'Tenant',
         entityId: tenantId,
         actor: actorFromRequest(req),
-        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone']),
+        // graSecurityKeyEncrypted deliberately excluded - even its ciphertext
+        // shouldn't be persisted into the audit log's diff payload.
+        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone', 'graTin', 'vatRegistered', 'graDeviceNumber']),
       });
 
       return updated;
@@ -259,7 +305,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
     return res.status(200).json({
       success: true,
       message: 'Tenant settings updated successfully',
-      data: { tenant: updated },
+      data: { tenant: sanitizeTenantForResponse(updated) },
     });
   } catch (error: any) {
     console.error('[TenantUpdate] Error:', error);

@@ -19,6 +19,8 @@ import { receiveInventoryForBill, allocateLandedCostToBill } from '../services/v
 import * as creditDebitNoteService from '../services/creditDebitNoteService';
 import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService';
 import { JournalEntryServiceError } from '../services/journalEntryService';
+import * as purchaseOrderService from '../services/purchaseOrderService';
+import * as vendorBillPaymentService from '../services/vendorBillPaymentService';
 
 const router = Router();
 
@@ -107,11 +109,30 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { vendorId, dueDate, currency = 'USD', items, warehouseId, fundId } = req.body;
+    const { vendorId, dueDate, currency = 'USD', items, warehouseId, fundId, purchaseOrderId } = req.body;
 
     if (!vendorId) {
       res.status(400).json({ success: false, error: 'Vendor ID is required.' });
       return;
+    }
+
+    // Optional link to the Purchase Order this bill fulfills (see
+    // purchaseOrderService.ts's computePoVsBillVariance) - validated up
+    // front like fundId below, and marks the PO BILLED once the bill is
+    // actually created.
+    let linkedPurchaseOrder: any = null;
+    if (purchaseOrderId) {
+      linkedPurchaseOrder = await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).purchaseOrder.findFirst({ where: { id: purchaseOrderId, tenantId }, include: { lines: true } });
+      });
+      if (!linkedPurchaseOrder) {
+        res.status(404).json({ success: false, error: 'Purchase Order not found.' });
+        return;
+      }
+      if (linkedPurchaseOrder.status === 'CANCELLED') {
+        res.status(400).json({ success: false, error: 'This Purchase Order is cancelled and cannot be billed against.' });
+        return;
+      }
     }
 
     // Optional restricted/unrestricted fund this bill's expense belongs to
@@ -188,6 +209,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           status: 'UNPAID',
           warehouseId: isItemized ? warehouseId : null,
           fundId: fundId || null,
+          purchaseOrderId: purchaseOrderId || null,
           ...(isItemized && {
             lines: {
               create: items.map((l: any) => ({
@@ -221,13 +243,31 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
         });
       }
 
+      if (linkedPurchaseOrder) {
+        await (client as any).purchaseOrder.update({ where: { id: linkedPurchaseOrder.id }, data: { status: 'BILLED' } });
+      }
+
       return { bill, receivingResult };
     });
+
+    let poVariance: ReturnType<typeof purchaseOrderService.computePoVsBillVariance> | null = null;
+    if (linkedPurchaseOrder && isItemized) {
+      const itemNames = await withCurrentTenantDb(prisma, async (client) => {
+        const itemRows = await (client as any).inventoryItem.findMany({
+          where: { id: { in: linkedPurchaseOrder.lines.map((l: any) => l.itemId) } },
+        });
+        return Object.fromEntries(itemRows.map((r: any) => [r.id, r.name]));
+      });
+      poVariance = purchaseOrderService.computePoVsBillVariance(
+        linkedPurchaseOrder.lines.map((l: any) => ({ itemId: l.itemId, itemName: itemNames[l.itemId] || l.itemId, quantity: l.quantity, unitCost: Number(l.unitCost) })),
+        items.map((l: any) => ({ itemId: l.itemId, quantity: l.quantity, unitCost: l.unitCost }))
+      );
+    }
 
     res.status(201).json({
       success: true,
       message: isItemized ? 'Vendor bill recorded and stock received.' : 'Vendor bill recorded',
-      data: { bill: created.bill, receiving: created.receivingResult },
+      data: { bill: created.bill, receiving: created.receivingResult, poVariance },
     });
   } catch (error: any) {
     console.error('[Bills] Error creating bill:', error);
@@ -335,72 +375,7 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
     const { tenantId } = requireTenantContext();
     const { id } = req.params;
 
-    const bill = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).vendorBill.findFirst({
-        where: { id, tenantId },
-        include: { vendor: true },
-      });
-    });
-
-    if (!bill) {
-      res.status(404).json({ success: false, error: 'Vendor bill not found.' });
-      return;
-    }
-
-    if (bill.status === 'PAID') {
-      res.status(400).json({ success: false, error: 'Vendor bill is already paid.' });
-      return;
-    }
-
-    // Opt-in approval gate: only blocks if approval was actually requested for this bill.
-    await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'VendorBill', id);
-
-    // Find accounts for AP Posting (default EXPENSE/CASH accounts, see
-    // accountRepository.resolveDefaultAccount). See the identical note in
-    // invoices.ts's /pay handler: this must use accountRepository's raw SQL,
-    // not a Prisma-typed `client.account.findMany()` call, which always queries the
-    // permanently-empty `public.accounts` table and silently skipped journal posting.
-    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
-    const expenseAcc = accountRepository.resolveDefaultAccount(accounts, 'EXPENSE') || accounts[0];
-    const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
-
-    // Same reasoning as invoices.ts's /pay handler: post the tenant-base-currency
-    // equivalent, not the raw native-currency amount.
-    const postingAmount = bill.baseCurrencyAmount != null ? Number(bill.baseCurrencyAmount) : Number(bill.amount);
-
-    const actor = actorFromRequest(req);
-
-    let journalId = null;
-    if (expenseAcc && cashAcc) {
-      const journal = await journalService.createJournalEntry({
-        description: `Vendor Bill Payment for ${bill.billNumber} (${bill.vendor.name})`,
-        entryDate: new Date().toISOString().split('T')[0],
-        status: 'POSTED',
-        lines: [
-          { accountId: expenseAcc.id, debit: postingAmount, credit: 0, description: `Expense - ${bill.billNumber}`, fundId: bill.fundId || undefined },
-          { accountId: cashAcc.id, debit: 0, credit: postingAmount, description: `Cash Payment - ${bill.billNumber}`, fundId: bill.fundId || undefined },
-        ],
-      }, actor);
-      journalId = journal.id;
-    }
-
-    const updated = await withCurrentTenantDb(prisma, async (client) => {
-      const updated = await (client as any).vendorBill.update({
-        where: { id },
-        data: { status: 'PAID', journalId },
-      });
-
-      await recordAuditLogTx(client, {
-        action: 'VENDOR_BILL.PAID',
-        entity: 'VendorBill',
-        entityId: id,
-        actor,
-        changes: diffFields(bill, updated, ['status', 'journalId']),
-        details: `Vendor bill ${bill.billNumber} marked PAID (${postingAmount}).`,
-      });
-
-      return updated;
-    });
+    const updated = await vendorBillPaymentService.payVendorBill(tenantId, id, actorFromRequest(req));
 
     res.status(200).json({
       success: true,
@@ -408,12 +383,55 @@ router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Res
       data: { bill: updated },
     });
   } catch (error: any) {
+    if (error instanceof vendorBillPaymentService.VendorBillPaymentServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     console.error('[Bills] Error paying bill:', error);
     if (error instanceof ApprovalWorkflowServiceError) {
       res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
     res.status(500).json({ success: false, error: 'Failed to record bill payment.' });
+  }
+});
+
+/**
+ * PUT /api/v1/bills/:id/schedule-payment
+ * Sets or clears (null) the date this bill should be auto-paid on - see
+ * vendorPaymentSchedulingCronService.ts's daily sweep.
+ */
+router.put('/:id/schedule-payment', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+    const { scheduledPaymentDate } = req.body;
+
+    const updated = await withCurrentTenantDb(prisma, async (client) => {
+      const existing = await (client as any).vendorBill.findFirst({ where: { id, tenantId } });
+      if (!existing) return null;
+      if (existing.status === 'PAID') {
+        throw new Error('Vendor bill is already paid.');
+      }
+      return (client as any).vendorBill.update({
+        where: { id },
+        data: { scheduledPaymentDate: scheduledPaymentDate ? new Date(scheduledPaymentDate) : null },
+      });
+    });
+
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Vendor bill not found.' });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: { bill: updated } });
+  } catch (error: any) {
+    if (error.message === 'Vendor bill is already paid.') {
+      res.status(400).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Bills] Error scheduling payment:', error);
+    res.status(500).json({ success: false, error: 'Failed to schedule payment.' });
   }
 });
 

@@ -18,6 +18,8 @@ export function CashFlowStatement() {
     netIncome,
     operatingAdjustments,
     netCashFromOperating,
+    investingAdjustments,
+    netCashFromInvesting,
     financingAdjustments,
     netCashFromFinancing,
     netChangeInCash,
@@ -43,6 +45,8 @@ export function CashFlowStatement() {
       { Section: 'Operating', Line: 'Net Income', Amount: netIncome },
       ...operatingAdjustments.map(a => ({ Section: 'Operating', Line: a.name, Amount: a.change })),
       { Section: 'Operating', Line: 'Net Cash from Operating Activities', Amount: netCashFromOperating },
+      ...investingAdjustments.map(a => ({ Section: 'Investing', Line: a.name, Amount: a.change })),
+      { Section: 'Investing', Line: 'Net Cash from Investing Activities', Amount: netCashFromInvesting },
       ...financingAdjustments.map(a => ({ Section: 'Financing', Line: a.name, Amount: a.change })),
       { Section: 'Financing', Line: 'Net Cash from Financing Activities', Amount: netCashFromFinancing },
       { Section: 'Summary', Line: 'Net Change in Cash', Amount: netChangeInCash },
@@ -141,6 +145,29 @@ export function CashFlowStatement() {
             <div className="flex justify-between items-center mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-800 font-bold text-secondary-900 dark:text-secondary-50 pl-4">
               <span className="flex-1 uppercase tracking-wider text-xs">Net Cash from Operating Activities</span>
               <span className="w-32 text-right tabular-nums">{formatCurrency(netCashFromOperating)}</span>
+            </div>
+          </section>
+
+          {/* Investing Activities Section */}
+          <section>
+            <h3 className="font-bold text-lg text-secondary-900 dark:text-secondary-50 border-b border-secondary-200 dark:border-secondary-800 pb-2 mb-4">
+              Investing Activities
+            </h3>
+            <div className="space-y-3 pl-4">
+              {investingAdjustments.length === 0 ? (
+                <div className="text-secondary-500 italic">No fixed asset purchases to report.</div>
+              ) : (
+                investingAdjustments.map((row) => (
+                  <div key={row.id} className="flex justify-between items-center text-secondary-700 dark:text-secondary-300">
+                    <span className="flex-1">{row.name}</span>
+                    <span className="w-32 text-right tabular-nums">{formatCurrency(row.change)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex justify-between items-center mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-800 font-bold text-secondary-900 dark:text-secondary-50 pl-4">
+              <span className="flex-1 uppercase tracking-wider text-xs">Net Cash from Investing Activities</span>
+              <span className="w-32 text-right tabular-nums">{formatCurrency(netCashFromInvesting)}</span>
             </div>
           </section>
 

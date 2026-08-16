@@ -6,10 +6,12 @@ import * as reportingService from '../services/reportingService';
 import { ReportingServiceError } from '../services/reportingService';
 import { requireTenantContext } from '../context/tenantContext';
 import { prisma } from '../config/db';
+import { withCurrentTenantDb } from '../database/tenantClient';
 import { generateBalanceSheetPdf, generateProfitAndLossPdf, generateCashFlowPdf } from '../services/pdfGenerationService';
 import { generateBalanceSheetDocx, generateProfitAndLossDocx, generateCashFlowDocx } from '../services/reportDocxService';
 import * as cashFlowForecastService from '../services/cashFlowForecastService';
 import { CashFlowForecastServiceError } from '../services/cashFlowForecastService';
+import * as agingReportService from '../services/agingReportService';
 
 const router = Router();
 
@@ -229,8 +231,8 @@ router.get('/profit-loss/export', requireRole('Viewer'), async (req: Request, re
 
 /**
  * GET /api/v1/reports/cash-flow
- * Description: Indirect-method Cash Flow Statement (Operating/Financing activities,
- * Net Change in Cash) over a date range. Omit startDate/endDate for since-inception.
+ * Description: Indirect-method Cash Flow Statement (Operating/Investing/Financing
+ * activities, Net Change in Cash) over a date range. Omit startDate/endDate for since-inception.
  * Access: Viewer role or higher
  */
 router.get('/cash-flow', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
@@ -339,6 +341,41 @@ router.get('/kpis', requireRole('Viewer'), async (req: Request, res: Response): 
       success: false,
       error: error.message || 'Internal Server Error while generating KPI dashboard.',
     });
+  }
+});
+
+/**
+ * GET /api/v1/reports/aging/ar
+ * Accounts Receivable aging - every invoice with a real outstanding balance,
+ * bucketed by days past its dueDate (Current / 1-30 / 31-60 / 61-90 / 90+).
+ * Access: Viewer role or higher.
+ */
+router.get('/aging/ar', requireRole('Viewer'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const result = await withCurrentTenantDb(prisma, (client) => agingReportService.getArAging(client as any, tenantId));
+    res.status(200).json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[Reports] Error generating AR aging:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate AR aging report.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/aging/ap
+ * Accounts Payable aging - every UNPAID vendor bill, bucketed the same way
+ * as AR (this schema has no partial-payment support for bills, so a bill's
+ * balance due is always its full amount).
+ * Access: Viewer role or higher.
+ */
+router.get('/aging/ap', requireRole('Viewer'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const result = await withCurrentTenantDb(prisma, (client) => agingReportService.getApAging(client as any, tenantId));
+    res.status(200).json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[Reports] Error generating AP aging:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate AP aging report.' });
   }
 });
 

@@ -22,6 +22,9 @@ import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
 import * as invoiceEmailService from '../services/invoiceEmailService';
 import { InvoiceEmailServiceError } from '../services/invoiceEmailService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/syncChangeLogService';
+import * as graEvatService from '../services/graEvatService';
+import { GraEvatServiceError } from '../services/graEvatService';
+import * as tenantRepository from '../repository/tenantRepository';
 
 // Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
 // race (see the POST / handler) - never surfaced to a caller directly.
@@ -76,15 +79,27 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
 router.post('/customers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, email, phone, address } = req.body;
+    const { name, email, phone, address, creditLimit, tin } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Customer name and email are required.' });
+      return;
+    }
+    if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
+      res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
       return;
     }
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.create({
-        data: { tenantId, name: name.trim(), email: email.trim().toLowerCase(), phone, address },
+        data: {
+          tenantId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone,
+          address,
+          creditLimit: creditLimit ?? null,
+          tin: tin ? String(tin).trim() || null : null,
+        },
       });
     });
 
@@ -92,6 +107,49 @@ router.post('/customers', requireRole('Accountant'), async (req: Request, res: R
   } catch (error: any) {
     console.error('[Invoices] Error creating customer:', error);
     res.status(500).json({ success: false, error: 'Failed to create customer.' });
+  }
+});
+
+/**
+ * PUT /api/v1/customers/:id
+ * Updates a customer's contact details and/or credit limit.
+ */
+router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+    const { name, email, phone, address, creditLimit, tin } = req.body;
+
+    if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
+      res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
+      return;
+    }
+
+    const updated = await withCurrentTenantDb(prisma, async (client) => {
+      const existing = await (client as any).customer.findFirst({ where: { id, tenantId } });
+      if (!existing) return null;
+      return (client as any).customer.update({
+        where: { id },
+        data: {
+          ...(name !== undefined && { name: String(name).trim() }),
+          ...(email !== undefined && { email: String(email).trim().toLowerCase() }),
+          ...(phone !== undefined && { phone }),
+          ...(address !== undefined && { address }),
+          ...(creditLimit !== undefined && { creditLimit }),
+          ...(tin !== undefined && { tin: tin ? String(tin).trim() || null : null }),
+        },
+      });
+    });
+
+    if (!updated) {
+      res.status(404).json({ success: false, error: 'Customer not found.' });
+      return;
+    }
+
+    res.status(200).json({ success: true, data: { customer: updated } });
+  } catch (error: any) {
+    console.error('[Invoices] Error updating customer:', error);
+    res.status(500).json({ success: false, error: 'Failed to update customer.' });
   }
 });
 
@@ -215,6 +273,54 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       // rather than silently guessing a percentage.
     }
     const total = subtotal + tax;
+
+    // Customer credit limit (optional, null means no limit) - blocks outright
+    // rather than just warning, matching this app's existing pattern of
+    // hard-gating real business rules in code (insufficient stock, the
+    // trial-balance onboarding gate). Checked against every other
+    // outstanding invoice's balance due (total - amountPaid), not the raw
+    // total, so a customer paying down old invoices genuinely frees up
+    // headroom rather than being permanently blocked by history.
+    const customerForLimit: any = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).customer.findFirst({ where: { id: customerId, tenantId } });
+    });
+    if (!customerForLimit) {
+      res.status(404).json({ success: false, error: 'Customer not found.' });
+      return;
+    }
+    // Skip the check entirely for an idempotent retry (same clientTxnId
+    // already created an invoice) - the request below will just return that
+    // existing invoice, not create a new charge, so there's nothing new to
+    // check against the limit, and re-checking here would double-count that
+    // invoice's own total against itself.
+    const isReplay = clientTxnId
+      ? Boolean(
+          await withCurrentTenantDb(prisma, (client) =>
+            (client as any).invoice.findFirst({ where: { tenantId, clientTxnId }, select: { id: true } })
+          )
+        )
+      : false;
+
+    if (!isReplay && customerForLimit.creditLimit !== null && customerForLimit.creditLimit !== undefined) {
+      const outstandingInvoices: any[] = await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).invoice.findMany({
+          where: { tenantId, customerId, status: { in: ['SENT', 'PARTIALLY_PAID'] } },
+          select: { total: true, amountPaid: true },
+        });
+      });
+      const currentOutstanding = outstandingInvoices.reduce(
+        (sum: number, inv: any) => sum + (Number(inv.total) - Number(inv.amountPaid)),
+        0
+      );
+      const limit = Number(customerForLimit.creditLimit);
+      if (currentOutstanding + total > limit) {
+        res.status(400).json({
+          success: false,
+          error: `This invoice would push ${customerForLimit.name}'s outstanding balance to ${(currentOutstanding + total).toFixed(2)}, over their credit limit of ${limit.toFixed(2)} (currently owes ${currentOutstanding.toFixed(2)}).`,
+        });
+        return;
+      }
+    }
 
     // Convert to the tenant's base currency at creation time so the ledger
     // (implicitly single-currency) can post the right figure on payment,
@@ -472,6 +578,101 @@ router.post('/:id/send', requireRole('Accountant'), async (req: Request, res: Re
     }
     console.error('[Invoices] Error emailing invoice:', error);
     res.status(500).json({ success: false, error: 'Failed to email invoice.' });
+  }
+});
+
+/**
+ * POST /api/v1/invoices/:id/gra-clearance
+ * Requests real-time clearance from GRA's VSDC (Certified Invoicing System /
+ * E-VAT), per the real API specification GRA issued this taxpayer during
+ * their own onboarding (see graEvatService.ts) - not a public self-serve
+ * spec, so this only works once the tenant has entered their own GRA-
+ * assigned TIN/Device Number/Security Key in Settings > GRA E-VAT. Until
+ * then this fails with a clear 503 explaining how to get those credentials,
+ * never a fake success. The failed attempt is still recorded on the invoice
+ * (status FAILED + the explanation) so it's visible in the UI, same as a
+ * declined MoMo/TheTeller/Paystack attempt would be.
+ */
+router.post('/:id/gra-clearance', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const invoice = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).invoice.findFirst({
+        where: { id: req.params.id, tenantId },
+        include: { customer: true, items: { include: { inventoryItem: true } } },
+      });
+    });
+    if (!invoice) {
+      res.status(404).json({ success: false, error: 'Invoice not found.' });
+      return;
+    }
+    if (invoice.graClearanceStatus === 'CLEARED') {
+      res.status(400).json({ success: false, error: 'This invoice is already GRA-cleared.' });
+      return;
+    }
+
+    try {
+      const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+      const result = await graEvatService.requestClearance(
+        {
+          tin: tenant?.graTin ?? null,
+          deviceNumber: tenant?.graDeviceNumber ?? null,
+          securityKeyEncrypted: tenant?.graSecurityKeyEncrypted ?? null,
+        },
+        {
+          invoiceNumber: invoice.invoiceNumber,
+          issueDate: invoice.issueDate,
+          currency: invoice.currency,
+          exchangeRate: Number(invoice.exchangeRate),
+          subtotal: Number(invoice.subtotal),
+          tax: Number(invoice.tax),
+          total: Number(invoice.total),
+          taxBreakdown: (invoice.taxBreakdown as any) ?? null,
+          customerName: invoice.customer.name,
+          customerTin: invoice.customer.tin ?? null,
+          userName: (req as any).user?.name || (req as any).user?.email || 'Ledgio User',
+          items: invoice.items.map((item: any) => ({
+            id: item.id,
+            description: item.description,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            amount: Number(item.amount),
+            sku: item.inventoryItem?.sku ?? null,
+          })),
+        }
+      );
+      const qrCodeDataUrl = await graEvatService.renderClearanceQrCode(result.qrCodeData);
+      const updated = await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).invoice.update({
+          where: { id: invoice.id },
+          data: {
+            graClearanceStatus: 'CLEARED',
+            graVerificationEngineId: result.verificationEngineId,
+            graQrCodeData: qrCodeDataUrl,
+            graSignature: result.signature,
+            graEncryptedData: result.encryptedData,
+            graClearedAt: result.clearedAt,
+            graClearanceError: null,
+          },
+        });
+      });
+      res.status(200).json({ success: true, message: 'Invoice cleared by GRA.', data: { invoice: updated } });
+    } catch (clearanceError: any) {
+      const message = clearanceError instanceof GraEvatServiceError
+        ? clearanceError.message
+        : 'Failed to request GRA clearance.';
+      await withCurrentTenantDb(prisma, async (client) => {
+        await (client as any).invoice.update({
+          where: { id: invoice.id },
+          data: { graClearanceStatus: 'FAILED', graClearanceError: message },
+        });
+      });
+      const statusCode = clearanceError instanceof GraEvatServiceError ? clearanceError.statusCode : 500;
+      res.status(statusCode).json({ success: false, error: message });
+    }
+  } catch (error: any) {
+    console.error('[Invoices] Error requesting GRA clearance:', error);
+    res.status(500).json({ success: false, error: 'Failed to request GRA clearance.' });
   }
 });
 

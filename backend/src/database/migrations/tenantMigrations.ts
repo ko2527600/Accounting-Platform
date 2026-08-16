@@ -332,6 +332,53 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         SELECT id FROM accounts WHERE type = 'EXPENSE' ORDER BY (name ILIKE '%miscellaneous%') DESC, code ASC LIMIT 1
       );
     `
+  },
+  {
+    version: 10,
+    name: '010_add_fixed_asset_support',
+    sql: `
+      -- migration 009 sized default_role VARCHAR(20), enough for CASH/
+      -- REVENUE/EXPENSE but not 'ACCUMULATED_DEPRECIATION' (25 chars) -
+      -- widen before it's ever written, rather than after a real 500 on the
+      -- designation endpoint teaches us the hard way.
+      ALTER TABLE accounts ALTER COLUMN default_role TYPE VARCHAR(30);
+
+      -- Marks which ASSET accounts represent long-lived fixed assets
+      -- (Vehicles, Equipment, Furniture, etc.) rather than ordinary
+      -- working-capital assets - mirrors is_cash_equivalent's own design
+      -- (multiple accounts can hold the flag, unlike default_role's
+      -- at-most-one-per-role constraint). Drives the Cash Flow Statement's
+      -- new Investing Activities section: a change in one of these accounts'
+      -- balance is capex, not an ordinary operating working-capital swing.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_fixed_asset BOOLEAN NOT NULL DEFAULT false;
+
+      -- Two new default-posting roles for the Fixed Asset Management feature
+      -- (see fixedAssetService.ts): DEPRECIATION_EXPENSE (the P&L expense
+      -- side of a period's depreciation) and ACCUMULATED_DEPRECIATION (the
+      -- contra-asset account depreciation credits). Unlike CASH/REVENUE/
+      -- EXPENSE there is no legacy account-code convention to fall back to
+      -- for these - a tenant must explicitly designate both via the same
+      -- Chart of Accounts "Default Posting" mechanism before depreciation
+      -- can post, same "clear error over silent wrong guess" philosophy as
+      -- migration 009. Postgres has no ALTER CONSTRAINT for a CHECK clause,
+      -- so the old constraint is dropped and recreated with the wider list.
+      -- conrelid = 'accounts'::regclass scopes the pg_constraint lookup to
+      -- THIS schema's own accounts table (resolved via search_path) -
+      -- conname alone is not unique database-wide across every tenant
+      -- schema, so a bare "WHERE conname = ..." check (as migration 009's
+      -- own ADD-side check already does) can false-positive against some
+      -- other tenant's identically-named constraint and either skip an add
+      -- that should have happened or, as caught here, attempt to drop a
+      -- constraint that was never actually added to this table.
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role' AND conrelid = 'accounts'::regclass) THEN
+          ALTER TABLE accounts DROP CONSTRAINT chk_account_default_role;
+        END IF;
+        ALTER TABLE accounts ADD CONSTRAINT chk_account_default_role
+          CHECK (default_role IN ('CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION'));
+      END $$;
+    `
   }
 ];
 

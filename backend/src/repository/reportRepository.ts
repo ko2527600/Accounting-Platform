@@ -282,6 +282,8 @@ export interface CashFlowResult {
   netIncome: number;
   operatingAdjustments: CashFlowLineItem[];
   netCashFromOperating: number;
+  investingAdjustments: CashFlowLineItem[];
+  netCashFromInvesting: number;
   financingAdjustments: CashFlowLineItem[];
   netCashFromFinancing: number;
   netChangeInCash: number;
@@ -293,23 +295,23 @@ export interface CashFlowResult {
 
 /**
  * Indirect-method Cash Flow Statement, computed straight from ledger balances
- * (no separate cash-flow ledger). Accounts are grouped into three buckets:
+ * (no separate cash-flow ledger). Accounts are grouped into four buckets:
  *  - ASSET accounts flagged is_cash_equivalent are "cash itself" (excluded
  *    from the adjustments and used only for the beginning/ending cash lines).
- *  - All other non-cash ASSET/LIABILITY accounts feed "Operating Activities"
- *    (their balance changes are standard indirect-method working-capital
- *    adjustments to Net Income).
+ *  - ASSET accounts flagged is_fixed_asset (see migration
+ *    010_add_fixed_asset_support and fixedAssetService.ts) feed "Investing
+ *    Activities" - a change in one of these accounts' balance is capex, not
+ *    an ordinary operating working-capital swing.
+ *  - All other non-cash, non-fixed-asset ASSET/LIABILITY accounts feed
+ *    "Operating Activities" (their balance changes are standard
+ *    indirect-method working-capital adjustments to Net Income).
  *  - EQUITY account changes (owner contributions/drawings) feed "Financing
  *    Activities".
- * There is no Investing section: this schema has no fixed-asset/loan account
- * classification to separate capex or long-term debt from ordinary working
- * capital, so - consistent with what small-business bookkeeping realistically
- * supports today - those changes are treated as operating. This is a known,
- * documented simplification (see STATUS.md), not an omission.
  * Because double-entry bookkeeping guarantees Assets = Liabilities + Equity
- * at every point in time, netCashFromOperating + netCashFromFinancing must
- * always equal the actual change in the cash-equivalent accounts - `cashTies`
- * surfaces that as a trust signal, mirroring `isBalanced` on the Balance Sheet.
+ * at every point in time, netCashFromOperating + netCashFromInvesting +
+ * netCashFromFinancing must always equal the actual change in the
+ * cash-equivalent accounts - `cashTies` surfaces that as a trust signal,
+ * mirroring `isBalanced` on the Balance Sheet.
  */
 export async function getCashFlowStatement(
   prisma: PrismaClient,
@@ -346,6 +348,7 @@ export async function getCashFlowStatement(
       a.name,
       a.type,
       a.is_cash_equivalent,
+      a.is_fixed_asset,
       COALESCE(SUM(CASE WHEN ${beginExpr} THEN l.debit ELSE 0 END), 0) as begin_debit,
       COALESCE(SUM(CASE WHEN ${beginExpr} THEN l.credit ELSE 0 END), 0) as begin_credit,
       COALESCE(SUM(CASE WHEN ${endExpr} THEN l.debit ELSE 0 END), 0) as end_debit,
@@ -354,7 +357,7 @@ export async function getCashFlowStatement(
       COALESCE(SUM(CASE WHEN ${periodExpr} THEN l.credit ELSE 0 END), 0) as period_credit
     FROM accounts a
     LEFT JOIN ledgers l ON a.id = l.account_id
-    GROUP BY a.id, a.code, a.name, a.type, a.is_cash_equivalent
+    GROUP BY a.id, a.code, a.name, a.type, a.is_cash_equivalent, a.is_fixed_asset
     ORDER BY a.code ASC
   `;
 
@@ -368,6 +371,9 @@ export async function getCashFlowStatement(
 
   const operatingAdjustments: CashFlowLineItem[] = [];
   let netCashFromOperating = 0;
+
+  const investingAdjustments: CashFlowLineItem[] = [];
+  let netCashFromInvesting = 0;
 
   const financingAdjustments: CashFlowLineItem[] = [];
   let netCashFromFinancing = 0;
@@ -383,6 +389,7 @@ export async function getCashFlowStatement(
     const periodDebit = parseFloat(r.period_debit);
     const periodCredit = parseFloat(r.period_credit);
     const isCashEquivalent = Boolean(r.is_cash_equivalent);
+    const isFixedAsset = Boolean(r.is_fixed_asset);
 
     if (r.type === 'ASSET' && isCashEquivalent) {
       const begin = beginDebit - beginCredit;
@@ -390,6 +397,15 @@ export async function getCashFlowStatement(
       beginningCash += begin;
       endingCash += end;
       cashAccounts.push({ id: r.id, code: r.code, name: r.name, balance: round2(end) });
+    } else if (r.type === 'ASSET' && isFixedAsset) {
+      // Same "asset increase uses cash" convention as the generic ASSET
+      // branch below, just routed to Investing instead of Operating.
+      const change = (endDebit - endCredit) - (beginDebit - beginCredit);
+      const cashImpact = round2(-change);
+      if (cashImpact !== 0) {
+        investingAdjustments.push({ id: r.id, code: r.code, name: r.name, change: cashImpact });
+      }
+      netCashFromInvesting += cashImpact;
     } else if (r.type === 'ASSET') {
       // Asset increase uses cash, so its cash impact is the negative of its change.
       const change = (endDebit - endCredit) - (beginDebit - beginCredit);
@@ -425,8 +441,9 @@ export async function getCashFlowStatement(
 
   const netIncome = round2(totalRevenue - totalExpenses);
   netCashFromOperating = round2(netIncome + netCashFromOperating);
+  netCashFromInvesting = round2(netCashFromInvesting);
   netCashFromFinancing = round2(netCashFromFinancing);
-  const netChangeInCash = round2(netCashFromOperating + netCashFromFinancing);
+  const netChangeInCash = round2(netCashFromOperating + netCashFromInvesting + netCashFromFinancing);
 
   beginningCash = round2(beginningCash);
   endingCash = round2(endingCash); // actual, straight from the cash-equivalent accounts - the ground truth
@@ -438,6 +455,8 @@ export async function getCashFlowStatement(
     netIncome,
     operatingAdjustments,
     netCashFromOperating,
+    investingAdjustments,
+    netCashFromInvesting,
     financingAdjustments,
     netCashFromFinancing,
     netChangeInCash,

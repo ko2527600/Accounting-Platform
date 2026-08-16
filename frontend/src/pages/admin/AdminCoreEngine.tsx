@@ -17,7 +17,8 @@ import {
   Smartphone,
   Mail,
   Users,
-  Building2
+  Building2,
+  Plug
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -48,7 +49,7 @@ export function AdminCoreEngine() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Hub Tab
-  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "schemas" | "audit" | "onboard">("broadcast");
+  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "integrations" | "schemas" | "audit" | "onboard">("broadcast");
 
   // Engine Diagnostics State
   const [healthData, setHealthData] = useState<{
@@ -166,6 +167,34 @@ export function AdminCoreEngine() {
       cancelled = true;
     };
   }, [isUnlocked]);
+
+  // Fetch the real platform-wide integrations status for the "Integrations"
+  // tab once unlocked - every third-party integration this codebase has,
+  // sourced live from each service's own isXConfigured() check plus real
+  // per-tenant adoption counts for GRA E-VAT / Mono bank feeds (the two
+  // integrations configured per-tenant rather than platform-wide).
+  const [integrationsData, setIntegrationsData] = useState<{
+    platformWide: { key: string; name: string; purpose: string; configured: boolean }[];
+    perTenant: { key: string; name: string; purpose: string; tenantsConfigured: number; totalTenants: number }[];
+  } | null>(null);
+  const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
+  const [integrationsError, setIntegrationsError] = useState<string | null>(null);
+
+  const fetchIntegrations = useCallback(() => {
+    setIsLoadingIntegrations(true);
+    setIntegrationsError(null);
+    return api
+      .get("/admin/integrations", { params: { passcode } })
+      .then((res) => setIntegrationsData(res.data.data))
+      .catch(() => setIntegrationsError("Failed to load integrations status."))
+      .finally(() => setIsLoadingIntegrations(false));
+  }, [passcode]);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    fetchIntegrations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUnlocked, passcode]);
 
   // Fetch the real platform-wide tenant roster for the "Tenant Schemas & Tiers"
   // tab once unlocked, using the same master passcode already used to unlock
@@ -573,6 +602,15 @@ export function AdminCoreEngine() {
                 <span>Engine Diagnostics</span>
               </button>
               <button
+                onClick={() => setActiveTab("integrations")}
+                className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
+                  activeTab === "integrations" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
+                }`}
+              >
+                <Plug className="h-4 w-4" />
+                <span>Integrations</span>
+              </button>
+              <button
                 onClick={() => setActiveTab("schemas")}
                 className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
                   activeTab === "schemas" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
@@ -820,6 +858,97 @@ export function AdminCoreEngine() {
                       <p className="text-[11px] text-secondary-500">
                         SMS gateway and email transport have no live health-check endpoint yet, so they aren't shown here rather than displaying a fabricated status.
                       </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tab 2b: Integrations */}
+            {activeTab === "integrations" && (
+              <Card className="bg-secondary-900 border-secondary-800 text-white">
+                <CardHeader>
+                  <CardTitle className="text-xl font-bold flex items-center">
+                    <Plug className="h-5 w-5 mr-2 text-amber-400" />
+                    Third-Party Integrations
+                  </CardTitle>
+                  <CardDescription className="text-secondary-400 text-xs">
+                    Live configured/not-configured status for every integration Ledgio has - booleans only, credential
+                    values are never exposed here.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {isLoadingIntegrations && !integrationsData && (
+                    <div className="flex items-center justify-center py-8 text-secondary-400 text-sm gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Checking integrations...
+                    </div>
+                  )}
+
+                  {integrationsError && (
+                    <div className="p-4 bg-red-950/30 border border-red-900 rounded-lg text-red-300 text-xs">
+                      {integrationsError}
+                    </div>
+                  )}
+
+                  {integrationsData && (
+                    <>
+                      <div>
+                        <div className="text-xs font-bold text-secondary-300 uppercase tracking-wide mb-3">
+                          Platform-Wide (one credential serves every tenant)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {integrationsData.platformWide.map((integration) => (
+                            <div
+                              key={integration.key}
+                              className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 flex items-start justify-between gap-3"
+                            >
+                              <div>
+                                <div className="text-sm font-semibold text-white">{integration.name}</div>
+                                <div className="text-[11px] text-secondary-500 mt-0.5">{integration.purpose}</div>
+                              </div>
+                              <span
+                                className={`text-[11px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${
+                                  integration.configured
+                                    ? "bg-emerald-500/10 text-emerald-400"
+                                    : "bg-amber-500/10 text-amber-400"
+                                }`}
+                              >
+                                {integration.configured ? "CONFIGURED" : "NOT CONFIGURED"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-secondary-300 uppercase tracking-wide mb-3">
+                          Per-Tenant (each business enters its own credentials)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {integrationsData.perTenant.map((integration) => (
+                            <div key={integration.key} className="p-4 bg-secondary-950 rounded-lg border border-secondary-800">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold text-white">{integration.name}</div>
+                                  <div className="text-[11px] text-secondary-500 mt-0.5">{integration.purpose}</div>
+                                </div>
+                                <span className="text-lg font-extrabold text-white whitespace-nowrap">
+                                  {integration.tenantsConfigured}/{integration.totalTenants}
+                                </span>
+                              </div>
+                              <div className="w-full bg-secondary-800 h-1.5 rounded-full overflow-hidden mt-2">
+                                <div
+                                  className="h-full bg-amber-400"
+                                  style={{
+                                    width: `${integration.totalTenants > 0 ? (integration.tenantsConfigured / integration.totalTenants) * 100 : 0}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </>
                   )}
                 </CardContent>

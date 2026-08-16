@@ -102,6 +102,24 @@ export function AccountForm({ initialData, onSubmit, onCancel }: AccountFormProp
         </div>
       )}
 
+      {formData.type === "Asset" && (
+        <div className="flex items-start gap-2 rounded-md border border-secondary-200 dark:border-secondary-800 p-3">
+          <input
+            id="isFixedAsset"
+            type="checkbox"
+            checked={!!formData.isFixedAsset}
+            onChange={(e) => setFormData({ ...formData, isFixedAsset: e.target.checked })}
+            className="mt-1 h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+          />
+          <label htmlFor="isFixedAsset" className="text-sm text-secondary-700 dark:text-secondary-300">
+            <span className="font-medium block">This is a Fixed Asset account</span>
+            <span className="text-xs text-secondary-500">
+              Vehicles, equipment, furniture, etc. Used to route this account's balance changes into the Cash Flow Statement's Investing Activities section. Auto-set when this account is chosen as a fixed asset's asset account.
+            </span>
+          </label>
+        </div>
+      )}
+
       <div>
         <label htmlFor="description" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
           Description (Optional)

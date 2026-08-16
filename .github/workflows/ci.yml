@@ -44,6 +44,7 @@ jobs:
       REDIS_URL: redis://localhost:6379/0
       JWT_SECRET: ci-only-jwt-secret-not-for-production
       BROADCAST_MASTER_SECRET: ci-only-broadcast-secret-not-for-production
+      CREDENTIAL_ENCRYPTION_KEY: ci-only-credential-encryption-key-not-for-production
 
     defaults:
       run:

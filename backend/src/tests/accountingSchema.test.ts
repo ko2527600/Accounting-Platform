@@ -105,6 +105,9 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         // isCashEquivalent - auto-defaulted true because the name matches
         // the cash/bank/till heuristic (see defaultIsCashEquivalent()).
         true,
+        // isFixedAsset - defaults false when the caller doesn't supply one
+        // (see migration 010_add_fixed_asset_support).
+        false,
         // clientTxnId - idempotency dedup key for the local-first sync pilot
         // (see STATUS.md); null when the caller doesn't supply one.
         null
