@@ -40,6 +40,16 @@ model Tenant {
   businessType         String?   @map("business_type")
   vatRegistered        Boolean   @default(false) @map("vat_registered")
   graTin               String?   @map("gra_tin")
+  // GRA VSDC credentials, assigned to this taxpayer directly by GRA during
+  // their own onboarding (see graEvatService.ts) - not self-serve, not
+  // invented here. graDeviceNumber is the branch/device suffix GRA appends
+  // to the TIN in the API URL path (e.g. "001" for a single-location
+  // business - GRA's own sample docs use "-001" throughout). graSecurityKey
+  // is stored only as an AES-256-GCM ciphertext (see utils/credentialEncryption.ts) -
+  // the plaintext key is never persisted and never returned by any API response
+  // once saved, only a graSecurityKeyConfigured boolean.
+  graDeviceNumber         String?   @map("gra_device_number")
+  graSecurityKeyEncrypted String?   @map("gra_security_key_encrypted")
   isLive               Boolean   @default(false) @map("is_live")
   // Owner/manager phone number that automated SMS alerts (till-close
   // summaries, cash shortage warnings) go to. Optional - alerts are skipped
@@ -338,6 +348,12 @@ model Customer {
   // pattern of hard-gating real business rules in code (e.g. insufficient
   // stock, the trial-balance onboarding gate).
   creditLimit Decimal? @map("credit_limit") @db.Decimal(15, 2)
+  // Customer's own GRA TIN - required by GRA E-VAT clearance as
+  // "businessPartnerTin" (see graEvatService.ts). Null for a customer with
+  // no TIN on file (e.g. a walk-in/cash customer) - GRA's own official
+  // sample requests use "C0000000000" as the standard placeholder for this
+  // case, which graEvatService falls back to rather than blocking clearance.
+  tin       String?  @map("tin")
   createdAt DateTime @default(now()) @map("created_at")
 
   invoices Invoice[]

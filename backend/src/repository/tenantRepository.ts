@@ -11,6 +11,17 @@ export interface TenantRecord {
   tier: number;
   baseCurrency: string;
   orgType: string;
+  businessType: string | null;
+  vatRegistered: boolean;
+  graTin: string | null;
+  // GRA VSDC credentials - see graEvatService.ts. graSecurityKeyEncrypted is
+  // an AES-256-GCM ciphertext (utils/credentialEncryption.ts), never the
+  // plaintext key - callers must decrypt before using it, and must never
+  // return it verbatim in an API response (see sanitizeTenantForResponse in
+  // routes/tenants.ts).
+  graDeviceNumber: string | null;
+  graSecurityKeyEncrypted: string | null;
+  isLive: boolean;
   bossPhone: string | null;
   createdAt: Date;
   updatedAt: Date;

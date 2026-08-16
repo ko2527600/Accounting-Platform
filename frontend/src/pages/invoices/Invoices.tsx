@@ -19,6 +19,9 @@ interface Customer {
   email: string;
   phone?: string;
   creditLimit?: number | null;
+  // GRA TIN, required for real E-VAT clearance (see graEvatService.ts) -
+  // null for a customer with no TIN on file (e.g. walk-in/cash customer).
+  tin?: string | null;
 }
 
 interface TaxRate {
@@ -171,6 +174,7 @@ export function Invoices() {
   const [custName, setCustName] = useState("");
   const [custEmail, setCustEmail] = useState("");
   const [custCreditLimit, setCustCreditLimit] = useState("");
+  const [custTin, setCustTin] = useState("");
 
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -286,11 +290,13 @@ export function Invoices() {
         name: custName,
         email: custEmail,
         creditLimit: custCreditLimit.trim() ? Number(custCreditLimit) : null,
+        tin: custTin.trim() || null,
       });
       if (res.data.success) {
         setCustName("");
         setCustEmail("");
         setCustCreditLimit("");
+        setCustTin("");
         setIsCustomerOpen(false);
         fetchData();
       }
@@ -972,6 +978,13 @@ export function Invoices() {
             />
             <p className="text-xs text-secondary-500 mt-1">
               New invoices for this customer are blocked once their outstanding balance would exceed this. Leave blank for no limit.
+            </p>
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">GRA TIN (optional)</label>
+            <Input placeholder="e.g. C0001234567" value={custTin} onChange={(e) => setCustTin(e.target.value)} />
+            <p className="text-xs text-secondary-500 mt-1">
+              Required for GRA E-VAT clearance to identify this customer correctly - leave blank for a walk-in/cash customer.
             </p>
           </div>
           <div className="flex justify-end space-x-3 pt-2">

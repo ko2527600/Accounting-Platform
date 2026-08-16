@@ -24,6 +24,7 @@ import { InvoiceEmailServiceError } from '../services/invoiceEmailService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/syncChangeLogService';
 import * as graEvatService from '../services/graEvatService';
 import { GraEvatServiceError } from '../services/graEvatService';
+import * as tenantRepository from '../repository/tenantRepository';
 
 // Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
 // race (see the POST / handler) - never surfaced to a caller directly.
@@ -78,7 +79,7 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
 router.post('/customers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, email, phone, address, creditLimit } = req.body;
+    const { name, email, phone, address, creditLimit, tin } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Customer name and email are required.' });
       return;
@@ -90,7 +91,15 @@ router.post('/customers', requireRole('Accountant'), async (req: Request, res: R
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.create({
-        data: { tenantId, name: name.trim(), email: email.trim().toLowerCase(), phone, address, creditLimit: creditLimit ?? null },
+        data: {
+          tenantId,
+          name: name.trim(),
+          email: email.trim().toLowerCase(),
+          phone,
+          address,
+          creditLimit: creditLimit ?? null,
+          tin: tin ? String(tin).trim() || null : null,
+        },
       });
     });
 
@@ -109,7 +118,7 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
   try {
     const { tenantId } = requireTenantContext();
     const { id } = req.params;
-    const { name, email, phone, address, creditLimit } = req.body;
+    const { name, email, phone, address, creditLimit, tin } = req.body;
 
     if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
       res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
@@ -127,6 +136,7 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
           ...(phone !== undefined && { phone }),
           ...(address !== undefined && { address }),
           ...(creditLimit !== undefined && { creditLimit }),
+          ...(tin !== undefined && { tin: tin ? String(tin).trim() || null : null }),
         },
       });
     });
@@ -574,19 +584,23 @@ router.post('/:id/send', requireRole('Accountant'), async (req: Request, res: Re
 /**
  * POST /api/v1/invoices/:id/gra-clearance
  * Requests real-time clearance from GRA's VSDC (Certified Invoicing System /
- * E-VAT) - see graEvatService.requestClearance's own doc comment for why
- * this currently always fails with a clear explanation rather than a fake
- * success: GRA only hands out the real API specification during their own
- * taxpayer onboarding process, so there is no public wire format to build
- * the real call against yet. The failed attempt is still recorded on the
- * invoice (status FAILED + the explanation) so it's visible in the UI,
- * same as a declined MoMo/TheTeller/Paystack attempt would be.
+ * E-VAT), per the real API specification GRA issued this taxpayer during
+ * their own onboarding (see graEvatService.ts) - not a public self-serve
+ * spec, so this only works once the tenant has entered their own GRA-
+ * assigned TIN/Device Number/Security Key in Settings > GRA E-VAT. Until
+ * then this fails with a clear 503 explaining how to get those credentials,
+ * never a fake success. The failed attempt is still recorded on the invoice
+ * (status FAILED + the explanation) so it's visible in the UI, same as a
+ * declined MoMo/TheTeller/Paystack attempt would be.
  */
 router.post('/:id/gra-clearance', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const invoice = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).invoice.findFirst({ where: { id: req.params.id, tenantId } });
+      return (client as any).invoice.findFirst({
+        where: { id: req.params.id, tenantId },
+        include: { customer: true, items: { include: { inventoryItem: true } } },
+      });
     });
     if (!invoice) {
       res.status(404).json({ success: false, error: 'Invoice not found.' });
@@ -598,7 +612,35 @@ router.post('/:id/gra-clearance', requireRole('Accountant'), async (req: Request
     }
 
     try {
-      const result = await graEvatService.requestClearance();
+      const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+      const result = await graEvatService.requestClearance(
+        {
+          tin: tenant?.graTin ?? null,
+          deviceNumber: tenant?.graDeviceNumber ?? null,
+          securityKeyEncrypted: tenant?.graSecurityKeyEncrypted ?? null,
+        },
+        {
+          invoiceNumber: invoice.invoiceNumber,
+          issueDate: invoice.issueDate,
+          currency: invoice.currency,
+          exchangeRate: Number(invoice.exchangeRate),
+          subtotal: Number(invoice.subtotal),
+          tax: Number(invoice.tax),
+          total: Number(invoice.total),
+          taxBreakdown: (invoice.taxBreakdown as any) ?? null,
+          customerName: invoice.customer.name,
+          customerTin: invoice.customer.tin ?? null,
+          userName: (req as any).user?.name || (req as any).user?.email || 'Ledgio User',
+          items: invoice.items.map((item: any) => ({
+            id: item.id,
+            description: item.description,
+            quantity: Number(item.quantity),
+            unitPrice: Number(item.unitPrice),
+            amount: Number(item.amount),
+            sku: item.inventoryItem?.sku ?? null,
+          })),
+        }
+      );
       const qrCodeDataUrl = await graEvatService.renderClearanceQrCode(result.qrCodeData);
       const updated = await withCurrentTenantDb(prisma, async (client) => {
         return (client as any).invoice.update({

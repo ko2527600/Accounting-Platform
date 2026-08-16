@@ -39,7 +39,12 @@ export function Settings() {
   const [graData, setGraData] = useState({
     graTin: settings.graTin || "",
     vatRegistered: settings.vatRegistered || false,
+    graDeviceNumber: settings.graDeviceNumber || "",
+    // Write-only - never pre-filled from settings.graSecurityKeyConfigured,
+    // since the plaintext key is never returned by the API once saved.
+    graSecurityKey: "",
   });
+  const [graSaveMsg, setGraSaveMsg] = useState<string | null>(null);
 
   const [scheduleData, setScheduleData] = useState<{
     frequency: "Weekly" | "Monthly";
@@ -83,7 +88,12 @@ export function Settings() {
         timezone: settings.timezone,
       });
       setSmsData((prev) => ({ ...prev, bossPhone: settings.bossPhone || "" }));
-      setGraData({ graTin: settings.graTin || "", vatRegistered: settings.vatRegistered || false });
+      setGraData((prev) => ({
+        ...prev,
+        graTin: settings.graTin || "",
+        vatRegistered: settings.vatRegistered || false,
+        graDeviceNumber: settings.graDeviceNumber || "",
+      }));
     }
     if (user) {
       setScheduleData((prev) => ({ ...prev, recipients: user.email || "" }));
@@ -153,6 +163,20 @@ export function Settings() {
       setSaveSuccessMsg("✅ VAT/TIN details updated.");
     } catch (err: any) {
       setSaveSuccessMsg(`❌ Error saving VAT/TIN details: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
+  const handleSaveGraCredentials = async () => {
+    setGraSaveMsg(null);
+    try {
+      await updateSettings({
+        graDeviceNumber: graData.graDeviceNumber || null,
+        ...(graData.graSecurityKey && { graSecurityKey: graData.graSecurityKey }),
+      });
+      setGraData((prev) => ({ ...prev, graSecurityKey: "" }));
+      setGraSaveMsg("✅ GRA VSDC credentials saved.");
+    } catch (err: any) {
+      setGraSaveMsg(`❌ Error saving GRA credentials: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -748,25 +772,78 @@ export function Settings() {
 
           <Card>
             <CardHeader>
-              <CardTitle>E-VAT Certification Status</CardTitle>
+              <CardTitle className="flex items-center gap-2">
+                <Stamp className="h-4 w-4 text-purple-600" />
+                VSDC API Credentials
+              </CardTitle>
               <CardDescription>
-                A single per-invoice "Request GRA Clearance" action exists on the Invoices page, but it can't succeed yet - see why below.
+                GRA assigns these directly to you during their own Certified Invoicing System onboarding (they are not
+                self-serve - see the certification status card below). Enter them here once you have them to activate
+                real GRA clearance on the Invoices page.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg text-amber-900 dark:text-amber-300 text-sm">
-                Not certified. GRA does not publish a self-serve API - the actual technical specification
-                (endpoints, request/response format, authentication) is handed directly to a taxpayer only
-                during GRA's own onboarding process. This is different from Mobile Money or Paystack, which
-                have open developer documentation.
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Device / Branch Number</label>
+                <Input
+                  value={graData.graDeviceNumber}
+                  onChange={(e) => setGraData({ ...graData, graDeviceNumber: e.target.value })}
+                  placeholder="e.g. 001"
+                />
               </div>
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                  Security Key {settings.graSecurityKeyConfigured && (
+                    <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">(already on file - re-enter only to replace it)</span>
+                  )}
+                </label>
+                <Input
+                  type="password"
+                  value={graData.graSecurityKey}
+                  onChange={(e) => setGraData({ ...graData, graSecurityKey: e.target.value })}
+                  placeholder={settings.graSecurityKeyConfigured ? "••••••••••••••••" : "Paste the security_key GRA gave you"}
+                />
+                <p className="text-xs text-secondary-500 dark:text-secondary-400">
+                  Stored encrypted - never shown again once saved, including to Ledgio staff.
+                </p>
+              </div>
+              {graSaveMsg && <p className="text-sm">{graSaveMsg}</p>}
+            </CardContent>
+            <CardFooter>
+              <Button type="button" variant="primary" onClick={handleSaveGraCredentials}>Save Credentials</Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>E-VAT Certification Status</CardTitle>
+              <CardDescription>
+                The "Request GRA Clearance" action on the Invoices page calls GRA's real VSDC API - it succeeds once
+                the credentials above are on file for a taxpayer GRA has actually certified.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {settings.graSecurityKeyConfigured && settings.graDeviceNumber && settings.graTin ? (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg text-emerald-900 dark:text-emerald-300 text-sm">
+                  Credentials on file. "Request GRA Clearance" on an invoice will submit it to GRA's live VSDC for
+                  certification - make sure GRA has actually completed your onboarding (below) before relying on it,
+                  since submitting with the wrong credentials will simply be rejected by GRA, not faked as a success.
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg text-amber-900 dark:text-amber-300 text-sm">
+                  Not yet configured. Ledgio's GRA VSDC integration is real and built - it just needs your
+                  GRA-assigned TIN, Device Number, and Security Key (above) before it can submit anything. GRA does
+                  not publish these credentials for self-serve signup - they're handed directly to a taxpayer only
+                  during GRA's own onboarding process, described below.
+                </div>
+              )}
               <div className="text-sm text-secondary-700 dark:text-secondary-300 space-y-2">
-                <p className="font-semibold">How to actually get certified (per GRA/AG/2024/005):</p>
+                <p className="font-semibold">How to get GRA-certified (per GRA/AG/2024/005):</p>
                 <ol className="list-decimal list-inside space-y-1 text-secondary-600 dark:text-secondary-400">
                   <li>Be a VAT-registered taxpayer with a real TIN on file (above).</li>
                   <li>Contact GRA to request onboarding - a Relationship Manager is assigned to guide you.</li>
                   <li>Complete GRA's onboarding form; choose "API Integration" (since Ledgio is your own invoicing system) rather than GRA's free invoicing software.</li>
-                  <li>GRA provides the real API documentation directly to you.</li>
+                  <li>GRA provides your TIN's Device Number and Security Key for their VSDC API - enter them above.</li>
                   <li>Joint testing with GRA, then GRA signs off and schedules go-live (~1 month for API integration).</li>
                 </ol>
               </div>
