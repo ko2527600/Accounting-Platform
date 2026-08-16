@@ -44,6 +44,7 @@ import budgetsRouter from './routes/budgets';
 import recurringTransactionsRouter from './routes/recurringTransactions';
 import approvalWorkflowsRouter from './routes/approvalWorkflows';
 import adminAuditLogsRouter from './routes/adminAuditLogs';
+import adminIntegrationsRouter from './routes/adminIntegrations';
 import momoRouter from './routes/momo';
 import tellerRouter from './routes/teller';
 import expenseClaimsRouter from './routes/expenseClaims';
@@ -223,6 +224,7 @@ app.use('/api/v1/budgets', budgetsRouter);
 app.use('/api/v1/recurring-transactions', recurringTransactionsRouter);
 app.use('/api/v1/approval-workflows', approvalWorkflowsRouter);
 app.use('/api/v1/admin/audit-logs', adminAuditLogsRouter);
+app.use('/api/v1/admin/integrations', adminIntegrationsRouter);
 
 // MTN Mobile Money (Collections API) invoice payment collection endpoints
 app.use('/api/v1/momo', momoRouter);
