@@ -22,6 +22,8 @@ import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
 import * as invoiceEmailService from '../services/invoiceEmailService';
 import { InvoiceEmailServiceError } from '../services/invoiceEmailService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/syncChangeLogService';
+import * as graEvatService from '../services/graEvatService';
+import { GraEvatServiceError } from '../services/graEvatService';
 
 // Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
 // race (see the POST / handler) - never surfaced to a caller directly.
@@ -566,6 +568,69 @@ router.post('/:id/send', requireRole('Accountant'), async (req: Request, res: Re
     }
     console.error('[Invoices] Error emailing invoice:', error);
     res.status(500).json({ success: false, error: 'Failed to email invoice.' });
+  }
+});
+
+/**
+ * POST /api/v1/invoices/:id/gra-clearance
+ * Requests real-time clearance from GRA's VSDC (Certified Invoicing System /
+ * E-VAT) - see graEvatService.requestClearance's own doc comment for why
+ * this currently always fails with a clear explanation rather than a fake
+ * success: GRA only hands out the real API specification during their own
+ * taxpayer onboarding process, so there is no public wire format to build
+ * the real call against yet. The failed attempt is still recorded on the
+ * invoice (status FAILED + the explanation) so it's visible in the UI,
+ * same as a declined MoMo/TheTeller/Paystack attempt would be.
+ */
+router.post('/:id/gra-clearance', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const invoice = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).invoice.findFirst({ where: { id: req.params.id, tenantId } });
+    });
+    if (!invoice) {
+      res.status(404).json({ success: false, error: 'Invoice not found.' });
+      return;
+    }
+    if (invoice.graClearanceStatus === 'CLEARED') {
+      res.status(400).json({ success: false, error: 'This invoice is already GRA-cleared.' });
+      return;
+    }
+
+    try {
+      const result = await graEvatService.requestClearance();
+      const qrCodeDataUrl = await graEvatService.renderClearanceQrCode(result.qrCodeData);
+      const updated = await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).invoice.update({
+          where: { id: invoice.id },
+          data: {
+            graClearanceStatus: 'CLEARED',
+            graVerificationEngineId: result.verificationEngineId,
+            graQrCodeData: qrCodeDataUrl,
+            graSignature: result.signature,
+            graEncryptedData: result.encryptedData,
+            graClearedAt: result.clearedAt,
+            graClearanceError: null,
+          },
+        });
+      });
+      res.status(200).json({ success: true, message: 'Invoice cleared by GRA.', data: { invoice: updated } });
+    } catch (clearanceError: any) {
+      const message = clearanceError instanceof GraEvatServiceError
+        ? clearanceError.message
+        : 'Failed to request GRA clearance.';
+      await withCurrentTenantDb(prisma, async (client) => {
+        await (client as any).invoice.update({
+          where: { id: invoice.id },
+          data: { graClearanceStatus: 'FAILED', graClearanceError: message },
+        });
+      });
+      const statusCode = clearanceError instanceof GraEvatServiceError ? clearanceError.statusCode : 500;
+      res.status(statusCode).json({ success: false, error: message });
+    }
+  } catch (error: any) {
+    console.error('[Invoices] Error requesting GRA clearance:', error);
+    res.status(500).json({ success: false, error: 'Failed to request GRA clearance.' });
   }
 });
 

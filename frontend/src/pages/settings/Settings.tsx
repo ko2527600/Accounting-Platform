@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy, Sparkles } from "lucide-react";
+import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy, Sparkles, Stamp, ExternalLink } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
@@ -36,6 +36,11 @@ export function Settings() {
     gatewayStatus: "Active & Managed (Included in Subscription)",
   });
 
+  const [graData, setGraData] = useState({
+    graTin: settings.graTin || "",
+    vatRegistered: settings.vatRegistered || false,
+  });
+
   const [scheduleData, setScheduleData] = useState<{
     frequency: "Weekly" | "Monthly";
     recipients: string;
@@ -49,7 +54,7 @@ export function Settings() {
   const [smsMsg, setSmsMsg] = useState<string | null>(null);
   const [testEmailMsg, setTestEmailMsg] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export" | "security">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export" | "security" | "compliance">("profile");
 
   const isAdmin = user?.role === "Admin" || user?.role === "Owner";
   const [exportManifest, setExportManifest] = useState<ExportManifestEntry[]>([]);
@@ -78,6 +83,7 @@ export function Settings() {
         timezone: settings.timezone,
       });
       setSmsData((prev) => ({ ...prev, bossPhone: settings.bossPhone || "" }));
+      setGraData({ graTin: settings.graTin || "", vatRegistered: settings.vatRegistered || false });
     }
     if (user) {
       setScheduleData((prev) => ({ ...prev, recipients: user.email || "" }));
@@ -137,6 +143,16 @@ export function Settings() {
       setSaveSuccessMsg("✅ Boss alert mobile number updated.");
     } catch (err: any) {
       setSaveSuccessMsg(`❌ Error saving phone: ${err.response?.data?.error || err.message}`);
+    }
+  };
+
+  const handleSaveGraDetails = async () => {
+    setSaveSuccessMsg(null);
+    try {
+      await updateSettings({ graTin: graData.graTin || null, vatRegistered: graData.vatRegistered });
+      setSaveSuccessMsg("✅ VAT/TIN details updated.");
+    } catch (err: any) {
+      setSaveSuccessMsg(`❌ Error saving VAT/TIN details: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -324,6 +340,13 @@ export function Settings() {
         >
           <ShieldCheck className="mr-2 h-4 w-4 text-primary-500" />
           Security
+        </button>
+        <button
+          onClick={() => setActiveTab("compliance")}
+          className={`pb-3 text-sm font-medium transition-colors border-b-2 flex items-center ${activeTab === "compliance" ? "border-primary-600 text-primary-600" : "border-transparent text-secondary-500 hover:text-secondary-700"}`}
+        >
+          <Stamp className="mr-2 h-4 w-4 text-purple-500" />
+          GRA E-VAT
         </button>
         {isAdmin && (
           <button
@@ -681,6 +704,91 @@ export function Settings() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* GRA E-VAT (Certified Invoicing System / VSDC) */}
+      {activeTab === "compliance" && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Stamp className="h-4 w-4 text-purple-600" />
+                VAT Registration
+              </CardTitle>
+              <CardDescription>
+                Required before GRA will even consider onboarding this business to their Certified Invoicing System (E-VAT).
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">TIN (Taxpayer Identification Number)</label>
+                <Input
+                  value={graData.graTin}
+                  onChange={(e) => setGraData({ ...graData, graTin: e.target.value })}
+                  placeholder="e.g. C0001234567"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  id="vatRegistered"
+                  type="checkbox"
+                  checked={graData.vatRegistered}
+                  onChange={(e) => setGraData({ ...graData, vatRegistered: e.target.checked })}
+                  className="h-4 w-4 rounded border-secondary-300 text-primary-600 focus:ring-primary-500"
+                />
+                <label htmlFor="vatRegistered" className="text-sm text-secondary-700 dark:text-secondary-300">
+                  This business is VAT-registered with GRA
+                </label>
+              </div>
+            </CardContent>
+            <CardFooter>
+              <Button type="button" variant="primary" onClick={handleSaveGraDetails}>Save Changes</Button>
+            </CardFooter>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>E-VAT Certification Status</CardTitle>
+              <CardDescription>
+                A single per-invoice "Request GRA Clearance" action exists on the Invoices page, but it can't succeed yet - see why below.
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg text-amber-900 dark:text-amber-300 text-sm">
+                Not certified. GRA does not publish a self-serve API - the actual technical specification
+                (endpoints, request/response format, authentication) is handed directly to a taxpayer only
+                during GRA's own onboarding process. This is different from Mobile Money or Paystack, which
+                have open developer documentation.
+              </div>
+              <div className="text-sm text-secondary-700 dark:text-secondary-300 space-y-2">
+                <p className="font-semibold">How to actually get certified (per GRA/AG/2024/005):</p>
+                <ol className="list-decimal list-inside space-y-1 text-secondary-600 dark:text-secondary-400">
+                  <li>Be a VAT-registered taxpayer with a real TIN on file (above).</li>
+                  <li>Contact GRA to request onboarding - a Relationship Manager is assigned to guide you.</li>
+                  <li>Complete GRA's onboarding form; choose "API Integration" (since Ledgio is your own invoicing system) rather than GRA's free invoicing software.</li>
+                  <li>GRA provides the real API documentation directly to you.</li>
+                  <li>Joint testing with GRA, then GRA signs off and schedules go-live (~1 month for API integration).</li>
+                </ol>
+              </div>
+              <div className="p-3 bg-secondary-50 dark:bg-secondary-900 border border-secondary-200 dark:border-secondary-800 rounded-lg text-xs space-y-1">
+                <div className="font-semibold text-secondary-700 dark:text-secondary-300">GRA Contact Channels</div>
+                <div>Support: <a href="mailto:support@evatgra.zendesk.com" className="text-primary-600 hover:underline">support@evatgra.zendesk.com</a></div>
+                <div>General: <a href="mailto:info@gra.gov.gh" className="text-primary-600 hover:underline">info@gra.gov.gh</a> / <a href="mailto:Info.vat@gra.gov.gh" className="text-primary-600 hover:underline">Info.vat@gra.gov.gh</a></div>
+                <div>Toll-free: 0800 900 110</div>
+                <div>Contact Centre: 020 926 7047 / 7048 / 7049 / 7125 / 7059</div>
+                <div>WhatsApp: 055 299 0000 / 020 063 1664</div>
+                <a
+                  href="https://gra.gov.gh/wp-content/uploads/2024/07/E-VAT-GUIDELINES_20240222.pdf"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center text-primary-600 hover:underline mt-1"
+                >
+                  Official GRA Guidelines (GRA/AG/2024/005) <ExternalLink className="ml-1 h-3 w-3" />
+                </a>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Full Data Export - no pricing-tier gate, no cooldown, everything a business needs to leave with its data */}

@@ -20,6 +20,11 @@ export interface TenantSettings {
   // alerts go to. Null/empty when this tenant hasn't configured one - alerts
   // are skipped rather than falling back to a shared number.
   bossPhone: string | null;
+  // GRA E-VAT / VAT registration details - a VAT-registered business needs
+  // its real TIN on file before it's even eligible to start GRA's own
+  // Certified Invoicing System onboarding process (see graEvatService.ts).
+  graTin: string | null;
+  vatRegistered: boolean;
   tier: TenantTier;
   updatedAt: string;
 }

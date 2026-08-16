@@ -347,6 +347,18 @@ model Customer {
   @@map("customers")
 }
 
+// NOT_REQUESTED: default, no GRA clearance has ever been attempted.
+// PENDING: a clearance request is in flight (unused today - see
+// graEvatService.ts, there's no real GRA endpoint to call yet).
+// CLEARED: GRA's VSDC certified the invoice - the 5 fields below are populated.
+// FAILED: a clearance attempt was rejected - graClearanceError explains why.
+enum GraClearanceStatus {
+  NOT_REQUESTED
+  PENDING
+  CLEARED
+  FAILED
+}
+
 model Invoice {
   id                 String   @id @default(uuid())
   tenantId           String   @map("tenant_id")
@@ -398,6 +410,25 @@ model Invoice {
   // Invoice" line-item-only-in-name record with no real stock effect.
   warehouseId        String?  @map("warehouse_id")
   stockDeducted      Boolean  @default(false) @map("stock_deducted")
+
+  // GRA E-VAT (Certified Invoicing System / VSDC) compliance fields - see
+  // GRA/AG/2024/005 S7(3) for the 5 statutorily-required elements a
+  // certified invoice must carry once cleared. graEvatService.requestClearance()
+  // has no real GRA endpoint to call yet (GRA only hands out the actual API
+  // spec during their own bespoke taxpayer onboarding process - see that
+  // service's doc comment), so these stay null/NOT_REQUESTED for every
+  // invoice today; the schema exists so the real integration is a small,
+  // isolated change once GRA's API documentation is in hand, not a redesign.
+  graClearanceStatus GraClearanceStatus @default(NOT_REQUESTED) @map("gra_clearance_status")
+  // GRA's "verification engine ID" (their term, GRA/AG/2024/005 S7(3)(o)) -
+  // the unique reference a cleared invoice is identified by.
+  graVerificationEngineId String? @map("gra_verification_engine_id")
+  graQrCodeData      String?  @map("gra_qr_code_data")
+  graSignature       String?  @map("gra_signature")
+  graEncryptedData   String?  @map("gra_encrypted_data")
+  graClearedAt       DateTime? @map("gra_cleared_at")
+  graClearanceError  String?  @map("gra_clearance_error")
+
   createdAt          DateTime @default(now()) @map("created_at")
   // Client-generated dedup key for offline-queued/retried invoice creation
   // (local-first sync pilot, see STATUS.md) - same pattern already proven

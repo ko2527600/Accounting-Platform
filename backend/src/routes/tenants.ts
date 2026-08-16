@@ -208,7 +208,7 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug, baseCurrency, bossPhone } = req.body;
+    const { companyName, name, slug, baseCurrency, bossPhone, graTin, vatRegistered } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
@@ -232,6 +232,15 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       }
     }
 
+    // Previously only settable once, at onboarding (see
+    // onboardingWizardService.ts) - a business whose TIN was wrong or
+    // unregistered at the time had no way to correct it afterward.
+    let normalizedGraTin: string | null | undefined;
+    if (graTin !== undefined) {
+      const trimmed = String(graTin).trim();
+      normalizedGraTin = trimmed === '' ? null : trimmed;
+    }
+
     const before = await tenantRepository.findTenantById(prisma, tenantId);
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -242,6 +251,8 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           ...(slug && { slug: slug.trim().toLowerCase() }),
           ...(baseCurrency && { baseCurrency: baseCurrency.trim().toUpperCase() }),
           ...(normalizedBossPhone !== undefined && { bossPhone: normalizedBossPhone }),
+          ...(normalizedGraTin !== undefined && { graTin: normalizedGraTin }),
+          ...(vatRegistered !== undefined && { vatRegistered: Boolean(vatRegistered) }),
         },
       });
 
@@ -250,7 +261,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         entity: 'Tenant',
         entityId: tenantId,
         actor: actorFromRequest(req),
-        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone']),
+        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone', 'graTin', 'vatRegistered']),
       });
 
       return updated;

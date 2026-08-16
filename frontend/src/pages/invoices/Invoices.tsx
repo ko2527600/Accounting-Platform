@@ -11,7 +11,7 @@ import { api } from "../../lib/api";
 import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History, Mail, ChevronDown } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History, Mail, ChevronDown, ShieldCheck } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -79,6 +79,7 @@ interface Invoice {
   warehouseId?: string | null;
   stockDeducted?: boolean;
   emailedAt?: string | null;
+  graClearanceStatus?: "NOT_REQUESTED" | "PENDING" | "CLEARED" | "FAILED";
   // Present only on a record still in flight through the local-first sync
   // outbox (see lib/syncEngine.ts) - a real network round-trip hasn't
   // confirmed it yet, or a real rejection needs the user's attention.
@@ -226,6 +227,8 @@ export function Invoices() {
   const [paystackRequests, setPaystackRequests] = useState<PaystackRequest[]>([]);
   const [isGeneratingPaystackLink, setIsGeneratingPaystackLink] = useState(false);
   const [verifyingPaystackRef, setVerifyingPaystackRef] = useState<string | null>(null);
+
+  const [requestingGraClearanceId, setRequestingGraClearanceId] = useState<string | null>(null);
 
   // Once the tenant's real base currency loads, default the new-invoice
   // currency picker to it instead of leaving it pinned to the initial "USD"
@@ -654,6 +657,27 @@ export function Invoices() {
     }
   };
 
+  // Requesting GRA clearance always fails today with a clear explanation -
+  // see graEvatService.requestClearance's own doc comment for why (GRA only
+  // hands out the real API specification during their own taxpayer
+  // onboarding process, so there's no public wire format to build against
+  // yet). Still routes through the real endpoint so the moment that changes,
+  // this action starts actually working with no UI change needed.
+  const handleRequestGraClearance = async (invoiceId: string) => {
+    setRequestingGraClearanceId(invoiceId);
+    try {
+      const res = await api.post(`/invoices/${invoiceId}/gra-clearance`);
+      if (res.data.success) {
+        showToast("Invoice cleared by GRA.", "success");
+        resyncInvoicesFromServer();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to request GRA clearance.", "error");
+    } finally {
+      setRequestingGraClearanceId(null);
+    }
+  };
+
   // Defaults to the tenant's real configured base currency (not a hardcoded
   // "USD") for aggregate figures like the AR/Paid summary tiles that don't
   // pass an explicit currency. Individual invoice rows still pass
@@ -845,6 +869,17 @@ export function Invoices() {
                               >
                                 <Mail className="mr-2 h-3 w-3" />
                                 {sendingInvoiceId === inv.id ? "Sending..." : inv.emailedAt ? "Re-send Invoice" : "Email Invoice"}
+                              </button>
+                            )}
+                            {inv.status !== "DRAFT" && inv.graClearanceStatus !== "CLEARED" && (
+                              <button
+                                onClick={() => { setOpenActionsMenuId(null); handleRequestGraClearance(inv.id); }}
+                                disabled={requestingGraClearanceId === inv.id}
+                                title="Requests real-time clearance from GRA's VSDC (E-VAT). Requires the business to be onboarded with GRA directly first."
+                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 disabled:opacity-50"
+                              >
+                                <ShieldCheck className="mr-2 h-3 w-3" />
+                                {requestingGraClearanceId === inv.id ? "Requesting..." : "Request GRA Clearance"}
                               </button>
                             )}
                             {inv.status !== "PAID" && (
