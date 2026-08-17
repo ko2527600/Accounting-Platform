@@ -15,6 +15,12 @@ const DEFAULT_TENANT: TenantSettings = {
   vatRegistered: false,
   graDeviceNumber: null,
   graSecurityKeyConfigured: false,
+  momoApiUser: null,
+  momoConfigured: false,
+  tellerApiUsername: null,
+  tellerMerchantId: null,
+  tellerConfigured: false,
+  paystackConfigured: false,
   tier: 1,
   updatedAt: new Date().toISOString()
 };
@@ -59,6 +65,12 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           vatRegistered: Boolean(t.vatRegistered),
           graDeviceNumber: t.graDeviceNumber ?? null,
           graSecurityKeyConfigured: Boolean(t.graSecurityKeyConfigured),
+          momoApiUser: t.momoApiUser ?? null,
+          momoConfigured: Boolean(t.momoConfigured),
+          tellerApiUsername: t.tellerApiUsername ?? null,
+          tellerMerchantId: t.tellerMerchantId ?? null,
+          tellerConfigured: Boolean(t.tellerConfigured),
+          paystackConfigured: Boolean(t.paystackConfigured),
           tier: t.tier ?? 1,
           updatedAt: t.updatedAt || new Date().toISOString(),
         });
@@ -89,9 +101,15 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           slug: t.slug,
           ...data,
           // Server-computed, not an echo of the request DTO (the request
-          // sends a write-only graSecurityKey, never this field) - must come
-          // from the real response, not the `...data` spread above.
+          // sends write-only secret fields, never these) - must come from
+          // the real response, not the `...data` spread above.
           graSecurityKeyConfigured: Boolean(t.graSecurityKeyConfigured),
+          momoApiUser: t.momoApiUser ?? null,
+          momoConfigured: Boolean(t.momoConfigured),
+          tellerApiUsername: t.tellerApiUsername ?? null,
+          tellerMerchantId: t.tellerMerchantId ?? null,
+          tellerConfigured: Boolean(t.tellerConfigured),
+          paystackConfigured: Boolean(t.paystackConfigured),
           updatedAt: new Date().toISOString()
         };
         setSettings(updated);

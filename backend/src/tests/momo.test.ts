@@ -6,6 +6,7 @@ import { onboardTenant } from '../services/tenantService';
 import { deleteTenantBySlug, ensureTenantTableExists } from '../repository/tenantRepository';
 import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepository';
 import { dropTenantSchema } from '../database/tenantSchemaManager';
+import { encryptCredential } from '../utils/credentialEncryption';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -40,7 +41,7 @@ function mockMomoStatus(status: 'SUCCESSFUL' | 'FAILED' | 'PENDING', extra: any 
   });
 }
 
-describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () => {
+describe('Mobile Money (MTN MoMo Collections) invoice payment collection - per-tenant credentials', () => {
   const runId = Date.now();
   const tenantSlug = `momo-corp-${runId}`;
   const tenantSchema = `tenant_momo_corp_${runId}`;
@@ -51,9 +52,6 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
   let cashAccountId: string;
   let revenueAccountId: string;
   let customerId: string;
-  let originalSubscriptionKey: string | undefined;
-  let originalApiUser: string | undefined;
-  let originalApiKey: string | undefined;
 
   async function cleanupTestData() {
     if (tenantId) {
@@ -74,10 +72,25 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
     return res.body.data.invoice;
   }
 
-  function enableMomo() {
-    process.env.MOMO_SUBSCRIPTION_KEY = 'test-subscription-key';
-    process.env.MOMO_API_USER = 'test-api-user';
-    process.env.MOMO_API_KEY = 'test-api-key';
+  // This tenant's own MTN Collections credentials, set directly on the
+  // Tenant row (same as a real tenant saving them in Settings) - proves the
+  // per-tenant credential model, not a shared platform-wide env var.
+  async function enableMomo() {
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        momoApiUser: 'test-api-user',
+        momoSubscriptionKeyEncrypted: encryptCredential('test-subscription-key'),
+        momoApiKeyEncrypted: encryptCredential('test-api-key'),
+      },
+    });
+  }
+
+  async function disableMomo() {
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { momoApiUser: null, momoSubscriptionKeyEncrypted: null, momoApiKeyEncrypted: null },
+    });
   }
 
   beforeAll(async () => {
@@ -85,10 +98,6 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
     await ensureTenantTableExists(prisma);
     await ensureUserTableExists(prisma);
     await cleanupTestData();
-
-    originalSubscriptionKey = process.env.MOMO_SUBSCRIPTION_KEY;
-    originalApiUser = process.env.MOMO_API_USER;
-    originalApiKey = process.env.MOMO_API_KEY;
 
     const onboard = await onboardTenant(prisma, {
       companyName: 'Momo Corp',
@@ -127,17 +136,12 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
   });
 
   afterAll(async () => {
-    process.env.MOMO_SUBSCRIPTION_KEY = originalSubscriptionKey;
-    process.env.MOMO_API_USER = originalApiUser;
-    process.env.MOMO_API_KEY = originalApiKey;
     await cleanupTestData();
     await prisma.$disconnect();
   });
 
-  it('refuses to send a request (and creates no fake data) when Mobile Money is not configured', async () => {
-    delete process.env.MOMO_SUBSCRIPTION_KEY;
-    delete process.env.MOMO_API_USER;
-    delete process.env.MOMO_API_KEY;
+  it('refuses to send a request (and creates no fake data) when this tenant has not configured Mobile Money', async () => {
+    await disableMomo();
 
     const invoice = await createInvoice(500);
     const res = await request(app)
@@ -157,7 +161,7 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
   });
 
   it('rejects a request with no phone number', async () => {
-    enableMomo();
+    await enableMomo();
     const invoice = await createInvoice(500);
     const res = await request(app)
       .post(`/api/v1/momo/invoices/${invoice.id}/request`)
@@ -167,8 +171,8 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
     expect(res.status).toBe(400);
   });
 
-  it('sends a real requesttopay, then confirms SUCCESSFUL status and marks the invoice PAID with a real journal entry', async () => {
-    enableMomo();
+  it('sends a real requesttopay using this tenant\'s own credentials, then confirms SUCCESSFUL status and marks the invoice PAID with a real journal entry', async () => {
+    await enableMomo();
     mockMomoToken();
 
     const invoice = await createInvoice(1000);
@@ -190,6 +194,17 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
     expect(requestRes.body.data.request.status).toBe('PENDING');
     const referenceId = requestRes.body.data.request.referenceId;
     expect(referenceId).toBeTruthy();
+
+    // Assert the mocked axios call actually used this tenant's decrypted
+    // credentials, not some other tenant's or a leftover env var.
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/collection/token/'),
+      {},
+      expect.objectContaining({
+        auth: { username: 'test-api-user', password: 'test-api-key' },
+        headers: expect.objectContaining({ 'Ocp-Apim-Subscription-Key': 'test-subscription-key' }),
+      })
+    );
 
     mockMomoStatus('SUCCESSFUL', { financialTransactionId: 'mtn-fin-txn-123' });
 
@@ -220,7 +235,7 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
   });
 
   it('records a FAILED status without touching the invoice when the customer declines', async () => {
-    enableMomo();
+    await enableMomo();
     mockMomoToken();
 
     const invoice = await createInvoice(400);
@@ -251,7 +266,7 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
   });
 
   it('refuses to request payment against an already-paid invoice', async () => {
-    enableMomo();
+    await enableMomo();
     mockMomoToken();
 
     const invoice = await createInvoice(300);
@@ -275,8 +290,8 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
     expect(secondReq.status).toBe(400);
   });
 
-  it('returns the real merchant wallet balance', async () => {
-    enableMomo();
+  it("returns this tenant's own real merchant wallet balance", async () => {
+    await enableMomo();
     mockMomoToken();
     mockMomoStatus('PENDING');
 
@@ -290,10 +305,8 @@ describe('Mobile Money (MTN MoMo Collections) invoice payment collection', () =>
     expect(res.body.data.balance.currency).toBe('GHS');
   });
 
-  it('returns 503 for the balance endpoint when not configured', async () => {
-    delete process.env.MOMO_SUBSCRIPTION_KEY;
-    delete process.env.MOMO_API_USER;
-    delete process.env.MOMO_API_KEY;
+  it('returns 503 for the balance endpoint when this tenant has not configured Mobile Money', async () => {
+    await disableMomo();
 
     const res = await request(app)
       .get('/api/v1/momo/balance')

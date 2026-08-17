@@ -50,6 +50,21 @@ model Tenant {
   // once saved, only a graSecurityKeyConfigured boolean.
   graDeviceNumber         String?   @map("gra_device_number")
   graSecurityKeyEncrypted String?   @map("gra_security_key_encrypted")
+  // Per-tenant payment-collector credentials, same reasoning as GRA above:
+  // these integrations collect real customer money, so a shared platform-wide
+  // secret would mean every tenant's customer payments land in one Ledgio-
+  // controlled account with no way to route them back out. momoApiUser/
+  // tellerApiUsername/tellerMerchantId are account identifiers (not secrets)
+  // so they're stored plaintext, same convention as graDeviceNumber; the
+  // actual secret keys are AES-256-GCM ciphertext only, never returned by any
+  // API response once saved - only a `*Configured` boolean is.
+  momoApiUser                  String? @map("momo_api_user")
+  momoSubscriptionKeyEncrypted String? @map("momo_subscription_key_encrypted")
+  momoApiKeyEncrypted          String? @map("momo_api_key_encrypted")
+  tellerApiUsername            String? @map("teller_api_username")
+  tellerMerchantId             String? @map("teller_merchant_id")
+  tellerApiKeyEncrypted        String? @map("teller_api_key_encrypted")
+  paystackSecretKeyEncrypted   String? @map("paystack_secret_key_encrypted")
   isLive               Boolean   @default(false) @map("is_live")
   // Owner/manager phone number that automated SMS alerts (till-close
   // summaries, cash shortage warnings) go to. Optional - alerts are skipped

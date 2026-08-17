@@ -1,8 +1,21 @@
 import axios from 'axios';
+import { decryptCredential } from '../utils/credentialEncryption';
 
 const DEFAULT_BASE_URL = 'https://test.theteller.net';
 
 export type TellerNetwork = 'VDF' | 'ATL' | 'TGO' | 'ZPY' | 'GMY';
+
+export interface TellerTenantCredentials {
+  tellerApiUsername: string | null;
+  tellerMerchantId: string | null;
+  tellerApiKeyEncrypted: string | null;
+}
+
+interface ResolvedTellerCredentials {
+  apiUsername: string;
+  apiKey: string;
+  merchantId: string;
+}
 
 export interface TellerProcessInput {
   amount: number;
@@ -29,27 +42,29 @@ export class TellerServiceError extends Error {
 }
 
 /**
- * True only if real TheTeller (PaySwitch) merchant credentials are
- * configured. Callers must check this and refuse to fall back to fake data
- * when false - same contract as isMomoConfigured().
+ * True only if this tenant has their own real TheTeller (PaySwitch) merchant
+ * credentials configured - per-tenant so each tenant's collected customer
+ * payments land in their own PaySwitch merchant account, not a shared
+ * Ledgio one. Callers must check this and refuse to fall back to fake data
+ * when false.
  */
-export function isTellerConfigured(): boolean {
-  return Boolean(process.env.TELLER_API_USERNAME && process.env.TELLER_API_KEY && process.env.TELLER_MERCHANT_ID);
+export function isTellerConfigured(tenant: TellerTenantCredentials): boolean {
+  return Boolean(tenant.tellerApiUsername && tenant.tellerApiKeyEncrypted && tenant.tellerMerchantId);
 }
 
-function config() {
-  const apiUsername = process.env.TELLER_API_USERNAME;
-  const apiKey = process.env.TELLER_API_KEY;
-  const merchantId = process.env.TELLER_MERCHANT_ID;
-  if (!apiUsername || !apiKey || !merchantId) {
-    throw new TellerServiceError('TheTeller Mobile Money integration is not configured for this environment.', 503);
+function resolveCredentials(tenant: TellerTenantCredentials): ResolvedTellerCredentials {
+  if (!isTellerConfigured(tenant)) {
+    throw new TellerServiceError('Mobile Money integration is not configured for this business yet.', 503);
   }
   return {
-    apiUsername,
-    apiKey,
-    merchantId,
-    baseUrl: process.env.TELLER_BASE_URL || DEFAULT_BASE_URL,
+    apiUsername: tenant.tellerApiUsername as string,
+    merchantId: tenant.tellerMerchantId as string,
+    apiKey: decryptCredential(tenant.tellerApiKeyEncrypted as string),
   };
+}
+
+function baseUrl(): string {
+  return process.env.TELLER_BASE_URL || DEFAULT_BASE_URL;
 }
 
 function authHeader(apiUsername: string, apiKey: string): string {
@@ -95,16 +110,16 @@ function mapResult(fallbackTransactionId: string, data: any): TellerTransactionR
  * pending, so any status that isn't a recognized approved/declined code is
  * treated as PENDING and left for checkTransactionStatus to resolve later.
  */
-export async function processTransaction(input: TellerProcessInput): Promise<TellerTransactionResult> {
-  const cfg = config();
+export async function processTransaction(tenant: TellerTenantCredentials, input: TellerProcessInput): Promise<TellerTransactionResult> {
+  const creds = resolveCredentials(tenant);
   const transactionId = generateTransactionId();
 
   try {
     const response = await axios.post(
-      `${cfg.baseUrl}/v1.1/transaction/process`,
+      `${baseUrl()}/v1.1/transaction/process`,
       {
         processing_code: '000200',
-        merchant_id: cfg.merchantId,
+        merchant_id: creds.merchantId,
         transaction_id: transactionId,
         amount: input.amount.toFixed(2),
         subscriber_number: input.phoneNumber,
@@ -113,7 +128,7 @@ export async function processTransaction(input: TellerProcessInput): Promise<Tel
       },
       {
         headers: {
-          Authorization: authHeader(cfg.apiUsername, cfg.apiKey),
+          Authorization: authHeader(creds.apiUsername, creds.apiKey),
           'Content-Type': 'application/json',
         },
       }
@@ -137,11 +152,11 @@ export async function processTransaction(input: TellerProcessInput): Promise<Tel
  * GET /v1.1/users/transactions/{transaction_id}/status - polls the real
  * result of a previously-initiated transaction.
  */
-export async function checkTransactionStatus(transactionId: string): Promise<TellerTransactionResult> {
-  const cfg = config();
+export async function checkTransactionStatus(tenant: TellerTenantCredentials, transactionId: string): Promise<TellerTransactionResult> {
+  const creds = resolveCredentials(tenant);
   try {
-    const response = await axios.get(`${cfg.baseUrl}/v1.1/users/transactions/${transactionId}/status`, {
-      headers: { Authorization: authHeader(cfg.apiUsername, cfg.apiKey) },
+    const response = await axios.get(`${baseUrl()}/v1.1/users/transactions/${transactionId}/status`, {
+      headers: { Authorization: authHeader(creds.apiUsername, creds.apiKey) },
     });
     return mapResult(transactionId, response.data);
   } catch (error: any) {

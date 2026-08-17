@@ -1,9 +1,6 @@
 import { Router, Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { BroadcastService } from '../services/broadcastService';
-import { isMomoConfigured } from '../services/momoService';
-import { isTellerConfigured } from '../services/tellerService';
-import { isPaystackConfigured } from '../services/paystackService';
 import { isMonoConfigured } from '../services/monoService';
 import { isHelpAssistantConfigured } from '../services/helpAssistantService';
 import { isFxConfigured } from '../services/fxRateService';
@@ -19,12 +16,13 @@ function verifyAdminPasscode(req: Request): boolean {
  * GET /api/v1/admin/integrations
  * Platform-wide view of every third-party integration this codebase has -
  * for the Ledgio admin console, not a tenant-facing endpoint (a tenant only
- * ever sees their own GRA/bank-feed status in Settings/Banking). Booleans
- * only, same "never expose the actual credential values" rule as /health's
- * existing email/sms block - this just extends that idea to every
- * integration instead of just those two, plus real per-tenant adoption
- * counts for the two integrations that are configured per-tenant rather
- * than platform-wide (GRA E-VAT, Mono bank feeds).
+ * ever sees their own status in Settings/Banking). Booleans only, same
+ * "never expose the actual credential values" rule as /health's existing
+ * email/sms block. MoMo/TheTeller/Paystack/GRA E-VAT/Mono bank feeds are all
+ * per-tenant integrations (each tenant enters their own merchant
+ * credentials, so their customers' money settles to their own account
+ * instead of a shared Ledgio one) - real adoption counts, not a single
+ * platform boolean.
  */
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   if (!verifyAdminPasscode(req)) {
@@ -51,27 +49,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         ),
       },
       {
-        key: 'momo',
-        name: 'MTN MoMo Collections',
-        purpose: 'Request-to-Pay invoice collection.',
-        configured: isMomoConfigured(),
-      },
-      {
-        key: 'teller',
-        name: 'TheTeller (PaySwitch)',
-        purpose: 'Telecel Cash / AirtelTigo Money / Zeepay / G-Money collection.',
-        configured: isTellerConfigured(),
-      },
-      {
-        key: 'paystack',
-        name: 'Paystack',
-        purpose: 'Hosted pay-now checkout links on invoices.',
-        configured: isPaystackConfigured(),
-      },
-      {
         key: 'mono',
         name: 'Mono (Open Banking)',
-        purpose: 'Real bank-feed connection + transaction sync for reconciliation.',
+        purpose: 'Real bank-feed connection API partner key - individual bank accounts are still linked per-tenant below.',
         configured: isMonoConfigured(),
       },
       {
@@ -89,18 +69,26 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       {
         key: 'credentialEncryption',
         name: 'Credential Encryption',
-        purpose: 'Prerequisite for any tenant to save GRA E-VAT credentials (AES-256-GCM at rest).',
+        purpose: 'Prerequisite for any tenant to save GRA E-VAT/MoMo/TheTeller/Paystack credentials (AES-256-GCM at rest).',
         configured: Boolean(process.env.CREDENTIAL_ENCRYPTION_KEY?.trim()),
       },
     ];
 
-    const [totalTenants, graConfiguredTenants, monoConnectedTenants] = await Promise.all([
-      prisma.tenant.count(),
-      prisma.tenant.count({
-        where: { graTin: { not: null }, graDeviceNumber: { not: null }, graSecurityKeyEncrypted: { not: null } },
-      }),
-      prisma.bankAccount.findMany({ where: { monoAccountId: { not: null } }, select: { tenantId: true }, distinct: ['tenantId'] }),
-    ]);
+    const [totalTenants, graConfiguredTenants, momoConfiguredTenants, tellerConfiguredTenants, paystackConfiguredTenants, monoConnectedTenants] =
+      await Promise.all([
+        prisma.tenant.count(),
+        prisma.tenant.count({
+          where: { graTin: { not: null }, graDeviceNumber: { not: null }, graSecurityKeyEncrypted: { not: null } },
+        }),
+        prisma.tenant.count({
+          where: { momoApiUser: { not: null }, momoSubscriptionKeyEncrypted: { not: null }, momoApiKeyEncrypted: { not: null } },
+        }),
+        prisma.tenant.count({
+          where: { tellerApiUsername: { not: null }, tellerMerchantId: { not: null }, tellerApiKeyEncrypted: { not: null } },
+        }),
+        prisma.tenant.count({ where: { paystackSecretKeyEncrypted: { not: null } } }),
+        prisma.bankAccount.findMany({ where: { monoAccountId: { not: null } }, select: { tenantId: true }, distinct: ['tenantId'] }),
+      ]);
 
     const perTenant = [
       {
@@ -108,6 +96,27 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         name: 'GRA E-VAT / VSDC',
         purpose: 'Real-time certified invoice clearance - each tenant enters their own GRA-issued credentials.',
         tenantsConfigured: graConfiguredTenants,
+        totalTenants,
+      },
+      {
+        key: 'momo',
+        name: 'MTN MoMo Collections',
+        purpose: 'Request-to-Pay invoice collection - each tenant enters their own MTN merchant credentials.',
+        tenantsConfigured: momoConfiguredTenants,
+        totalTenants,
+      },
+      {
+        key: 'teller',
+        name: 'TheTeller (PaySwitch)',
+        purpose: 'Telecel Cash / AirtelTigo Money / Zeepay / G-Money collection - each tenant enters their own PaySwitch merchant credentials.',
+        tenantsConfigured: tellerConfiguredTenants,
+        totalTenants,
+      },
+      {
+        key: 'paystack',
+        name: 'Paystack',
+        purpose: 'Hosted pay-now checkout links on invoices - each tenant enters their own Paystack secret key.',
+        tenantsConfigured: paystackConfiguredTenants,
         totalTenants,
       },
       {

@@ -21,6 +21,16 @@ export interface TenantRecord {
   // routes/tenants.ts).
   graDeviceNumber: string | null;
   graSecurityKeyEncrypted: string | null;
+  // Per-tenant payment-collector credentials - see momoService.ts/
+  // tellerService.ts/paystackService.ts. The *Encrypted fields are
+  // AES-256-GCM ciphertext, same rules as graSecurityKeyEncrypted above.
+  momoApiUser: string | null;
+  momoSubscriptionKeyEncrypted: string | null;
+  momoApiKeyEncrypted: string | null;
+  tellerApiUsername: string | null;
+  tellerMerchantId: string | null;
+  tellerApiKeyEncrypted: string | null;
+  paystackSecretKeyEncrypted: string | null;
   isLive: boolean;
   bossPhone: string | null;
   createdAt: Date;

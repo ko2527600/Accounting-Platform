@@ -6,6 +6,7 @@ import { onboardTenant } from '../services/tenantService';
 import { deleteTenantBySlug, ensureTenantTableExists } from '../repository/tenantRepository';
 import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepository';
 import { dropTenantSchema } from '../database/tenantSchemaManager';
+import { encryptCredential } from '../utils/credentialEncryption';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -46,7 +47,7 @@ function mockPaystackVerify(status: 'success' | 'failed' | 'abandoned', amountSu
   });
 }
 
-describe('Paystack pay-now link on invoices', () => {
+describe('Paystack pay-now link on invoices - per-tenant credentials', () => {
   const runId = Date.now();
   const tenantSlug = `paystack-corp-${runId}`;
   const tenantSchema = `tenant_paystack_corp_${runId}`;
@@ -57,7 +58,6 @@ describe('Paystack pay-now link on invoices', () => {
   let cashAccountId: string;
   let revenueAccountId: string;
   let customerId: string;
-  let originalSecretKey: string | undefined;
 
   async function cleanupTestData() {
     if (tenantId) {
@@ -81,8 +81,18 @@ describe('Paystack pay-now link on invoices', () => {
     return res.body.data.invoice;
   }
 
-  function enablePaystack() {
-    process.env.PAYSTACK_SECRET_KEY = 'sk_test_mock';
+  // This tenant's own Paystack secret key, set directly on the Tenant row
+  // (same as a real tenant saving it in Settings) - proves the per-tenant
+  // credential model, not a shared platform-wide env var.
+  async function enablePaystack() {
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { paystackSecretKeyEncrypted: encryptCredential('sk_test_mock') },
+    });
+  }
+
+  async function disablePaystack() {
+    await prisma.tenant.update({ where: { id: tenantId }, data: { paystackSecretKeyEncrypted: null } });
   }
 
   beforeAll(async () => {
@@ -90,8 +100,6 @@ describe('Paystack pay-now link on invoices', () => {
     await ensureTenantTableExists(prisma);
     await ensureUserTableExists(prisma);
     await cleanupTestData();
-
-    originalSecretKey = process.env.PAYSTACK_SECRET_KEY;
 
     const onboard = await onboardTenant(prisma, {
       companyName: 'Paystack Corp',
@@ -120,13 +128,12 @@ describe('Paystack pay-now link on invoices', () => {
   });
 
   afterAll(async () => {
-    process.env.PAYSTACK_SECRET_KEY = originalSecretKey;
     await cleanupTestData();
     await prisma.$disconnect();
   });
 
-  it('refuses to generate a link (and creates no fake data) when Paystack is not configured', async () => {
-    delete process.env.PAYSTACK_SECRET_KEY;
+  it('refuses to generate a link (and creates no fake data) when this tenant has not configured Paystack', async () => {
+    await disablePaystack();
 
     const invoice = await createInvoice(500);
     const res = await authed(request(app).post(`/api/v1/paystack/invoices/${invoice.id}/initialize`));
@@ -138,7 +145,7 @@ describe('Paystack pay-now link on invoices', () => {
   });
 
   it('refuses to generate a link for an already-paid invoice', async () => {
-    enablePaystack();
+    await enablePaystack();
     mockPaystackInitialize();
 
     const invoice = await createInvoice(150);
@@ -152,8 +159,8 @@ describe('Paystack pay-now link on invoices', () => {
     expect(secondLink.status).toBe(400);
   });
 
-  it('generates a real Paystack payment link for the outstanding balance', async () => {
-    enablePaystack();
+  it("generates a real Paystack payment link using this tenant's own secret key for the outstanding balance", async () => {
+    await enablePaystack();
     mockPaystackInitialize();
 
     const invoice = await createInvoice(1000);
@@ -164,10 +171,16 @@ describe('Paystack pay-now link on invoices', () => {
     expect(Number(res.body.data.request.amount)).toBe(1000);
     expect(res.body.data.request.authorizationUrl).toBe('https://checkout.paystack.com/mock123');
     expect(res.body.data.request.reference).toBeTruthy();
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/transaction/initialize'),
+      expect.anything(),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer sk_test_mock' }) })
+    );
   });
 
   it('verifying a successful transaction marks the invoice PAID with a real journal entry', async () => {
-    enablePaystack();
+    await enablePaystack();
     mockPaystackInitialize();
 
     const invoice = await createInvoice(800);
@@ -197,7 +210,7 @@ describe('Paystack pay-now link on invoices', () => {
   });
 
   it('records a FAILED status without touching the invoice when verification fails', async () => {
-    enablePaystack();
+    await enablePaystack();
     mockPaystackInitialize();
 
     const invoice = await createInvoice(400);
@@ -216,7 +229,7 @@ describe('Paystack pay-now link on invoices', () => {
   });
 
   it('re-verifying an already-successful request is a no-op that does not double-pay', async () => {
-    enablePaystack();
+    await enablePaystack();
     mockPaystackInitialize();
 
     const invoice = await createInvoice(250);

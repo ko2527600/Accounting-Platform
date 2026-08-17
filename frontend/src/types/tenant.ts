@@ -30,13 +30,31 @@ export interface TenantSettings {
   // file - the actual key is write-only, never returned by the API once saved.
   graDeviceNumber: string | null;
   graSecurityKeyConfigured: boolean;
+  // Per-tenant payment-collector credentials (MTN MoMo Collections, TheTeller/
+  // PaySwitch, Paystack) - each tenant enters their own merchant credentials
+  // so customer payments settle to their own account, not a shared Ledgio
+  // one. apiUser/apiUsername/merchantId are account identifiers (not
+  // secrets) so they're returned as-is; the actual keys are write-only,
+  // never returned by the API once saved - only a *Configured boolean is.
+  momoApiUser: string | null;
+  momoConfigured: boolean;
+  tellerApiUsername: string | null;
+  tellerMerchantId: string | null;
+  tellerConfigured: boolean;
+  paystackConfigured: boolean;
   tier: TenantTier;
   updatedAt: string;
 }
 
-export type UpdateTenantSettingsDTO = Partial<Omit<TenantSettings, 'id' | 'updatedAt' | 'tier' | 'graSecurityKeyConfigured'>> & {
-  // Write-only plaintext GRA security_key - encrypted server-side before
-  // storage, never echoed back in any response. Omit to leave the currently
-  // stored key untouched; send '' to clear it.
+export type UpdateTenantSettingsDTO = Partial<
+  Omit<TenantSettings, 'id' | 'updatedAt' | 'tier' | 'graSecurityKeyConfigured' | 'momoConfigured' | 'tellerConfigured' | 'paystackConfigured'>
+> & {
+  // Write-only plaintext secrets - encrypted server-side before storage,
+  // never echoed back in any response. Omit to leave the currently stored
+  // value untouched; send '' to clear it.
   graSecurityKey?: string;
+  momoSubscriptionKey?: string;
+  momoApiKey?: string;
+  tellerApiKey?: string;
+  paystackSecretKey?: string;
 };

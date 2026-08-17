@@ -5,6 +5,7 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
+import * as tenantRepository from '../repository/tenantRepository';
 import * as momoService from '../services/momoService';
 import { MomoServiceError } from '../services/momoService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
@@ -18,22 +19,23 @@ router.use(tenantContextMiddleware);
 
 /**
  * GET /api/v1/momo/balance
- * The tenant's real MTN MoMo merchant wallet balance. This is a
- * platform-wide integration (one set of MTN Collections credentials, same
- * as Mono's single MONO_SECRET_KEY), not per-tenant - every tenant with
- * Mobile Money enabled shares the same underlying MoMo merchant account
- * until per-tenant credential storage is built.
+ * The tenant's real MTN MoMo merchant wallet balance, using this tenant's
+ * own MTN Collections credentials (see momoService.ts) - each tenant's
+ * customer payments land in their own MTN merchant account, not a shared
+ * Ledgio one.
  */
 router.get('/balance', async (req: Request, res: Response): Promise<void> => {
   try {
-    if (!momoService.isMomoConfigured()) {
+    const { tenantId } = requireTenantContext();
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !momoService.isMomoConfigured(tenant)) {
       res.status(503).json({
         success: false,
-        error: 'Mobile Money integration is not configured for this environment.',
+        error: 'Mobile Money integration is not configured for this business yet.',
       });
       return;
     }
-    const balance = await momoService.getAccountBalance();
+    const balance = await momoService.getAccountBalance(tenant);
     res.status(200).json({ success: true, data: { balance } });
   } catch (error: any) {
     console.error('[Momo] Error fetching account balance:', error);
@@ -80,10 +82,11 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     const { invoiceId } = req.params;
     const { phoneNumber } = req.body;
 
-    if (!momoService.isMomoConfigured()) {
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !momoService.isMomoConfigured(tenant)) {
       res.status(503).json({
         success: false,
-        error: 'Mobile Money integration is not configured for this environment.',
+        error: 'Mobile Money integration is not configured for this business yet.',
       });
       return;
     }
@@ -112,7 +115,7 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     const amount = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
     const externalId = `${invoice.invoiceNumber}-${Date.now()}`;
 
-    const { referenceId } = await momoService.requestToPay({
+    const { referenceId } = await momoService.requestToPay(tenant, {
       amount,
       currency: invoice.currency,
       phoneNumber: phoneNumber.trim(),
@@ -175,10 +178,11 @@ router.post('/requests/:referenceId/check-status', requireRole('Accountant'), as
     const { tenantId } = requireTenantContext();
     const { referenceId } = req.params;
 
-    if (!momoService.isMomoConfigured()) {
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !momoService.isMomoConfigured(tenant)) {
       res.status(503).json({
         success: false,
-        error: 'Mobile Money integration is not configured for this environment.',
+        error: 'Mobile Money integration is not configured for this business yet.',
       });
       return;
     }
@@ -197,7 +201,7 @@ router.post('/requests/:referenceId/check-status', requireRole('Accountant'), as
       return;
     }
 
-    const result = await momoService.getTransactionStatus(referenceId);
+    const result = await momoService.getTransactionStatus(tenant, referenceId);
 
     const updated = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).momoPaymentRequest.update({

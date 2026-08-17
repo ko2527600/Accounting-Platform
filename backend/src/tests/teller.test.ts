@@ -6,6 +6,7 @@ import { onboardTenant } from '../services/tenantService';
 import { deleteTenantBySlug, ensureTenantTableExists } from '../repository/tenantRepository';
 import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepository';
 import { dropTenantSchema } from '../database/tenantSchemaManager';
+import { encryptCredential } from '../utils/credentialEncryption';
 
 jest.mock('axios');
 const mockedAxios = axios as jest.Mocked<typeof axios>;
@@ -40,7 +41,7 @@ function mockTellerStatus(status: 'approved' | 'declined' | 'other', extra: any 
   });
 }
 
-describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => {
+describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection - per-tenant credentials', () => {
   const runId = Date.now();
   const tenantSlug = `teller-corp-${runId}`;
   const tenantSchema = `tenant_teller_corp_${runId}`;
@@ -51,9 +52,6 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   let cashAccountId: string;
   let revenueAccountId: string;
   let customerId: string;
-  let originalApiUsername: string | undefined;
-  let originalApiKey: string | undefined;
-  let originalMerchantId: string | undefined;
 
   async function cleanupTestData() {
     if (tenantId) {
@@ -74,10 +72,25 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
     return res.body.data.invoice;
   }
 
-  function enableTeller() {
-    process.env.TELLER_API_USERNAME = 'test-api-username';
-    process.env.TELLER_API_KEY = 'test-api-key';
-    process.env.TELLER_MERCHANT_ID = 'test-merchant-id';
+  // This tenant's own PaySwitch merchant credentials, set directly on the
+  // Tenant row (same as a real tenant saving them in Settings) - proves the
+  // per-tenant credential model, not a shared platform-wide env var.
+  async function enableTeller() {
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        tellerApiUsername: 'test-api-username',
+        tellerMerchantId: 'test-merchant-id',
+        tellerApiKeyEncrypted: encryptCredential('test-api-key'),
+      },
+    });
+  }
+
+  async function disableTeller() {
+    await prisma.tenant.update({
+      where: { id: tenantId },
+      data: { tellerApiUsername: null, tellerMerchantId: null, tellerApiKeyEncrypted: null },
+    });
   }
 
   beforeAll(async () => {
@@ -85,10 +98,6 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
     await ensureTenantTableExists(prisma);
     await ensureUserTableExists(prisma);
     await cleanupTestData();
-
-    originalApiUsername = process.env.TELLER_API_USERNAME;
-    originalApiKey = process.env.TELLER_API_KEY;
-    originalMerchantId = process.env.TELLER_MERCHANT_ID;
 
     const onboard = await onboardTenant(prisma, {
       companyName: 'Teller Corp',
@@ -127,17 +136,12 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   });
 
   afterAll(async () => {
-    process.env.TELLER_API_USERNAME = originalApiUsername;
-    process.env.TELLER_API_KEY = originalApiKey;
-    process.env.TELLER_MERCHANT_ID = originalMerchantId;
     await cleanupTestData();
     await prisma.$disconnect();
   });
 
-  it('refuses to send a request (and creates no fake data) when TheTeller is not configured', async () => {
-    delete process.env.TELLER_API_USERNAME;
-    delete process.env.TELLER_API_KEY;
-    delete process.env.TELLER_MERCHANT_ID;
+  it('refuses to send a request (and creates no fake data) when this tenant has not configured TheTeller', async () => {
+    await disableTeller();
 
     const invoice = await createInvoice(500);
     const res = await request(app)
@@ -157,7 +161,7 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   });
 
   it('rejects a request with no phone number', async () => {
-    enableTeller();
+    await enableTeller();
     const invoice = await createInvoice(500);
     const res = await request(app)
       .post(`/api/v1/teller/invoices/${invoice.id}/request`)
@@ -168,7 +172,7 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   });
 
   it('rejects an invalid network, and specifically rejects MTN (use the MoMo endpoints for MTN)', async () => {
-    enableTeller();
+    await enableTeller();
     const invoice = await createInvoice(500);
 
     const badNetwork = await request(app)
@@ -186,8 +190,8 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
     expect(mtnNetwork.status).toBe(400);
   });
 
-  it('sends a real process request, then confirms SUCCESSFUL status via check-status and marks the invoice PAID with a real journal entry (asynchronous path)', async () => {
-    enableTeller();
+  it('sends a real process request using this tenant\'s own credentials, then confirms SUCCESSFUL status via check-status and marks the invoice PAID with a real journal entry (asynchronous path)', async () => {
+    await enableTeller();
     mockTellerProcess('other'); // simulates a real pending USSD prompt, not resolved synchronously
 
     const invoice = await createInvoice(1000);
@@ -210,6 +214,18 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
     expect(requestRes.body.data.request.network).toBe('VDF');
     const transactionId = requestRes.body.data.request.transactionId;
     expect(transactionId).toBeTruthy();
+
+    // Assert the mocked axios call actually used this tenant's own merchant
+    // id and decrypted key, not some other tenant's.
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      expect.stringContaining('/transaction/process'),
+      expect.objectContaining({ merchant_id: 'test-merchant-id' }),
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from('test-api-username:test-api-key').toString('base64')}`,
+        }),
+      })
+    );
 
     mockTellerStatus('approved', { code: '000' });
 
@@ -239,7 +255,7 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   });
 
   it('marks the invoice PAID immediately when TheTeller resolves synchronously in the request response (no check-status call needed)', async () => {
-    enableTeller();
+    await enableTeller();
     mockTellerProcess('approved', { code: '000' });
 
     const invoice = await createInvoice(750);
@@ -262,7 +278,7 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   });
 
   it('records a FAILED status without touching the invoice when the customer declines', async () => {
-    enableTeller();
+    await enableTeller();
     mockTellerProcess('other');
 
     const invoice = await createInvoice(400);
@@ -293,7 +309,7 @@ describe('Mobile Money (TheTeller/PaySwitch) invoice payment collection', () => 
   });
 
   it('refuses to request payment against an already-paid invoice', async () => {
-    enableTeller();
+    await enableTeller();
     mockTellerProcess('approved', { code: '000' });
 
     const invoice = await createInvoice(300);

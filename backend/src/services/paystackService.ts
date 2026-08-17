@@ -1,6 +1,15 @@
 import axios from 'axios';
+import { decryptCredential } from '../utils/credentialEncryption';
 
 const DEFAULT_BASE_URL = 'https://api.paystack.co';
+
+export interface PaystackTenantCredentials {
+  paystackSecretKeyEncrypted: string | null;
+}
+
+interface ResolvedPaystackCredentials {
+  secretKey: string;
+}
 
 export interface PaystackInitializeInput {
   email: string;
@@ -37,23 +46,25 @@ export class PaystackServiceError extends Error {
 }
 
 /**
- * True only if a real Paystack secret key is configured. Callers must check
- * this and refuse to fall back to fake data when false - same contract as
- * isTellerConfigured()/isMomoConfigured().
+ * True only if this tenant has their own real Paystack secret key
+ * configured - per-tenant so each tenant's collected customer payments
+ * settle to their own Paystack account, not a shared Ledgio one. Callers
+ * must check this and refuse to fall back to fake data when false - same
+ * contract as isTellerConfigured()/isMomoConfigured().
  */
-export function isPaystackConfigured(): boolean {
-  return Boolean(process.env.PAYSTACK_SECRET_KEY);
+export function isPaystackConfigured(tenant: PaystackTenantCredentials): boolean {
+  return Boolean(tenant.paystackSecretKeyEncrypted);
 }
 
-function config() {
-  const secretKey = process.env.PAYSTACK_SECRET_KEY;
-  if (!secretKey) {
-    throw new PaystackServiceError('Paystack integration is not configured for this environment.', 503);
+function resolveCredentials(tenant: PaystackTenantCredentials): ResolvedPaystackCredentials {
+  if (!isPaystackConfigured(tenant)) {
+    throw new PaystackServiceError('Paystack integration is not configured for this business yet.', 503);
   }
-  return {
-    secretKey,
-    baseUrl: process.env.PAYSTACK_BASE_URL || DEFAULT_BASE_URL,
-  };
+  return { secretKey: decryptCredential(tenant.paystackSecretKeyEncrypted as string) };
+}
+
+function baseUrl(): string {
+  return process.env.PAYSTACK_BASE_URL || DEFAULT_BASE_URL;
 }
 
 function authHeader(secretKey: string): string {
@@ -76,11 +87,14 @@ function fromSubunit(amount: number): number {
  * bank transfer. Nothing is marked paid yet; that only happens once
  * verifyTransaction confirms a real "success" status.
  */
-export async function initializeTransaction(input: PaystackInitializeInput): Promise<PaystackInitializeResult> {
-  const cfg = config();
+export async function initializeTransaction(
+  tenant: PaystackTenantCredentials,
+  input: PaystackInitializeInput
+): Promise<PaystackInitializeResult> {
+  const creds = resolveCredentials(tenant);
   try {
     const response = await axios.post(
-      `${cfg.baseUrl}/transaction/initialize`,
+      `${baseUrl()}/transaction/initialize`,
       {
         email: input.email,
         amount: toSubunit(input.amount),
@@ -88,7 +102,7 @@ export async function initializeTransaction(input: PaystackInitializeInput): Pro
         reference: input.reference,
         callback_url: input.callbackUrl,
       },
-      { headers: { Authorization: authHeader(cfg.secretKey), 'Content-Type': 'application/json' } }
+      { headers: { Authorization: authHeader(creds.secretKey), 'Content-Type': 'application/json' } }
     );
     const data = response.data?.data;
     if (!data?.authorization_url) {
@@ -110,11 +124,11 @@ export async function initializeTransaction(input: PaystackInitializeInput): Pro
  * client-side redirect alone) before an invoice is ever marked paid, since
  * the redirect callback is not itself proof of payment.
  */
-export async function verifyTransaction(reference: string): Promise<PaystackVerifyResult> {
-  const cfg = config();
+export async function verifyTransaction(tenant: PaystackTenantCredentials, reference: string): Promise<PaystackVerifyResult> {
+  const creds = resolveCredentials(tenant);
   try {
-    const response = await axios.get(`${cfg.baseUrl}/transaction/verify/${encodeURIComponent(reference)}`, {
-      headers: { Authorization: authHeader(cfg.secretKey) },
+    const response = await axios.get(`${baseUrl()}/transaction/verify/${encodeURIComponent(reference)}`, {
+      headers: { Authorization: authHeader(creds.secretKey) },
     });
     const data = response.data?.data;
     const rawStatus = String(data?.status || '').toLowerCase();

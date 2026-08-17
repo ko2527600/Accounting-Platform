@@ -1,7 +1,20 @@
 import axios from 'axios';
 import crypto from 'crypto';
+import { decryptCredential } from '../utils/credentialEncryption';
 
 const DEFAULT_BASE_URL = 'https://sandbox.momodeveloper.mtn.com';
+
+export interface MomoTenantCredentials {
+  momoApiUser: string | null;
+  momoSubscriptionKeyEncrypted: string | null;
+  momoApiKeyEncrypted: string | null;
+}
+
+interface ResolvedMomoCredentials {
+  apiUser: string;
+  subscriptionKey: string;
+  apiKey: string;
+}
 
 export interface MomoRequestToPayInput {
   amount: number;
@@ -34,58 +47,66 @@ export class MomoServiceError extends Error {
 }
 
 /**
- * True only if real MTN MoMo Collections credentials are configured: a
- * subscription key (Ocp-Apim-Subscription-Key) plus an API user/key pair
- * pre-provisioned once via MTN's POST /v1_0/apiuser and
- * POST /v1_0/apiuser/{userId}/apikey endpoints - that provisioning is a
- * one-time setup step, not something this service does per request.
- * Callers must check this and refuse to fall back to fake data when false.
+ * True only if this tenant has their own real MTN MoMo Collections
+ * credentials configured: a subscription key (Ocp-Apim-Subscription-Key)
+ * plus an API user/key pair the tenant pre-provisioned themselves via MTN's
+ * POST /v1_0/apiuser and POST /v1_0/apiuser/{userId}/apikey endpoints -
+ * per-tenant so each tenant's collected customer payments land in their own
+ * MTN merchant account, not a shared Ledgio one. Callers must check this and
+ * refuse to fall back to fake data when false.
  */
-export function isMomoConfigured(): boolean {
-  return Boolean(process.env.MOMO_SUBSCRIPTION_KEY && process.env.MOMO_API_USER && process.env.MOMO_API_KEY);
+export function isMomoConfigured(tenant: MomoTenantCredentials): boolean {
+  return Boolean(tenant.momoApiUser && tenant.momoSubscriptionKeyEncrypted && tenant.momoApiKeyEncrypted);
 }
 
-function config() {
-  const subscriptionKey = process.env.MOMO_SUBSCRIPTION_KEY;
-  const apiUser = process.env.MOMO_API_USER;
-  const apiKey = process.env.MOMO_API_KEY;
-  if (!subscriptionKey || !apiUser || !apiKey) {
-    throw new MomoServiceError('Mobile Money integration is not configured for this environment.', 503);
+function resolveCredentials(tenant: MomoTenantCredentials): ResolvedMomoCredentials {
+  if (!isMomoConfigured(tenant)) {
+    throw new MomoServiceError('Mobile Money integration is not configured for this business yet.', 503);
   }
   return {
-    subscriptionKey,
-    apiUser,
-    apiKey,
-    baseUrl: process.env.MOMO_BASE_URL || DEFAULT_BASE_URL,
-    targetEnvironment: process.env.MOMO_TARGET_ENVIRONMENT || 'sandbox',
+    apiUser: tenant.momoApiUser as string,
+    subscriptionKey: decryptCredential(tenant.momoSubscriptionKeyEncrypted as string),
+    apiKey: decryptCredential(tenant.momoApiKeyEncrypted as string),
   };
 }
 
-let cachedToken: { value: string; expiresAt: number } | null = null;
+function baseUrl(): string {
+  return process.env.MOMO_BASE_URL || DEFAULT_BASE_URL;
+}
+
+function targetEnvironment(): string {
+  return process.env.MOMO_TARGET_ENVIRONMENT || 'sandbox';
+}
+
+// Per-tenant token cache, keyed by apiUser (unique per tenant's MTN API
+// user). A single global cache would leak one tenant's bearer token into
+// another tenant's requests.
+const tokenCache = new Map<string, { value: string; expiresAt: number }>();
 
 /**
- * POST /collection/token/ - exchanges the pre-provisioned API user/key
- * (Basic Auth) for a short-lived Bearer access token. Cached in-memory
- * until shortly before its real expiry (per MTN's expires_in, typically
- * 3600s) so every requesttopay/status/balance call doesn't re-authenticate.
+ * POST /collection/token/ - exchanges the tenant's pre-provisioned API
+ * user/key (Basic Auth) for a short-lived Bearer access token. Cached
+ * in-memory per tenant until shortly before its real expiry (per MTN's
+ * expires_in, typically 3600s) so every requesttopay/status/balance call
+ * doesn't re-authenticate.
  */
-async function getAccessToken(): Promise<string> {
-  const cfg = config();
-  if (cachedToken && cachedToken.expiresAt > Date.now()) {
-    return cachedToken.value;
+async function getAccessToken(creds: ResolvedMomoCredentials): Promise<string> {
+  const cached = tokenCache.get(creds.apiUser);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
   }
   try {
     const response = await axios.post(
-      `${cfg.baseUrl}/collection/token/`,
+      `${baseUrl()}/collection/token/`,
       {},
       {
-        auth: { username: cfg.apiUser, password: cfg.apiKey },
-        headers: { 'Ocp-Apim-Subscription-Key': cfg.subscriptionKey },
+        auth: { username: creds.apiUser, password: creds.apiKey },
+        headers: { 'Ocp-Apim-Subscription-Key': creds.subscriptionKey },
       }
     );
     const token = response.data.access_token;
     const expiresInSeconds = Number(response.data.expires_in) || 3600;
-    cachedToken = { value: token, expiresAt: Date.now() + (expiresInSeconds - 60) * 1000 };
+    tokenCache.set(creds.apiUser, { value: token, expiresAt: Date.now() + (expiresInSeconds - 60) * 1000 });
     return token;
   } catch (error: any) {
     throw new MomoServiceError(
@@ -102,14 +123,14 @@ async function getAccessToken(): Promise<string> {
  * result later via getTransactionStatus - MTN's Collections API has no
  * synchronous "did it work" response.
  */
-export async function requestToPay(input: MomoRequestToPayInput): Promise<{ referenceId: string }> {
-  const cfg = config();
-  const token = await getAccessToken();
+export async function requestToPay(tenant: MomoTenantCredentials, input: MomoRequestToPayInput): Promise<{ referenceId: string }> {
+  const creds = resolveCredentials(tenant);
+  const token = await getAccessToken(creds);
   const referenceId = crypto.randomUUID();
 
   try {
     await axios.post(
-      `${cfg.baseUrl}/collection/v1_0/requesttopay`,
+      `${baseUrl()}/collection/v1_0/requesttopay`,
       {
         amount: input.amount.toFixed(2),
         currency: input.currency,
@@ -121,8 +142,8 @@ export async function requestToPay(input: MomoRequestToPayInput): Promise<{ refe
       {
         headers: {
           Authorization: `Bearer ${token}`,
-          'Ocp-Apim-Subscription-Key': cfg.subscriptionKey,
-          'X-Target-Environment': cfg.targetEnvironment,
+          'Ocp-Apim-Subscription-Key': creds.subscriptionKey,
+          'X-Target-Environment': targetEnvironment(),
           'X-Reference-Id': referenceId,
           'Content-Type': 'application/json',
         },
@@ -144,15 +165,15 @@ export async function requestToPay(input: MomoRequestToPayInput): Promise<{ refe
  * an account's whole statement), so this per-reference poll is the only way
  * to learn whether the customer approved the prompt.
  */
-export async function getTransactionStatus(referenceId: string): Promise<MomoTransactionStatus> {
-  const cfg = config();
-  const token = await getAccessToken();
+export async function getTransactionStatus(tenant: MomoTenantCredentials, referenceId: string): Promise<MomoTransactionStatus> {
+  const creds = resolveCredentials(tenant);
+  const token = await getAccessToken(creds);
   try {
-    const response = await axios.get(`${cfg.baseUrl}/collection/v1_0/requesttopay/${referenceId}`, {
+    const response = await axios.get(`${baseUrl()}/collection/v1_0/requesttopay/${referenceId}`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        'Ocp-Apim-Subscription-Key': cfg.subscriptionKey,
-        'X-Target-Environment': cfg.targetEnvironment,
+        'Ocp-Apim-Subscription-Key': creds.subscriptionKey,
+        'X-Target-Environment': targetEnvironment(),
       },
     });
     return {
@@ -169,18 +190,18 @@ export async function getTransactionStatus(referenceId: string): Promise<MomoTra
 }
 
 /**
- * GET /collection/v1_0/account/balance - the merchant's real MoMo wallet
+ * GET /collection/v1_0/account/balance - the tenant's real MoMo wallet
  * available balance.
  */
-export async function getAccountBalance(): Promise<MomoAccountBalance> {
-  const cfg = config();
-  const token = await getAccessToken();
+export async function getAccountBalance(tenant: MomoTenantCredentials): Promise<MomoAccountBalance> {
+  const creds = resolveCredentials(tenant);
+  const token = await getAccessToken(creds);
   try {
-    const response = await axios.get(`${cfg.baseUrl}/collection/v1_0/account/balance`, {
+    const response = await axios.get(`${baseUrl()}/collection/v1_0/account/balance`, {
       headers: {
         Authorization: `Bearer ${token}`,
-        'Ocp-Apim-Subscription-Key': cfg.subscriptionKey,
-        'X-Target-Environment': cfg.targetEnvironment,
+        'Ocp-Apim-Subscription-Key': creds.subscriptionKey,
+        'X-Target-Environment': targetEnvironment(),
       },
     });
     return {

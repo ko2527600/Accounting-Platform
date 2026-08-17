@@ -5,6 +5,7 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
+import * as tenantRepository from '../repository/tenantRepository';
 import * as tellerService from '../services/tellerService';
 import { TellerServiceError, TellerNetwork } from '../services/tellerService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
@@ -62,10 +63,11 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     const { invoiceId } = req.params;
     const { phoneNumber, network } = req.body;
 
-    if (!tellerService.isTellerConfigured()) {
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !tellerService.isTellerConfigured(tenant)) {
       res.status(503).json({
         success: false,
-        error: 'Mobile Money integration is not configured for this environment.',
+        error: 'Mobile Money integration is not configured for this business yet.',
       });
       return;
     }
@@ -100,7 +102,7 @@ router.post('/invoices/:invoiceId/request', requireRole('Accountant'), async (re
     // payment must not be re-requested from the customer.
     const amount = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
 
-    const result = await tellerService.processTransaction({
+    const result = await tellerService.processTransaction(tenant, {
       amount,
       phoneNumber: phoneNumber.trim(),
       network,
@@ -176,10 +178,11 @@ router.post('/requests/:transactionId/check-status', requireRole('Accountant'), 
     const { tenantId } = requireTenantContext();
     const { transactionId } = req.params;
 
-    if (!tellerService.isTellerConfigured()) {
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !tellerService.isTellerConfigured(tenant)) {
       res.status(503).json({
         success: false,
-        error: 'Mobile Money integration is not configured for this environment.',
+        error: 'Mobile Money integration is not configured for this business yet.',
       });
       return;
     }
@@ -198,7 +201,7 @@ router.post('/requests/:transactionId/check-status', requireRole('Accountant'), 
       return;
     }
 
-    const result = await tellerService.checkTransactionStatus(transactionId);
+    const result = await tellerService.checkTransactionStatus(tenant, transactionId);
 
     const updated = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).tellerPaymentRequest.update({

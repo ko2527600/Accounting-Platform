@@ -5,6 +5,7 @@ import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
+import * as tenantRepository from '../repository/tenantRepository';
 import * as paystackService from '../services/paystackService';
 import { PaystackServiceError } from '../services/paystackService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
@@ -50,8 +51,9 @@ router.post('/invoices/:invoiceId/initialize', requireRole('Accountant'), async 
     const { tenantId } = requireTenantContext();
     const { invoiceId } = req.params;
 
-    if (!paystackService.isPaystackConfigured()) {
-      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !paystackService.isPaystackConfigured(tenant)) {
+      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this business yet.' });
       return;
     }
 
@@ -81,7 +83,7 @@ router.post('/invoices/:invoiceId/initialize', requireRole('Accountant'), async 
     const amount = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
     const reference = `INV-${invoice.invoiceNumber}-${Date.now()}`;
 
-    const result = await paystackService.initializeTransaction({
+    const result = await paystackService.initializeTransaction(tenant, {
       email: invoice.customer.email,
       amount,
       currency: invoice.currency,
@@ -140,8 +142,9 @@ router.post('/requests/:reference/verify', requireRole('Accountant'), async (req
     const { tenantId } = requireTenantContext();
     const { reference } = req.params;
 
-    if (!paystackService.isPaystackConfigured()) {
-      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant || !paystackService.isPaystackConfigured(tenant)) {
+      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this business yet.' });
       return;
     }
 
@@ -159,7 +162,7 @@ router.post('/requests/:reference/verify', requireRole('Accountant'), async (req
       return;
     }
 
-    const result = await paystackService.verifyTransaction(reference);
+    const result = await paystackService.verifyTransaction(tenant, reference);
     const mappedStatus = result.status === 'success' ? 'SUCCESSFUL' : result.status === 'pending' ? 'PENDING' : 'FAILED';
 
     const updated = await withCurrentTenantDb(prisma, async (client) => {
