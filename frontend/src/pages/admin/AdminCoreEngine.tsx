@@ -345,21 +345,25 @@ export function AdminCoreEngine() {
     }
   };
 
+  // Deliberately plain, low-hype subject/message copy - emoji and
+  // exclamation-heavy "announcement" language reads as promotional/spam to
+  // Gmail's filters (confirmed live via a real broadcast landing in spam -
+  // see broadcastService.ts's header comment and STATUS.md).
   const applyTemplate = (type: "UPGRADE" | "MAINTENANCE" | "NEWS") => {
     if (type === "UPGRADE") {
-      setSubject("🚀 System Upgrade Announcement v2.5");
+      setSubject("System upgrade deployed (v2.5)");
       setMessage(
-        "We have deployed major performance upgrades to Ledgio ERP! Enhancements include faster POS cash till closeouts, real-time inventory re-allocation, and zero-latency SMS warnings."
+        "We've deployed performance upgrades to Ledgio. This includes faster POS till closeouts, real-time inventory re-allocation, and quicker SMS alerts."
       );
     } else if (type === "MAINTENANCE") {
-      setSubject("🛠 Scheduled Maintenance Warning");
+      setSubject("Scheduled maintenance this Sunday");
       setMessage(
         "Ledgio will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
       );
     } else if (type === "NEWS") {
-      setSubject("🎁 New Feature: Automated Weekly Email Reports");
+      setSubject("New feature: automated weekly email reports");
       setMessage(
-        "You can now configure automated Monday 8:00 AM Profit & Loss PDF executive performance statements sent straight to your email inbox! Configure your preferences in Settings."
+        "You can now configure automated Monday 8:00 AM Profit & Loss PDF reports sent to your email. Configure this in Settings."
       );
     }
   };

@@ -74,23 +74,27 @@ export class BroadcastService {
       for (const user of chunk) {
         // Send Email
         if (dto.channel === 'EMAIL' || dto.channel === 'BOTH') {
-          const emailSubject = `📢 Ledgio Notice: ${dto.subject}`;
+          // Deliberately plain, low-hype copy - an emoji-laden "Notice"
+          // subject and "official administrative broadcast... System
+          // Administrators" footer both read as promotional/phishing-style
+          // patterns to Gmail's spam filters (confirmed live: an earlier
+          // version of this template landed in spam sent from a personal
+          // Gmail SMTP account, see STATUS.md). Kept close to how a normal
+          // one-to-one business email reads instead.
+          const emailSubject = `Ledgio: ${dto.subject}`;
           const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-              <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
-                Ledgio System Notice
-              </h2>
               <p style="font-size: 14px; color: #334155; line-height: 1.6;">
-                Hello <strong>${escapeHtml(user.name)}</strong> (${escapeHtml(user.tenant?.name || 'Business Owner')}),
+                Hi ${escapeHtml(user.name)},
               </p>
-              <div style="background-color: #f1f5f9; padding: 15px; border-left: 4px solid #2563eb; border-radius: 4px; margin: 20px 0;">
-                <h3 style="margin-top: 0; color: #1e293b; font-size: 15px;">${escapeHtml(dto.subject)}</h3>
-                <p style="font-size: 13px; color: #475569; white-space: pre-line; margin-bottom: 0;">
-                  ${escapeHtml(dto.message)}
-                </p>
-              </div>
-              <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-                This is an official administrative broadcast sent by <strong>Ledgio ERP System Administrators</strong>.
+              <p style="font-size: 14px; color: #334155; line-height: 1.6; white-space: pre-line;">
+                ${escapeHtml(dto.message)}
+              </p>
+              <p style="font-size: 13px; color: #475569; line-height: 1.6;">
+                - The Ledgio Team
+              </p>
+              <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 20px;">
+                You're receiving this because you're an admin on the ${escapeHtml(user.tenant?.name || 'Ledgio')} workspace.
               </p>
             </div>
           `;
