@@ -22,9 +22,13 @@ function handleError(res: Response, error: any, fallbackMessage: string): void {
 
 /**
  * GET /api/v1/funds
- * Lists all funds for the active tenant.
+ * Lists all funds for the active tenant. Shop Manager needs this too - both
+ * the invoice and vendor-bill creation forms they now have access to
+ * (routes/invoices.ts, routes/bills.ts) offer an optional fund picker for
+ * nonprofit tenants, so this list has to actually load for them (it's
+ * simply empty for a non-nonprofit tenant either way).
  */
-router.get('/', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+router.get('/', requireRole('Viewer', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const funds = await fundService.listFunds(tenantId);

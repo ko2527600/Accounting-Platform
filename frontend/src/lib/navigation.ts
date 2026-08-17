@@ -118,7 +118,7 @@ export const navigationGroups: NavGroup[] = [
 // review set with no operational entry points (POS, Inventory writes,
 // Settings, Team Management).
 export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
-  "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/expenses"],
+  "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/invoices", "/bills", "/expenses"],
   cashier: ["/dashboard", "/inventory", "/pos", "/expenses"],
   hr: ["/dashboard", "/team", "/expenses"],
   auditor: [

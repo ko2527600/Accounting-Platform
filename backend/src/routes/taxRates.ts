@@ -23,9 +23,12 @@ function handleError(res: Response, error: any, fallbackMessage: string): void {
 
 /**
  * GET /api/v1/tax-rates
- * Lists all tax rates for the active tenant.
+ * Lists all tax rates for the active tenant. Shop Manager needs this too -
+ * the invoice-creation form they now have access to (routes/invoices.ts)
+ * lets a tenant pick a specific tax rate, and defaults to the active one
+ * either way, so this list has to actually load for them.
  */
-router.get('/', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+router.get('/', requireRole('Viewer', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const taxRates = await taxRateService.listTaxRates(tenantId);
