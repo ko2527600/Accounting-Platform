@@ -88,12 +88,6 @@ services:
         sync: false
       - key: MONO_WEBHOOK_SECRET
         sync: false
-      - key: TELLER_API_USERNAME
-        sync: false
-      - key: TELLER_API_KEY
-        sync: false
-      - key: TELLER_MERCHANT_ID
-        sync: false
       - key: FX_RATE_API_KEY
         sync: false
       # SendGrid (https://sendgrid.com) HTTP email API - direct SMTP doesn't

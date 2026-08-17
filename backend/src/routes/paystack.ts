@@ -278,7 +278,7 @@ router.post('/invoices/:invoiceId/initialize', requireRole('Accountant'), async 
  * Confirms the real result of a previously-generated payment link directly
  * with Paystack (never trusts a client-side claim of "I paid"). On a
  * verified success, marks the invoice paid through the same shared
- * invoicePaymentService the manual "/pay" route, MoMo, and TheTeller all use.
+ * invoicePaymentService the manual "/pay" route also uses.
  */
 router.post('/requests/:reference/verify', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {

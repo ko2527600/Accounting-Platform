@@ -17,29 +17,29 @@ datasource db {
 }
 
 model Tenant {
-  id                   String    @id @default(uuid())
-  name                 String
-  slug                 String    @unique
-  schema               String    @unique
-  acceptedTermsVersion String?   @map("accepted_terms_version")
-  termsAcceptedAt      DateTime? @map("terms_accepted_at")
-  tier                 Int       @default(1)
-  baseCurrency         String    @default("USD") @map("base_currency")
+  id                      String    @id @default(uuid())
+  name                    String
+  slug                    String    @unique
+  schema                  String    @unique
+  acceptedTermsVersion    String?   @map("accepted_terms_version")
+  termsAcceptedAt         DateTime? @map("terms_accepted_at")
+  tier                    Int       @default(1)
+  baseCurrency            String    @default("USD") @map("base_currency")
   // "BUSINESS" | "NONPROFIT" - chosen once at onboarding, drives which nav
   // sections the frontend shows (hides POS/Inventory for nonprofits, shows
   // Funds). Immutable after onboarding this pass - not editable via
   // PUT /tenants/current. Plain string, not a Prisma enum, matching how
   // `tier`/`baseCurrency` aren't enums either.
-  orgType              String    @default("BUSINESS") @map("org_type")
+  orgType                 String    @default("BUSINESS") @map("org_type")
   // Guided onboarding wizard fields (Phase 3 trust feature). businessType is
   // freeform-ish (e.g. "Sole Proprietor"/"Partnership"/"Limited Company") -
   // not a Prisma enum, same convention as orgType/tier. `isLive` flips true
   // only once the opening-balances step posts a real, server-validated
   // balanced trial balance (see onboardingWizardService.ts) - a hard gate in
   // code, never set directly from a client-supplied boolean.
-  businessType         String?   @map("business_type")
-  vatRegistered        Boolean   @default(false) @map("vat_registered")
-  graTin               String?   @map("gra_tin")
+  businessType            String?   @map("business_type")
+  vatRegistered           Boolean   @default(false) @map("vat_registered")
+  graTin                  String?   @map("gra_tin")
   // GRA VSDC credentials, assigned to this taxpayer directly by GRA during
   // their own onboarding (see graEvatService.ts) - not self-serve, not
   // invented here. graDeviceNumber is the branch/device suffix GRA appends
@@ -50,42 +50,30 @@ model Tenant {
   // once saved, only a graSecurityKeyConfigured boolean.
   graDeviceNumber         String?   @map("gra_device_number")
   graSecurityKeyEncrypted String?   @map("gra_security_key_encrypted")
-  // Per-tenant payment-collector credentials, same reasoning as GRA above:
-  // these integrations collect real customer money, so a shared platform-wide
-  // secret would mean every tenant's customer payments land in one Ledgio-
-  // controlled account with no way to route them back out. momoApiUser/
-  // tellerApiUsername/tellerMerchantId are account identifiers (not secrets)
-  // so they're stored plaintext, same convention as graDeviceNumber; the
-  // actual secret keys are AES-256-GCM ciphertext only, never returned by any
-  // API response once saved - only a `*Configured` boolean is.
-  momoApiUser                  String? @map("momo_api_user")
-  momoSubscriptionKeyEncrypted String? @map("momo_subscription_key_encrypted")
-  momoApiKeyEncrypted          String? @map("momo_api_key_encrypted")
-  tellerApiUsername            String? @map("teller_api_username")
-  tellerMerchantId             String? @map("teller_merchant_id")
-  tellerApiKeyEncrypted        String? @map("teller_api_key_encrypted")
-  // Paystack uses a different model from MoMo/TheTeller above: Ledgio holds
-  // ONE Paystack account (PAYSTACK_SECRET_KEY, platform-wide) and creates a
-  // "subaccount" per tenant via Paystack's own Subaccounts/Split Payments
-  // feature (https://paystack.com/docs/api/subaccount/) - Paystack itself
-  // then auto-splits and settles each payment directly to the tenant's own
-  // bank account. This means a tenant never needs their own Paystack API
-  // credentials at all, just their bank details - a real usability fix,
-  // since most small shop owners can't complete a developer signup. No
-  // secret is stored here: paystackAccountNumber is the tenant's own bank
-  // account number (identifying, not a credential), and paystackAccountName
-  // is Paystack's own resolved name for it (shown back for confirmation).
-  paystackSubaccountCode String? @map("paystack_subaccount_code")
-  paystackBankCode       String? @map("paystack_bank_code")
-  paystackAccountNumber  String? @map("paystack_account_number")
-  paystackAccountName    String? @map("paystack_account_name")
-  isLive               Boolean   @default(false) @map("is_live")
+  // Paystack: Ledgio holds ONE Paystack account (PAYSTACK_SECRET_KEY,
+  // platform-wide) and creates a "subaccount" per tenant via Paystack's own
+  // Subaccounts/Split Payments feature (https://paystack.com/docs/api/subaccount/)
+  // - Paystack itself then auto-splits and settles each payment directly to
+  // the tenant's own bank or Mobile Money account. This means a tenant never
+  // needs their own Paystack API credentials at all, just their bank/MoMo
+  // details - a real usability fix, since most small shop owners can't
+  // complete a developer signup. Also covers all Mobile Money collection
+  // (MTN/AirtelTigo/Telecel Cash go through Paystack's own checkout), so no
+  // separate direct MTN or PaySwitch integration is needed. No secret is
+  // stored here: paystackAccountNumber is the tenant's own bank/MoMo account
+  // number (identifying, not a credential), and paystackAccountName is
+  // Paystack's own resolved name for it (shown back for confirmation).
+  paystackSubaccountCode  String?   @map("paystack_subaccount_code")
+  paystackBankCode        String?   @map("paystack_bank_code")
+  paystackAccountNumber   String?   @map("paystack_account_number")
+  paystackAccountName     String?   @map("paystack_account_name")
+  isLive                  Boolean   @default(false) @map("is_live")
   // Owner/manager phone number that automated SMS alerts (till-close
   // summaries, cash shortage warnings) go to. Optional - alerts are skipped
   // (not sent to a shared/hardcoded fallback) when unset for this tenant.
-  bossPhone            String?   @map("boss_phone")
-  createdAt            DateTime  @default(now()) @map("created_at")
-  updatedAt            DateTime  @updatedAt @map("updated_at")
+  bossPhone               String?   @map("boss_phone")
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt @map("updated_at")
 
   users       User[]
   invitations Invitation[]
@@ -363,12 +351,12 @@ model BankTransaction {
 }
 
 model Customer {
-  id        String   @id @default(uuid())
-  tenantId  String   @map("tenant_id")
-  name      String
-  email     String
-  phone     String?
-  address   String?
+  id          String   @id @default(uuid())
+  tenantId    String   @map("tenant_id")
+  name        String
+  email       String
+  phone       String?
+  address     String?
   // Optional ceiling on this customer's total outstanding balance (sum of
   // every SENT/PARTIALLY_PAID invoice's balance due) - null means no limit
   // (the default, and the only behavior every pre-existing customer had
@@ -382,10 +370,10 @@ model Customer {
   // no TIN on file (e.g. a walk-in/cash customer) - GRA's own official
   // sample requests use "C0000000000" as the standard placeholder for this
   // case, which graEvatService falls back to rather than blocking clearance.
-  tin       String?  @map("tin")
-  createdAt DateTime @default(now()) @map("created_at")
+  tin         String?  @map("tin")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  invoices Invoice[]
+  invoices          Invoice[]
   recurringInvoices RecurringInvoice[]
 
   @@index([tenantId])
@@ -405,24 +393,24 @@ enum GraClearanceStatus {
 }
 
 model Invoice {
-  id                 String   @id @default(uuid())
-  tenantId           String   @map("tenant_id")
-  invoiceNumber      String   @map("invoice_number")
-  customerId         String   @map("customer_id")
-  issueDate          DateTime @default(now()) @map("issue_date")
-  dueDate            DateTime @map("due_date")
-  currency           String   @default("USD")
-  exchangeRate       Decimal  @default(1.0000) @map("exchange_rate") @db.Decimal(10, 4)
-  subtotal           Decimal  @db.Decimal(15, 2)
-  tax                Decimal  @default(0.00) @db.Decimal(15, 2)
-  taxRateId          String?  @map("tax_rate_id")
+  id                 String    @id @default(uuid())
+  tenantId           String    @map("tenant_id")
+  invoiceNumber      String    @map("invoice_number")
+  customerId         String    @map("customer_id")
+  issueDate          DateTime  @default(now()) @map("issue_date")
+  dueDate            DateTime  @map("due_date")
+  currency           String    @default("USD")
+  exchangeRate       Decimal   @default(1.0000) @map("exchange_rate") @db.Decimal(10, 4)
+  subtotal           Decimal   @db.Decimal(15, 2)
+  tax                Decimal   @default(0.00) @db.Decimal(15, 2)
+  taxRateId          String?   @map("tax_rate_id")
   // Snapshot of the tax rate's components at issue time (name/rate/amount per
   // levy), so a later edit to the TaxRate's components never rewrites the
   // history of what was actually charged on this invoice - same reasoning as
   // `subtotal`/`tax`/`total` already being snapshotted rather than derived live.
-  taxBreakdown       Json?    @map("tax_breakdown")
-  total              Decimal  @db.Decimal(15, 2)
-  baseCurrencyAmount Decimal? @map("base_currency_amount") @db.Decimal(15, 2)
+  taxBreakdown       Json?     @map("tax_breakdown")
+  total              Decimal   @db.Decimal(15, 2)
+  baseCurrencyAmount Decimal?  @map("base_currency_amount") @db.Decimal(15, 2)
   // Cumulative amount actually received against this invoice, in the
   // invoice's own (native) currency - same currency `total` is in, not
   // `baseCurrencyAmount`. Each InvoicePayment row is the audit trail of how
@@ -431,8 +419,8 @@ model Invoice {
   // time. status moves DRAFT -> SENT -> PARTIALLY_PAID -> PAID as this
   // grows from 0 to total (a credit note can also move it back down - see
   // creditDebitNoteService.ts).
-  amountPaid         Decimal  @default(0.00) @map("amount_paid") @db.Decimal(15, 2)
-  status             String   @default("DRAFT")
+  amountPaid         Decimal   @default(0.00) @map("amount_paid") @db.Decimal(15, 2)
+  status             String    @default("DRAFT")
   // When the invoice document was last actually emailed to the customer -
   // distinct from `status`, which already gets set to "SENT" at creation
   // regardless of whether any email was ever sent (see invoices.ts's create
@@ -443,18 +431,18 @@ model Invoice {
   // invoice - used to dedup the daily DunningReminderCronService sweep so an
   // overdue invoice isn't re-emailed more than once per day.
   lastReminderSentAt DateTime? @map("last_reminder_sent_at")
-  journalId          String?  @map("journal_id")
+  journalId          String?   @map("journal_id")
   // Optional restricted/unrestricted fund this invoice's revenue belongs to
   // (fund accounting for nonprofit tenants) - flows onto every journal line
   // posted at payment time (see invoicePaymentService.markInvoicePaid), so
   // the whole payment stays within one fund by construction.
-  fundId             String?  @map("fund_id")
+  fundId             String?   @map("fund_id")
   // Set together, only on an itemized invoice (mirrors VendorBill's
   // warehouseId/lines shape for the purchase side) - the shop/warehouse
   // stock is deducted from at issue time. Null/false on a plain "Simple
   // Invoice" line-item-only-in-name record with no real stock effect.
-  warehouseId        String?  @map("warehouse_id")
-  stockDeducted      Boolean  @default(false) @map("stock_deducted")
+  warehouseId        String?   @map("warehouse_id")
+  stockDeducted      Boolean   @default(false) @map("stock_deducted")
 
   // GRA E-VAT (Certified Invoicing System / VSDC) compliance fields - see
   // GRA/AG/2024/005 S7(3) for the 5 statutorily-required elements a
@@ -464,34 +452,32 @@ model Invoice {
   // service's doc comment), so these stay null/NOT_REQUESTED for every
   // invoice today; the schema exists so the real integration is a small,
   // isolated change once GRA's API documentation is in hand, not a redesign.
-  graClearanceStatus GraClearanceStatus @default(NOT_REQUESTED) @map("gra_clearance_status")
+  graClearanceStatus      GraClearanceStatus @default(NOT_REQUESTED) @map("gra_clearance_status")
   // GRA's "verification engine ID" (their term, GRA/AG/2024/005 S7(3)(o)) -
   // the unique reference a cleared invoice is identified by.
-  graVerificationEngineId String? @map("gra_verification_engine_id")
-  graQrCodeData      String?  @map("gra_qr_code_data")
-  graSignature       String?  @map("gra_signature")
-  graEncryptedData   String?  @map("gra_encrypted_data")
-  graClearedAt       DateTime? @map("gra_cleared_at")
-  graClearanceError  String?  @map("gra_clearance_error")
+  graVerificationEngineId String?            @map("gra_verification_engine_id")
+  graQrCodeData           String?            @map("gra_qr_code_data")
+  graSignature            String?            @map("gra_signature")
+  graEncryptedData        String?            @map("gra_encrypted_data")
+  graClearedAt            DateTime?          @map("gra_cleared_at")
+  graClearanceError       String?            @map("gra_clearance_error")
 
-  createdAt          DateTime @default(now()) @map("created_at")
+  createdAt   DateTime @default(now()) @map("created_at")
   // Client-generated dedup key for offline-queued/retried invoice creation
   // (local-first sync pilot, see STATUS.md) - same pattern already proven
   // by CashSale.clientTxnId, generalized here so a flaky-network sync retry
   // can safely replay-and-return-existing instead of creating a duplicate
   // invoice (the old `INV-${Date.now()}-${random}` number alone offered no
   // such guarantee).
-  clientTxnId        String?  @map("client_txn_id")
+  clientTxnId String?  @map("client_txn_id")
 
-  customer     Customer             @relation(fields: [customerId], references: [id], onDelete: Cascade)
-  taxRate      TaxRate?             @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
-  fund         Fund?                @relation(fields: [fundId], references: [id], onDelete: SetNull)
-  warehouse    Warehouse?           @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
-  items        InvoiceItem[]
-  creditNotes  CreditNote[]
+  customer         Customer                 @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  taxRate          TaxRate?                 @relation(fields: [taxRateId], references: [id], onDelete: SetNull)
+  fund             Fund?                    @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  warehouse        Warehouse?               @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  items            InvoiceItem[]
+  creditNotes      CreditNote[]
   payments         InvoicePayment[]
-  momoRequests     MomoPaymentRequest[]
-  tellerRequests   TellerPaymentRequest[]
   paystackRequests PaystackPaymentRequest[]
 
   @@unique([tenantId, invoiceNumber])
@@ -535,80 +521,13 @@ model InvoicePayment {
   @@map("invoice_payments")
 }
 
-// A real MTN Mobile Money "Request to Pay" collection attempt against an
-// invoice - the customer gets a USSD prompt on their phone to approve. MTN's
-// Collections API has no bulk transaction-history endpoint (unlike Mono's
-// bank-feed model), so each attempt is tracked individually here and its
-// result learned by polling GET requesttopay/{referenceId}, not by syncing a
-// statement. referenceId is the caller-generated X-Reference-Id (a UUID)
-// used as the MTN-side handle; externalId is our own invoice-linked
-// reference sent in the request body.
-model MomoPaymentRequest {
-  id                     String   @id @default(uuid())
-  tenantId               String   @map("tenant_id")
-  invoiceId              String   @map("invoice_id")
-  phoneNumber            String   @map("phone_number")
-  amount                 Decimal  @db.Decimal(15, 2)
-  currency               String   @default("GHS")
-  referenceId            String   @unique @map("reference_id")
-  externalId             String   @map("external_id")
-  status                 String   @default("PENDING")
-  financialTransactionId String?  @map("financial_transaction_id")
-  failureReason          String?  @map("failure_reason")
-  createdAt              DateTime @default(now()) @map("created_at")
-  updatedAt              DateTime @updatedAt @map("updated_at")
-
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
-  @@index([tenantId])
-  @@index([invoiceId])
-  @@index([status])
-  @@map("momo_payment_requests")
-}
-
-// A real TheTeller (PaySwitch) mobile money debit attempt against an
-// invoice - covers the networks MTN's own direct MoMo integration above
-// doesn't: Telecel Cash, AirtelTigo Money, Zeepay, G-Money, selected via
-// `network` (MTN is deliberately excluded here - use MomoPaymentRequest for
-// MTN, so the same real-world network never produces two differently-shaped
-// payment-request rows across two tables). Unlike MTN's always-202-then-poll
-// flow, TheTeller's process endpoint can return a synchronous
-// approved/declined result in the same HTTP response - but a real
-// USSD-prompt approval flow means a pending outcome is still realistically
-// possible, so this is tracked and polled exactly like MoMo for UX
-// consistency and as a hedge against an undocumented pending state.
-// transactionId is TheTeller's own caller-generated 12-digit numeric
-// reference (their `transaction_id`), not a UUID like MTN's referenceId.
-model TellerPaymentRequest {
-  id            String   @id @default(uuid())
-  tenantId      String   @map("tenant_id")
-  invoiceId     String   @map("invoice_id")
-  network       String   @map("network")
-  phoneNumber   String   @map("phone_number")
-  amount        Decimal  @db.Decimal(15, 2)
-  currency      String   @default("GHS")
-  transactionId String   @unique @map("transaction_id")
-  status        String   @default("PENDING")
-  responseCode  String?  @map("response_code")
-  failureReason String?  @map("failure_reason")
-  createdAt     DateTime @default(now()) @map("created_at")
-  updatedAt     DateTime @updatedAt @map("updated_at")
-
-  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
-
-  @@index([tenantId])
-  @@index([invoiceId])
-  @@index([status])
-  @@map("teller_payment_requests")
-}
-
 // One row per Paystack hosted-checkout "Pay Now" link generated for an
-// invoice - the card/bank-rail counterpart to MomoPaymentRequest/
-// TellerPaymentRequest's mobile-money flow. reference is the value Paystack
-// itself uses to identify the transaction (sent as our own generated string
-// at initialize time, echoed back on both the redirect callback and the
-// verify API), so it's unique per tenant the same way transactionId is on
-// TellerPaymentRequest.
+// invoice - card, bank transfer, or Mobile Money (MTN/AirtelTigo/Telecel
+// Cash, all handled by Paystack's own checkout, no separate direct-MTN or
+// PaySwitch integration needed). reference is the value Paystack itself
+// uses to identify the transaction (sent as our own generated string at
+// initialize time, echoed back on both the redirect callback and the verify
+// API), so it's unique per tenant.
 model PaystackPaymentRequest {
   id               String   @id @default(uuid())
   tenantId         String   @map("tenant_id")
@@ -665,13 +584,13 @@ model CreditNote {
 }
 
 model InvoiceItem {
-  id          String  @id @default(uuid())
-  tenantId    String  @map("tenant_id")
-  invoiceId   String  @map("invoice_id")
-  description String
-  quantity    Decimal @db.Decimal(10, 2)
-  unitPrice   Decimal @map("unit_price") @db.Decimal(15, 2)
-  amount      Decimal @db.Decimal(15, 2)
+  id              String  @id @default(uuid())
+  tenantId        String  @map("tenant_id")
+  invoiceId       String  @map("invoice_id")
+  description     String
+  quantity        Decimal @db.Decimal(10, 2)
+  unitPrice       Decimal @map("unit_price") @db.Decimal(15, 2)
+  amount          Decimal @db.Decimal(15, 2)
   // Set only on an itemized invoice (Invoice.warehouseId is also set in that
   // case) - links this line to a real Chart of Accounts-adjacent inventory
   // item so its stock can be deducted at issue time. Null on a plain/simple
@@ -695,8 +614,8 @@ model Vendor {
   address   String?
   createdAt DateTime @default(now()) @map("created_at")
 
-  bills VendorBill[]
-  purchaseOrders PurchaseOrder[]
+  bills             VendorBill[]
+  purchaseOrders    PurchaseOrder[]
   preferredForItems InventoryItem[]
 
   @@index([tenantId])
@@ -750,12 +669,12 @@ model VendorBill {
   // manual action.
   scheduledPaymentDate DateTime? @map("scheduled_payment_date")
 
-  vendor     Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
-  warehouse  Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
-  fund       Fund?            @relation(fields: [fundId], references: [id], onDelete: SetNull)
-  purchaseOrder PurchaseOrder? @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
-  lines      VendorBillLine[]
-  debitNotes DebitNote[]
+  vendor        Vendor           @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  warehouse     Warehouse?       @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  fund          Fund?            @relation(fields: [fundId], references: [id], onDelete: SetNull)
+  purchaseOrder PurchaseOrder?   @relation(fields: [purchaseOrderId], references: [id], onDelete: SetNull)
+  lines         VendorBillLine[]
+  debitNotes    DebitNote[]
 
   landedCostForBill VendorBill?  @relation("LandedCostLink", fields: [landedCostForBillId], references: [id], onDelete: SetNull)
   landedCostBills   VendorBill[] @relation("LandedCostLink")
@@ -884,15 +803,15 @@ model Warehouse {
   isPrimary   Boolean  @default(false) @map("is_primary")
   createdAt   DateTime @default(now()) @map("created_at")
 
-  stocks        WarehouseStock[]
-  fromTransfers StockTransfer[]       @relation("FromWarehouse")
-  toTransfers   StockTransfer[]       @relation("ToWarehouse")
-  tills         CashTill[]
-  closeouts     DailyCloseoutReport[]
-  adjustments   StockAdjustment[]
-  userAccess    WarehouseAccess[]
-  vendorBills   VendorBill[]
-  invoices      Invoice[]
+  stocks         WarehouseStock[]
+  fromTransfers  StockTransfer[]       @relation("FromWarehouse")
+  toTransfers    StockTransfer[]       @relation("ToWarehouse")
+  tills          CashTill[]
+  closeouts      DailyCloseoutReport[]
+  adjustments    StockAdjustment[]
+  userAccess     WarehouseAccess[]
+  vendorBills    VendorBill[]
+  invoices       Invoice[]
   purchaseOrders PurchaseOrder[]
 
   @@unique([tenantId, code])
@@ -901,29 +820,29 @@ model Warehouse {
 }
 
 model InventoryItem {
-  id            String   @id @default(uuid())
-  tenantId      String   @map("tenant_id")
-  sku           String
-  name          String
-  category      String   @default("General")
-  unitOfMeasure String   @default("pcs") @map("unit_of_measure")
-  costPrice     Decimal  @map("cost_price") @db.Decimal(15, 2)
-  sellingPrice  Decimal  @map("selling_price") @db.Decimal(15, 2)
-  reorderLevel  Int      @default(10) @map("reorder_level")
+  id                String   @id @default(uuid())
+  tenantId          String   @map("tenant_id")
+  sku               String
+  name              String
+  category          String   @default("General")
+  unitOfMeasure     String   @default("pcs") @map("unit_of_measure")
+  costPrice         Decimal  @map("cost_price") @db.Decimal(15, 2)
+  sellingPrice      Decimal  @map("selling_price") @db.Decimal(15, 2)
+  reorderLevel      Int      @default(10) @map("reorder_level")
   // Which vendor to auto-draft a reorder PO to when this item's stock falls
   // below reorderLevel (see POST /purchase-orders/generate-for-reorder) -
   // optional; an item with no preferred vendor is simply skipped by that
   // endpoint (reported back, not silently dropped) rather than guessing
   // which vendor to order from.
-  preferredVendorId String? @map("preferred_vendor_id")
-  createdAt     DateTime @default(now()) @map("created_at")
+  preferredVendorId String?  @map("preferred_vendor_id")
+  createdAt         DateTime @default(now()) @map("created_at")
 
-  warehouseStocks WarehouseStock[]
-  adjustments     StockAdjustment[]
-  vendorBillLines VendorBillLine[]
-  invoiceLines    InvoiceItem[]
+  warehouseStocks    WarehouseStock[]
+  adjustments        StockAdjustment[]
+  vendorBillLines    VendorBillLine[]
+  invoiceLines       InvoiceItem[]
   purchaseOrderLines PurchaseOrderLine[]
-  preferredVendor Vendor? @relation(fields: [preferredVendorId], references: [id], onDelete: SetNull)
+  preferredVendor    Vendor?             @relation(fields: [preferredVendorId], references: [id], onDelete: SetNull)
 
   @@unique([tenantId, sku])
   @@index([tenantId])
@@ -1026,30 +945,30 @@ enum CashSaleStatus {
 }
 
 model CashSale {
-  id              String         @id @default(uuid())
-  tenantId        String         @map("tenant_id")
-  tillId          String         @map("till_id")
-  receiptNo       String         @map("receipt_no")
-  amount          Decimal        @db.Decimal(15, 2)
-  cashGiven       Decimal        @map("cash_given") @db.Decimal(15, 2)
-  changeGiven     Decimal        @map("change_given") @db.Decimal(15, 2)
-  status          CashSaleStatus @default(COMPLETED)
-  createdByUserId String?        @map("created_by_user_id")
-  createdByName   String?        @map("created_by_name")
-  voidedAt        DateTime?      @map("voided_at")
-  voidedByUserId  String?        @map("voided_by_user_id")
-  voidedByName    String?        @map("voided_by_name")
-  voidReason      String?        @map("void_reason")
-  createdAt       DateTime       @default(now()) @map("created_at")
+  id               String         @id @default(uuid())
+  tenantId         String         @map("tenant_id")
+  tillId           String         @map("till_id")
+  receiptNo        String         @map("receipt_no")
+  amount           Decimal        @db.Decimal(15, 2)
+  cashGiven        Decimal        @map("cash_given") @db.Decimal(15, 2)
+  changeGiven      Decimal        @map("change_given") @db.Decimal(15, 2)
+  status           CashSaleStatus @default(COMPLETED)
+  createdByUserId  String?        @map("created_by_user_id")
+  createdByName    String?        @map("created_by_name")
+  voidedAt         DateTime?      @map("voided_at")
+  voidedByUserId   String?        @map("voided_by_user_id")
+  voidedByName     String?        @map("voided_by_name")
+  voidReason       String?        @map("void_reason")
+  createdAt        DateTime       @default(now()) @map("created_at")
   // Client-generated dedup key for offline-queued/retried sale submissions -
   // lets POST /tills/sales safely replay-and-return-existing instead of
   // double-processing (see @@unique below, enforced at the DB level since a
   // pre-check alone isn't race-safe under Read Committed isolation).
-  clientTxnId String? @map("client_txn_id")
+  clientTxnId      String?        @map("client_txn_id")
   // When the sale actually happened on the device, distinct from createdAt
   // (true row-insert time) - populated for offline-queued sales synced after
   // the fact, so void-stats time-bucketing reflects the real shift.
-  clientOccurredAt DateTime? @map("client_occurred_at")
+  clientOccurredAt DateTime?      @map("client_occurred_at")
 
   till  CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
   lines CashSaleLine[]
@@ -1428,10 +1347,10 @@ enum FixedAssetStatus {
 // actually paid; buying a fixed asset on extended vendor credit terms is
 // out of scope for this pass.
 model FixedAsset {
-  id        String @id @default(uuid())
-  tenantId  String @map("tenant_id")
-  name      String
-  category  String?
+  id           String  @id @default(uuid())
+  tenantId     String  @map("tenant_id")
+  name         String
+  category     String?
   serialNumber String? @map("serial_number")
 
   acquisitionDate DateTime @map("acquisition_date")
@@ -1440,25 +1359,25 @@ model FixedAsset {
   // net book value below this floor. Defaults to 0 (fully written off).
   residualValue   Decimal  @default(0.00) @map("residual_value") @db.Decimal(15, 2)
 
-  depreciationMethod DepreciationMethod @map("depreciation_method")
+  depreciationMethod      DepreciationMethod @map("depreciation_method")
   // Required for STRAIGHT_LINE: (cost - residualValue) / usefulLifeMonths per month.
-  usefulLifeMonths   Int?               @map("useful_life_months")
+  usefulLifeMonths        Int?               @map("useful_life_months")
   // Required for REDUCING_BALANCE: an explicit annual rate applied to net
   // book value each month (rate/100/12) - not derived from residualValue,
   // which would need a residual > 0 and a less transparent formula.
-  depreciationRatePercent Decimal?      @map("depreciation_rate_percent") @db.Decimal(5, 2)
+  depreciationRatePercent Decimal?           @map("depreciation_rate_percent") @db.Decimal(5, 2)
 
   accumulatedDepreciation Decimal   @default(0.00) @map("accumulated_depreciation") @db.Decimal(15, 2)
   // First-of-month marker for the last period actually depreciated - the
   // cron's idempotency guard alongside DepreciationEntry's own unique index.
   lastDepreciatedThrough  DateTime? @map("last_depreciated_through")
 
-  status         FixedAssetStatus @default(ACTIVE)
-  disposalDate   DateTime?        @map("disposal_date")
-  disposalNotes  String?          @map("disposal_notes")
+  status        FixedAssetStatus @default(ACTIVE)
+  disposalDate  DateTime?        @map("disposal_date")
+  disposalNotes String?          @map("disposal_notes")
 
-  assetAccountId   String  @map("asset_account_id")
-  paymentAccountId String  @map("payment_account_id")
+  assetAccountId       String  @map("asset_account_id")
+  paymentAccountId     String  @map("payment_account_id")
   acquisitionJournalId String? @map("acquisition_journal_id")
 
   notes     String?

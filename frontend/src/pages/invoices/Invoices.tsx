@@ -11,7 +11,7 @@ import { api } from "../../lib/api";
 import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, Smartphone, Wallet, RefreshCw, History, Mail, ChevronDown, ShieldCheck } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, RefreshCw, History, Mail, ChevronDown, ShieldCheck } from "lucide-react";
 
 interface Customer {
   id: string;
@@ -109,27 +109,6 @@ interface InvoicePaymentRecord {
   createdAt: string;
 }
 
-interface MomoRequest {
-  id: string;
-  referenceId: string;
-  phoneNumber: string;
-  amount: number;
-  status: "PENDING" | "SUCCESSFUL" | "FAILED";
-  failureReason: string | null;
-  createdAt: string;
-}
-
-interface TellerRequest {
-  id: string;
-  transactionId: string;
-  network: string;
-  phoneNumber: string;
-  amount: number;
-  status: "PENDING" | "SUCCESSFUL" | "FAILED";
-  failureReason: string | null;
-  createdAt: string;
-}
-
 interface PaystackRequest {
   id: string;
   reference: string;
@@ -139,14 +118,6 @@ interface PaystackRequest {
   failureReason: string | null;
   createdAt: string;
 }
-
-const TELLER_NETWORKS: { value: string; label: string }[] = [
-  { value: "VDF", label: "Telecel Cash" },
-  { value: "ATL", label: "AirtelTigo Money (Airtel)" },
-  { value: "TGO", label: "AirtelTigo Money (Tigo)" },
-  { value: "ZPY", label: "Zeepay" },
-  { value: "GMY", label: "G-Money" },
-];
 
 export function Invoices() {
   const { showToast } = useToast();
@@ -211,22 +182,7 @@ export function Invoices() {
   const [paymentHistory, setPaymentHistory] = useState<InvoicePaymentRecord[]>([]);
   const [isLoadingPaymentHistory, setIsLoadingPaymentHistory] = useState(false);
 
-  // Mobile Money (MTN MoMo) collection modal
-  const [momoInvoice, setMomoInvoice] = useState<Invoice | null>(null);
-  const [momoRequests, setMomoRequests] = useState<MomoRequest[]>([]);
-  const [momoPhone, setMomoPhone] = useState("");
-  const [isSendingMomo, setIsSendingMomo] = useState(false);
-  const [checkingReferenceId, setCheckingReferenceId] = useState<string | null>(null);
-
-  // Mobile Money (TheTeller: Telecel/AirtelTigo/Zeepay/G-Money) collection modal
-  const [tellerInvoice, setTellerInvoice] = useState<Invoice | null>(null);
-  const [tellerRequests, setTellerRequests] = useState<TellerRequest[]>([]);
-  const [tellerPhone, setTellerPhone] = useState("");
-  const [tellerNetwork, setTellerNetwork] = useState("VDF");
-  const [isSendingTeller, setIsSendingTeller] = useState(false);
-  const [checkingTellerTxnId, setCheckingTellerTxnId] = useState<string | null>(null);
-
-  // Paystack "Pay Now" link (card/bank transfer) collection modal
+  // Paystack "Pay Now" link (card/bank transfer/Mobile Money) collection modal
   const [paystackInvoice, setPaystackInvoice] = useState<Invoice | null>(null);
   const [paystackRequests, setPaystackRequests] = useState<PaystackRequest[]>([]);
   const [isGeneratingPaystackLink, setIsGeneratingPaystackLink] = useState(false);
@@ -485,126 +441,6 @@ export function Invoices() {
       showToast(err.response?.data?.error || "Failed to issue credit note.", "error");
     } finally {
       setIsIssuingCredit(false);
-    }
-  };
-
-  const openMomoModal = async (invoice: Invoice) => {
-    setMomoInvoice(invoice);
-    setMomoPhone("");
-    setMomoRequests([]);
-    try {
-      const res = await api.get(`/momo/invoices/${invoice.id}/requests`);
-      if (res.data.success) setMomoRequests(res.data.data.requests);
-    } catch (err) {
-      console.error("Failed to load Mobile Money request history:", err);
-    }
-  };
-
-  const handleSendMomoRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!momoInvoice) return;
-    setIsSendingMomo(true);
-    try {
-      const res = await api.post(`/momo/invoices/${momoInvoice.id}/request`, { phoneNumber: momoPhone });
-      if (res.data.success) {
-        showToast("MTN MoMo payment request sent. The customer must approve it on their phone.", "success");
-        setMomoRequests((prev) => [res.data.data.request, ...prev]);
-        setMomoPhone("");
-      }
-    } catch (err: any) {
-      showToast(err.response?.data?.error || "Failed to send Mobile Money payment request.", "error");
-    } finally {
-      setIsSendingMomo(false);
-    }
-  };
-
-  const handleCheckMomoStatus = async (referenceId: string) => {
-    setCheckingReferenceId(referenceId);
-    try {
-      const res = await api.post(`/momo/requests/${referenceId}/check-status`);
-      if (res.data.success) {
-        setMomoRequests((prev) => prev.map((r) => (r.referenceId === referenceId ? res.data.data.request : r)));
-        if (res.data.data.request.status === "SUCCESSFUL") {
-          showToast("Payment confirmed - invoice marked PAID.", "success");
-          setMomoInvoice(null);
-          resyncInvoicesFromServer();
-        } else if (res.data.data.request.status === "FAILED") {
-          showToast("Payment was not successful. See the reason below.", "error");
-        } else {
-          showToast("Still pending - the customer hasn't approved the prompt yet.", "info");
-        }
-      }
-    } catch (err: any) {
-      showToast(err.response?.data?.error || "Failed to check Mobile Money payment status.", "error");
-    } finally {
-      setCheckingReferenceId(null);
-    }
-  };
-
-  const openTellerModal = async (invoice: Invoice) => {
-    setTellerInvoice(invoice);
-    setTellerPhone("");
-    setTellerNetwork("VDF");
-    setTellerRequests([]);
-    try {
-      const res = await api.get(`/teller/invoices/${invoice.id}/requests`);
-      if (res.data.success) setTellerRequests(res.data.data.requests);
-    } catch (err) {
-      console.error("Failed to load Mobile Money request history:", err);
-    }
-  };
-
-  const handleSendTellerRequest = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!tellerInvoice) return;
-    setIsSendingTeller(true);
-    try {
-      const res = await api.post(`/teller/invoices/${tellerInvoice.id}/request`, {
-        phoneNumber: tellerPhone,
-        network: tellerNetwork,
-      });
-      if (res.data.success) {
-        setTellerRequests((prev) => [res.data.data.request, ...prev]);
-        setTellerPhone("");
-        // TheTeller can resolve synchronously in this same response, unlike
-        // MTN MoMo's always-pending-until-checked flow.
-        if (res.data.data.request.status === "SUCCESSFUL") {
-          showToast("Payment confirmed immediately - invoice marked PAID.", "success");
-          setTellerInvoice(null);
-          resyncInvoicesFromServer();
-        } else {
-          showToast("Mobile Money payment request sent. The customer must approve it on their phone.", "success");
-        }
-      }
-    } catch (err: any) {
-      showToast(err.response?.data?.error || "Failed to send Mobile Money payment request.", "error");
-    } finally {
-      setIsSendingTeller(false);
-    }
-  };
-
-  const handleCheckTellerStatus = async (transactionId: string) => {
-    setCheckingTellerTxnId(transactionId);
-    try {
-      const res = await api.post(`/teller/requests/${transactionId}/check-status`);
-      if (res.data.success) {
-        setTellerRequests((prev) =>
-          prev.map((r) => (r.transactionId === transactionId ? res.data.data.request : r))
-        );
-        if (res.data.data.request.status === "SUCCESSFUL") {
-          showToast("Payment confirmed - invoice marked PAID.", "success");
-          setTellerInvoice(null);
-          resyncInvoicesFromServer();
-        } else if (res.data.data.request.status === "FAILED") {
-          showToast("Payment was not successful. See the reason below.", "error");
-        } else {
-          showToast("Still pending - the customer hasn't approved the prompt yet.", "info");
-        }
-      }
-    } catch (err: any) {
-      showToast(err.response?.data?.error || "Failed to check Mobile Money payment status.", "error");
-    } finally {
-      setCheckingTellerTxnId(null);
     }
   };
 
@@ -904,24 +740,6 @@ export function Invoices() {
                               >
                                 <History className="mr-2 h-3 w-3" />
                                 Payment History
-                              </button>
-                            )}
-                            {inv.status !== "PAID" && inv.status !== "DRAFT" && (
-                              <button
-                                onClick={() => { setOpenActionsMenuId(null); openMomoModal(inv); }}
-                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
-                              >
-                                <Smartphone className="mr-2 h-3 w-3" />
-                                Collect via MoMo
-                              </button>
-                            )}
-                            {inv.status !== "PAID" && inv.status !== "DRAFT" && (
-                              <button
-                                onClick={() => { setOpenActionsMenuId(null); openTellerModal(inv); }}
-                                className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
-                              >
-                                <Wallet className="mr-2 h-3 w-3" />
-                                Collect via Mobile Money (Other Networks)
                               </button>
                             )}
                             {inv.status !== "PAID" && inv.status !== "DRAFT" && (
@@ -1314,177 +1132,6 @@ export function Invoices() {
             ))}
           </div>
         )}
-      </Modal>
-
-      {/* Collect via MoMo Modal */}
-      <Modal
-        isOpen={!!momoInvoice}
-        onClose={() => setMomoInvoice(null)}
-        title={`Collect via MTN MoMo - ${momoInvoice?.invoiceNumber ?? ""}`}
-        description="Sends a real USSD payment prompt to the customer's phone. Once they approve, click Check Status to confirm and mark the invoice PAID."
-      >
-        <form onSubmit={handleSendMomoRequest} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Customer Phone Number ({momoInvoice ? formatCurrency(Number(momoInvoice.total), momoInvoice.currency) : ""})
-            </label>
-            <Input
-              required
-              placeholder="0244000000"
-              value={momoPhone}
-              onChange={(e) => setMomoPhone(e.target.value)}
-            />
-          </div>
-
-          {momoRequests.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Payment Requests</label>
-              <div className="space-y-2 max-h-48 overflow-y-auto text-xs">
-                {momoRequests.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between border-b border-secondary-100 dark:border-secondary-800 py-1.5">
-                    <div>
-                      <div className="text-secondary-900 dark:text-secondary-50">{r.phoneNumber}</div>
-                      <div className="text-secondary-500">{new Date(r.createdAt).toLocaleString()}</div>
-                      {r.status === "FAILED" && r.failureReason && (
-                        <div className="text-red-500 mt-0.5">{r.failureReason}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {r.status === "PENDING" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                          Pending
-                        </span>
-                      )}
-                      {r.status === "SUCCESSFUL" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          Successful
-                        </span>
-                      )}
-                      {r.status === "FAILED" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                          Failed
-                        </span>
-                      )}
-                      {r.status === "PENDING" && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="text-xs"
-                          disabled={checkingReferenceId === r.referenceId}
-                          onClick={() => handleCheckMomoStatus(r.referenceId)}
-                        >
-                          <RefreshCw className="mr-1 h-3 w-3" />
-                          {checkingReferenceId === r.referenceId ? "Checking..." : "Check Status"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button type="button" variant="outline" onClick={() => setMomoInvoice(null)}>Close</Button>
-            <Button type="submit" variant="primary" disabled={isSendingMomo}>
-              {isSendingMomo ? "Sending..." : "Send Payment Request"}
-            </Button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Collect via Mobile Money (Other Networks / TheTeller) Modal */}
-      <Modal
-        isOpen={!!tellerInvoice}
-        onClose={() => setTellerInvoice(null)}
-        title={`Collect via Mobile Money (Other Networks) - ${tellerInvoice?.invoiceNumber ?? ""}`}
-        description="For Telecel Cash, AirtelTigo Money, Zeepay, or G-Money numbers. Use Collect via MoMo above for MTN numbers."
-      >
-        <form onSubmit={handleSendTellerRequest} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium mb-1">Network</label>
-            <select
-              required
-              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
-              value={tellerNetwork}
-              onChange={(e) => setTellerNetwork(e.target.value)}
-            >
-              {TELLER_NETWORKS.map((n) => (
-                <option key={n.value} value={n.value}>{n.label}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium mb-1">
-              Customer Phone Number ({tellerInvoice ? formatCurrency(Number(tellerInvoice.total), tellerInvoice.currency) : ""})
-            </label>
-            <Input
-              required
-              placeholder="0244000000"
-              value={tellerPhone}
-              onChange={(e) => setTellerPhone(e.target.value)}
-            />
-          </div>
-
-          {tellerRequests.length > 0 && (
-            <div>
-              <label className="block text-sm font-medium mb-1">Payment Requests</label>
-              <div className="space-y-2 max-h-48 overflow-y-auto text-xs">
-                {tellerRequests.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between border-b border-secondary-100 dark:border-secondary-800 py-1.5">
-                    <div>
-                      <div className="text-secondary-900 dark:text-secondary-50">
-                        {r.phoneNumber} ({TELLER_NETWORKS.find((n) => n.value === r.network)?.label || r.network})
-                      </div>
-                      <div className="text-secondary-500">{new Date(r.createdAt).toLocaleString()}</div>
-                      {r.status === "FAILED" && r.failureReason && (
-                        <div className="text-red-500 mt-0.5">{r.failureReason}</div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {r.status === "PENDING" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400">
-                          Pending
-                        </span>
-                      )}
-                      {r.status === "SUCCESSFUL" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-400">
-                          Successful
-                        </span>
-                      )}
-                      {r.status === "FAILED" && (
-                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400">
-                          Failed
-                        </span>
-                      )}
-                      {r.status === "PENDING" && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="text-xs"
-                          disabled={checkingTellerTxnId === r.transactionId}
-                          onClick={() => handleCheckTellerStatus(r.transactionId)}
-                        >
-                          <RefreshCw className="mr-1 h-3 w-3" />
-                          {checkingTellerTxnId === r.transactionId ? "Checking..." : "Check Status"}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="flex justify-end space-x-3 pt-2">
-            <Button type="button" variant="outline" onClick={() => setTellerInvoice(null)}>Close</Button>
-            <Button type="submit" variant="primary" disabled={isSendingTeller}>
-              {isSendingTeller ? "Sending..." : "Send Payment Request"}
-            </Button>
-          </div>
-        </form>
       </Modal>
 
       {/* Paystack "Pay Now" Link Modal */}

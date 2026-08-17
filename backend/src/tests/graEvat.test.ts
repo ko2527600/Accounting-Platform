@@ -16,7 +16,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
  * CLAUDE.md's "mocking external services is allowed for unit testing" - this
  * proves our own request/response mapping and DB persistence logic against
  * the real documented schema ("GRA E-VAT API - VER 8.2"), not GRA's actual
- * server. Mirrors paystack.test.ts/teller.test.ts's mock pattern.
+ * server. Mirrors paystack.test.ts's mock pattern.
  */
 function mockGraSuccess() {
   mockedAxios.post.mockResolvedValue({

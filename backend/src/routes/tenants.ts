@@ -23,18 +23,10 @@ const router = Router();
  */
 function sanitizeTenantForResponse(tenant: any) {
   if (!tenant) return tenant;
-  const {
-    graSecurityKeyEncrypted,
-    momoSubscriptionKeyEncrypted,
-    momoApiKeyEncrypted,
-    tellerApiKeyEncrypted,
-    ...rest
-  } = tenant;
+  const { graSecurityKeyEncrypted, ...rest } = tenant;
   return {
     ...rest,
     graSecurityKeyConfigured: Boolean(graSecurityKeyEncrypted),
-    momoConfigured: Boolean(rest.momoApiUser && momoSubscriptionKeyEncrypted && momoApiKeyEncrypted),
-    tellerConfigured: Boolean(rest.tellerApiUsername && rest.tellerMerchantId && tellerApiKeyEncrypted),
     // Paystack stores no secret at all (Subaccounts model - see
     // paystackService.ts), so paystackSubaccountCode/paystackAccountNumber/
     // paystackAccountName are safe to return as-is, not stripped.
@@ -245,12 +237,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       vatRegistered,
       graDeviceNumber,
       graSecurityKey,
-      momoApiUser,
-      momoSubscriptionKey,
-      momoApiKey,
-      tellerApiUsername,
-      tellerMerchantId,
-      tellerApiKey,
     } = req.body;
     const newName = (companyName || name || '').trim();
 
@@ -303,41 +289,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       normalizedGraSecurityKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
     }
 
-    // Per-tenant payment-collector credentials (see momoService.ts/
-    // tellerService.ts/paystackService.ts). apiUser/apiUsername/merchantId
-    // are account identifiers, not secrets, so stored plaintext; the actual
-    // keys are write-only and encrypted before storage, same pattern as
-    // graSecurityKey above.
-    let normalizedMomoApiUser: string | null | undefined;
-    if (momoApiUser !== undefined) {
-      const trimmed = String(momoApiUser).trim();
-      normalizedMomoApiUser = trimmed === '' ? null : trimmed;
-    }
-    let normalizedMomoSubscriptionKeyEncrypted: string | null | undefined;
-    if (momoSubscriptionKey !== undefined) {
-      const trimmed = String(momoSubscriptionKey).trim();
-      normalizedMomoSubscriptionKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
-    }
-    let normalizedMomoApiKeyEncrypted: string | null | undefined;
-    if (momoApiKey !== undefined) {
-      const trimmed = String(momoApiKey).trim();
-      normalizedMomoApiKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
-    }
-    let normalizedTellerApiUsername: string | null | undefined;
-    if (tellerApiUsername !== undefined) {
-      const trimmed = String(tellerApiUsername).trim();
-      normalizedTellerApiUsername = trimmed === '' ? null : trimmed;
-    }
-    let normalizedTellerMerchantId: string | null | undefined;
-    if (tellerMerchantId !== undefined) {
-      const trimmed = String(tellerMerchantId).trim();
-      normalizedTellerMerchantId = trimmed === '' ? null : trimmed;
-    }
-    let normalizedTellerApiKeyEncrypted: string | null | undefined;
-    if (tellerApiKey !== undefined) {
-      const trimmed = String(tellerApiKey).trim();
-      normalizedTellerApiKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
-    }
     const before = await tenantRepository.findTenantById(prisma, tenantId);
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -352,12 +303,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           ...(vatRegistered !== undefined && { vatRegistered: Boolean(vatRegistered) }),
           ...(normalizedGraDeviceNumber !== undefined && { graDeviceNumber: normalizedGraDeviceNumber }),
           ...(normalizedGraSecurityKeyEncrypted !== undefined && { graSecurityKeyEncrypted: normalizedGraSecurityKeyEncrypted }),
-          ...(normalizedMomoApiUser !== undefined && { momoApiUser: normalizedMomoApiUser }),
-          ...(normalizedMomoSubscriptionKeyEncrypted !== undefined && { momoSubscriptionKeyEncrypted: normalizedMomoSubscriptionKeyEncrypted }),
-          ...(normalizedMomoApiKeyEncrypted !== undefined && { momoApiKeyEncrypted: normalizedMomoApiKeyEncrypted }),
-          ...(normalizedTellerApiUsername !== undefined && { tellerApiUsername: normalizedTellerApiUsername }),
-          ...(normalizedTellerMerchantId !== undefined && { tellerMerchantId: normalizedTellerMerchantId }),
-          ...(normalizedTellerApiKeyEncrypted !== undefined && { tellerApiKeyEncrypted: normalizedTellerApiKeyEncrypted }),
         },
       });
 
@@ -367,9 +312,7 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         entityId: tenantId,
         actor: actorFromRequest(req),
         // Encrypted credential ciphertext deliberately excluded - even the
-        // ciphertext shouldn't be persisted into the audit log's diff
-        // payload. momoApiUser/tellerApiUsername/tellerMerchantId are plain
-        // identifiers (not secrets) so they're safe to diff.
+        // ciphertext shouldn't be persisted into the audit log's diff payload.
         changes: diffFields(before, updated, [
           'name',
           'slug',
@@ -378,9 +321,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           'graTin',
           'vatRegistered',
           'graDeviceNumber',
-          'momoApiUser',
-          'tellerApiUsername',
-          'tellerMerchantId',
         ]),
       });
 

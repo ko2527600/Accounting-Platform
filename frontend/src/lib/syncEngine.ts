@@ -299,8 +299,8 @@ export function disconnectSyncSocket(): void {
 
 /**
  * Reconciles the local invoice mirror with the server for write paths this
- * pilot doesn't route through the outbox yet (credit notes, MTN MoMo/
- * TheTeller payment confirmation - see Invoices.tsx). Those mutate an
+ * pilot doesn't route through the outbox yet (credit notes, Paystack
+ * payment confirmation - see Invoices.tsx). Those mutate an
  * invoice's status server-side without going through recordChange, so
  * there's no change-log entry for the sync engine to pick up on its own;
  * call this right after one of those actions succeeds to pull the real

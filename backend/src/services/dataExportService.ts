@@ -68,8 +68,6 @@ export const EXPORT_TABLES: ExportTableDef[] = [
   { key: 'bank_accounts', label: 'Bank Accounts', description: 'Connected bank accounts (Mono Connect).', modelAccessor: 'bankAccount', tenantScoped: true },
   { key: 'bank_transactions', label: 'Bank Transactions', description: 'Imported/synced bank transaction lines.', modelAccessor: 'bankTransaction', tenantScoped: true },
   { key: 'expense_claims', label: 'Expense Claims', description: 'Staff expense claims and their approval/reimbursement status.', modelAccessor: 'expenseClaim', tenantScoped: true },
-  { key: 'momo_payment_requests', label: 'Mobile Money Payment Requests', description: 'MTN MoMo collection requests raised against invoices.', modelAccessor: 'momoPaymentRequest', tenantScoped: true },
-  { key: 'teller_payment_requests', label: 'Mobile Money Payment Requests (Other Networks)', description: 'TheTeller-routed mobile money collection requests.', modelAccessor: 'tellerPaymentRequest', tenantScoped: true },
   { key: 'custom_fields', label: 'Custom Fields', description: 'Tenant-defined custom field definitions.', modelAccessor: 'customField', tenantScoped: true },
   { key: 'custom_field_values', label: 'Custom Field Values', description: 'Values entered for each custom field on each record.', modelAccessor: 'customFieldValue', tenantScoped: true },
   { key: 'team_members', label: 'Team Members', description: 'User accounts on this tenant (login credentials and verification tokens are never included).', modelAccessor: 'user', tenantScoped: true, redactFields: ['password', 'emailVerificationToken', 'smsVerificationCode'] },

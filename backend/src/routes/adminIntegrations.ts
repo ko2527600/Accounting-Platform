@@ -18,11 +18,10 @@ function verifyAdminPasscode(req: Request): boolean {
  * for the Ledgio admin console, not a tenant-facing endpoint (a tenant only
  * ever sees their own status in Settings/Banking). Booleans only, same
  * "never expose the actual credential values" rule as /health's existing
- * email/sms block. MoMo/TheTeller/Paystack/GRA E-VAT/Mono bank feeds are all
- * per-tenant integrations (each tenant enters their own merchant
- * credentials, so their customers' money settles to their own account
- * instead of a shared Ledgio one) - real adoption counts, not a single
- * platform boolean.
+ * email/sms block. Paystack/GRA E-VAT/Mono bank feeds are all per-tenant
+ * integrations (each tenant enters their own merchant credentials, so their
+ * customers' money settles to their own account instead of a shared Ledgio
+ * one) - real adoption counts, not a single platform boolean.
  */
 router.get('/', async (req: Request, res: Response): Promise<void> => {
   if (!verifyAdminPasscode(req)) {
@@ -69,26 +68,19 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       {
         key: 'credentialEncryption',
         name: 'Credential Encryption',
-        purpose: 'Prerequisite for any tenant to save GRA E-VAT/MoMo/TheTeller credentials (AES-256-GCM at rest). Paystack uses Subaccounts instead, so it stores no secret here.',
+        purpose: 'Prerequisite for any tenant to save GRA E-VAT credentials (AES-256-GCM at rest). Paystack uses Subaccounts instead, so it stores no secret here.',
         configured: Boolean(process.env.CREDENTIAL_ENCRYPTION_KEY?.trim()),
       },
     ];
 
-    const [totalTenants, graConfiguredTenants, momoConfiguredTenants, tellerConfiguredTenants, paystackConfiguredTenants, monoConnectedTenants] =
-      await Promise.all([
-        prisma.tenant.count(),
-        prisma.tenant.count({
-          where: { graTin: { not: null }, graDeviceNumber: { not: null }, graSecurityKeyEncrypted: { not: null } },
-        }),
-        prisma.tenant.count({
-          where: { momoApiUser: { not: null }, momoSubscriptionKeyEncrypted: { not: null }, momoApiKeyEncrypted: { not: null } },
-        }),
-        prisma.tenant.count({
-          where: { tellerApiUsername: { not: null }, tellerMerchantId: { not: null }, tellerApiKeyEncrypted: { not: null } },
-        }),
-        prisma.tenant.count({ where: { paystackSubaccountCode: { not: null } } }),
-        prisma.bankAccount.findMany({ where: { monoAccountId: { not: null } }, select: { tenantId: true }, distinct: ['tenantId'] }),
-      ]);
+    const [totalTenants, graConfiguredTenants, paystackConfiguredTenants, monoConnectedTenants] = await Promise.all([
+      prisma.tenant.count(),
+      prisma.tenant.count({
+        where: { graTin: { not: null }, graDeviceNumber: { not: null }, graSecurityKeyEncrypted: { not: null } },
+      }),
+      prisma.tenant.count({ where: { paystackSubaccountCode: { not: null } } }),
+      prisma.bankAccount.findMany({ where: { monoAccountId: { not: null } }, select: { tenantId: true }, distinct: ['tenantId'] }),
+    ]);
 
     const perTenant = [
       {
@@ -99,23 +91,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         totalTenants,
       },
       {
-        key: 'momo',
-        name: 'MTN MoMo Collections',
-        purpose: 'Request-to-Pay invoice collection - each tenant enters their own MTN merchant credentials.',
-        tenantsConfigured: momoConfiguredTenants,
-        totalTenants,
-      },
-      {
-        key: 'teller',
-        name: 'TheTeller (PaySwitch)',
-        purpose: 'Telecel Cash / AirtelTigo Money / Zeepay / G-Money collection - each tenant enters their own PaySwitch merchant credentials.',
-        tenantsConfigured: tellerConfiguredTenants,
-        totalTenants,
-      },
-      {
         key: 'paystack',
         name: 'Paystack',
-        purpose: 'Hosted pay-now checkout links on invoices - each tenant just enters their bank details; Ledgio creates a Paystack Subaccount for them automatically.',
+        purpose: 'Hosted pay-now checkout links on invoices, plus Mobile Money (MTN/AirtelTigo/Telecel Cash) - each tenant just enters their bank or MoMo details; Ledgio creates a Paystack Subaccount for them automatically.',
         tenantsConfigured: paystackConfiguredTenants,
         totalTenants,
       },

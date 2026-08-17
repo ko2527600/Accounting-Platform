@@ -74,9 +74,9 @@ export class PaystackServiceError extends Error {
 
 /**
  * True only if Ledgio's own platform-wide Paystack account is configured.
- * Unlike MoMo/TheTeller, this is intentionally platform-wide - Ledgio holds
- * one Paystack account and creates a subaccount per tenant under it (see
- * isSubaccountConfigured below for the per-tenant half of this check).
+ * This is intentionally platform-wide - Ledgio holds one Paystack account
+ * and creates a subaccount per tenant under it (see isSubaccountConfigured
+ * below for the per-tenant half of this check).
  */
 export function isPaystackConfigured(): boolean {
   return Boolean(process.env.PAYSTACK_SECRET_KEY);

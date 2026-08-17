@@ -591,7 +591,7 @@ router.post('/:id/send', requireRole('Accountant'), async (req: Request, res: Re
  * then this fails with a clear 503 explaining how to get those credentials,
  * never a fake success. The failed attempt is still recorded on the invoice
  * (status FAILED + the explanation) so it's visible in the UI, same as a
- * declined MoMo/TheTeller/Paystack attempt would be.
+ * declined Paystack attempt would be.
  */
 router.post('/:id/gra-clearance', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {

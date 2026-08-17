@@ -46,24 +46,6 @@ export function Settings() {
   });
   const [graSaveMsg, setGraSaveMsg] = useState<string | null>(null);
 
-  // Per-tenant payment-collector credentials (MoMo/TheTeller/Paystack) - same
-  // write-only-secret pattern as graSecurityKey above: the plaintext keys are
-  // never pre-filled or returned by the API once saved, only a *Configured
-  // boolean is.
-  const [momoData, setMomoData] = useState({
-    momoApiUser: settings.momoApiUser || "",
-    momoSubscriptionKey: "",
-    momoApiKey: "",
-  });
-  const [momoSaveMsg, setMomoSaveMsg] = useState<string | null>(null);
-
-  const [tellerData, setTellerData] = useState({
-    tellerApiUsername: settings.tellerApiUsername || "",
-    tellerMerchantId: settings.tellerMerchantId || "",
-    tellerApiKey: "",
-  });
-  const [tellerSaveMsg, setTellerSaveMsg] = useState<string | null>(null);
-
   // Paystack uses Subaccounts, not a secret key a tenant would have to go
   // get themselves - they just pick their bank and enter their account
   // number, same as receiving a bank transfer from anyone else.
@@ -123,12 +105,6 @@ export function Settings() {
         graTin: settings.graTin || "",
         vatRegistered: settings.vatRegistered || false,
         graDeviceNumber: settings.graDeviceNumber || "",
-      }));
-      setMomoData((prev) => ({ ...prev, momoApiUser: settings.momoApiUser || "" }));
-      setTellerData((prev) => ({
-        ...prev,
-        tellerApiUsername: settings.tellerApiUsername || "",
-        tellerMerchantId: settings.tellerMerchantId || "",
       }));
     }
     if (user) {
@@ -273,36 +249,6 @@ export function Settings() {
       setGraSaveMsg("✅ GRA VSDC credentials saved.");
     } catch (err: any) {
       setGraSaveMsg(`❌ Error saving GRA credentials: ${err.response?.data?.error || err.message}`);
-    }
-  };
-
-  const handleSaveMomoCredentials = async () => {
-    setMomoSaveMsg(null);
-    try {
-      await updateSettings({
-        momoApiUser: momoData.momoApiUser || null,
-        ...(momoData.momoSubscriptionKey && { momoSubscriptionKey: momoData.momoSubscriptionKey }),
-        ...(momoData.momoApiKey && { momoApiKey: momoData.momoApiKey }),
-      });
-      setMomoData((prev) => ({ ...prev, momoSubscriptionKey: "", momoApiKey: "" }));
-      setMomoSaveMsg("✅ MTN MoMo credentials saved.");
-    } catch (err: any) {
-      setMomoSaveMsg(`❌ Error saving MoMo credentials: ${err.response?.data?.error || err.message}`);
-    }
-  };
-
-  const handleSaveTellerCredentials = async () => {
-    setTellerSaveMsg(null);
-    try {
-      await updateSettings({
-        tellerApiUsername: tellerData.tellerApiUsername || null,
-        tellerMerchantId: tellerData.tellerMerchantId || null,
-        ...(tellerData.tellerApiKey && { tellerApiKey: tellerData.tellerApiKey }),
-      });
-      setTellerData((prev) => ({ ...prev, tellerApiKey: "" }));
-      setTellerSaveMsg("✅ TheTeller credentials saved.");
-    } catch (err: any) {
-      setTellerSaveMsg(`❌ Error saving TheTeller credentials: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -1001,122 +947,16 @@ export function Settings() {
         </div>
       )}
 
-      {/* Payment Collection (MTN MoMo / TheTeller / Paystack) - each connects
-          this tenant's own merchant account, so customer payments settle
-          directly to this business, not a shared Ledgio account. */}
+      {/* Payment Collection (Paystack) - connects this tenant's own bank/MoMo
+          account, so customer payments settle directly to this business, not
+          a shared Ledgio account. */}
       {activeTab === "payments" && (
         <div className="space-y-6">
           <div className="p-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-lg text-blue-900 dark:text-blue-300 text-sm">
-            Each payment method below uses <strong>your own</strong> merchant credentials - customer payments collected
-            through Ledgio settle directly into your account with that provider, never into a Ledgio-controlled one.
-            You only need to fill in the ones you actually plan to use.
+            Paystack collects card, bank transfer, and Mobile Money (MTN/AirtelTigo/Telecel Cash) payments in one
+            place. Set up your own bank or MoMo account below - customer payments settle directly there, never into a
+            Ledgio-controlled account.
           </div>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-emerald-600" />
-                MTN MoMo Collections
-                {settings.momoConfigured && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-              </CardTitle>
-              <CardDescription>
-                Sends a real "Request to Pay" USSD prompt to a customer's phone for invoice payment. Requires an API
-                user/key pair you provision yourself via MTN's Collections API (one-time setup with MTN), plus the
-                subscription key from your MTN MoMo Developer account.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">API User</label>
-                <Input
-                  value={momoData.momoApiUser}
-                  onChange={(e) => setMomoData({ ...momoData, momoApiUser: e.target.value })}
-                  placeholder="MTN API user UUID"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
-                  Subscription Key {settings.momoConfigured && (
-                    <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">(already on file - re-enter only to replace it)</span>
-                  )}
-                </label>
-                <Input
-                  type="password"
-                  value={momoData.momoSubscriptionKey}
-                  onChange={(e) => setMomoData({ ...momoData, momoSubscriptionKey: e.target.value })}
-                  placeholder={settings.momoConfigured ? "••••••••••••••••" : "Ocp-Apim-Subscription-Key from MTN"}
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">API Key</label>
-                <Input
-                  type="password"
-                  value={momoData.momoApiKey}
-                  onChange={(e) => setMomoData({ ...momoData, momoApiKey: e.target.value })}
-                  placeholder={settings.momoConfigured ? "••••••••••••••••" : "API key from provisioning"}
-                />
-                <p className="text-xs text-secondary-500 dark:text-secondary-400">
-                  Keys stored encrypted - never shown again once saved, including to Ledgio staff.
-                </p>
-              </div>
-              {momoSaveMsg && <p className="text-sm">{momoSaveMsg}</p>}
-            </CardContent>
-            <CardFooter>
-              <Button type="button" variant="primary" onClick={handleSaveMomoCredentials}>Save MoMo Credentials</Button>
-            </CardFooter>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Wallet className="h-4 w-4 text-emerald-600" />
-                TheTeller (PaySwitch)
-                {settings.tellerConfigured && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
-              </CardTitle>
-              <CardDescription>
-                Collects Telecel Cash / AirtelTigo Money / Zeepay / G-Money payments (MTN goes through the MoMo card
-                above instead). Requires the merchant credentials PaySwitch issues when you sign up for TheTeller.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">API Username</label>
-                <Input
-                  value={tellerData.tellerApiUsername}
-                  onChange={(e) => setTellerData({ ...tellerData, tellerApiUsername: e.target.value })}
-                  placeholder="TheTeller API username"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Merchant ID</label>
-                <Input
-                  value={tellerData.tellerMerchantId}
-                  onChange={(e) => setTellerData({ ...tellerData, tellerMerchantId: e.target.value })}
-                  placeholder="TheTeller merchant ID"
-                />
-              </div>
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
-                  API Key {settings.tellerConfigured && (
-                    <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">(already on file - re-enter only to replace it)</span>
-                  )}
-                </label>
-                <Input
-                  type="password"
-                  value={tellerData.tellerApiKey}
-                  onChange={(e) => setTellerData({ ...tellerData, tellerApiKey: e.target.value })}
-                  placeholder={settings.tellerConfigured ? "••••••••••••••••" : "API key from PaySwitch"}
-                />
-                <p className="text-xs text-secondary-500 dark:text-secondary-400">
-                  Stored encrypted - never shown again once saved, including to Ledgio staff.
-                </p>
-              </div>
-              {tellerSaveMsg && <p className="text-sm">{tellerSaveMsg}</p>}
-            </CardContent>
-            <CardFooter>
-              <Button type="button" variant="primary" onClick={handleSaveTellerCredentials}>Save TheTeller Credentials</Button>
-            </CardFooter>
-          </Card>
 
           <Card>
             <CardHeader>

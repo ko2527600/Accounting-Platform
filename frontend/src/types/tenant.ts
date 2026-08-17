@@ -30,22 +30,13 @@ export interface TenantSettings {
   // file - the actual key is write-only, never returned by the API once saved.
   graDeviceNumber: string | null;
   graSecurityKeyConfigured: boolean;
-  // Per-tenant payment-collector credentials (MTN MoMo Collections, TheTeller/
-  // PaySwitch, Paystack) - each tenant enters their own merchant credentials
-  // so customer payments settle to their own account, not a shared Ledgio
-  // one. apiUser/apiUsername/merchantId are account identifiers (not
-  // secrets) so they're returned as-is; the actual keys are write-only,
-  // never returned by the API once saved - only a *Configured boolean is.
-  momoApiUser: string | null;
-  momoConfigured: boolean;
-  tellerApiUsername: string | null;
-  tellerMerchantId: string | null;
-  tellerConfigured: boolean;
-  // Paystack uses Subaccounts instead of a per-tenant secret key: Ledgio
-  // holds one Paystack account and creates a subaccount per tenant (POST
-  // /paystack/subaccount), so Paystack itself auto-splits and settles each
-  // payment to the tenant's own bank account. No secret is ever stored or
-  // returned here - just the bank details and Paystack's own reference code.
+  // Paystack uses Subaccounts for payment collection (card, bank transfer,
+  // and Mobile Money - MTN/AirtelTigo/Telecel Cash - all through the same
+  // hosted checkout): Ledgio holds one Paystack account and creates a
+  // subaccount per tenant (POST /paystack/subaccount), so Paystack itself
+  // auto-splits and settles each payment to the tenant's own bank/MoMo
+  // account. No secret is ever stored or returned here - just the bank/MoMo
+  // details and Paystack's own reference code.
   paystackSubaccountCode: string | null;
   paystackBankCode: string | null;
   paystackAccountNumber: string | null;
@@ -62,8 +53,6 @@ export type UpdateTenantSettingsDTO = Partial<
     | 'updatedAt'
     | 'tier'
     | 'graSecurityKeyConfigured'
-    | 'momoConfigured'
-    | 'tellerConfigured'
     | 'paystackConfigured'
     | 'paystackSubaccountCode'
     | 'paystackBankCode'
@@ -71,11 +60,8 @@ export type UpdateTenantSettingsDTO = Partial<
     | 'paystackAccountName'
   >
 > & {
-  // Write-only plaintext secrets - encrypted server-side before storage,
+  // Write-only plaintext secret - encrypted server-side before storage,
   // never echoed back in any response. Omit to leave the currently stored
   // value untouched; send '' to clear it.
   graSecurityKey?: string;
-  momoSubscriptionKey?: string;
-  momoApiKey?: string;
-  tellerApiKey?: string;
 };

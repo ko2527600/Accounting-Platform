@@ -14,7 +14,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
  * Mocking the Anthropic API itself (the external service) is legitimate per
  * CLAUDE.md's "mocking external services is allowed for unit testing" -
  * this proves our own tool-execution/response-handling logic, not
- * Anthropic's API. Mirrors momo.test.ts's mockMomoToken pattern.
+ * Anthropic's API. Mirrors paystack.test.ts's mocked-axios pattern.
  */
 describe('Help Assistant (in-app AI help widget)', () => {
   const runId = Date.now();
