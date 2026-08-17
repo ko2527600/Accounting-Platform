@@ -25,7 +25,7 @@ type AuthContextType = {
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 function readCachedUser(): User | null {
-  const raw = localStorage.getItem('accountgo-user');
+  const raw = sessionStorage.getItem('accountgo-user');
   if (!raw) return null;
   try {
     return JSON.parse(raw) as User;
@@ -35,7 +35,7 @@ function readCachedUser(): User | null {
 }
 
 function cacheUser(userData: User): void {
-  localStorage.setItem('accountgo-user', JSON.stringify(userData));
+  sessionStorage.setItem('accountgo-user', JSON.stringify(userData));
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -44,7 +44,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // offline user has a usable `user` (incl. tenantId, which
   // useSyncEngineLifecycle keys off of) before /auth/me ever resolves.
   const [user, setUser] = useState<User | null>(() => readCachedUser());
-  const [token, setToken] = useState<string | null>(localStorage.getItem('accountgo-token'));
+  const [token, setToken] = useState<string | null>(sessionStorage.getItem('accountgo-token'));
   const [isLoading, setIsLoading] = useState(true);
   // Guards against a burst of parallel requests (e.g. the dashboard's several
   // simultaneous calls) that all 401 in the same tick from showing more than
@@ -65,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           setUser(response.data.data.user);
           cacheUser(response.data.data.user);
           if (response.data.data.user.tenantId) {
-            localStorage.setItem('accountgo-tenant-id', response.data.data.user.tenantId);
+            sessionStorage.setItem('accountgo-tenant-id', response.data.data.user.tenantId);
           }
         } else {
           throw new Error("Invalid token");
@@ -106,9 +106,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = (newToken: string, userData: User) => {
     sessionExpiredNoticeShown.current = false;
-    localStorage.setItem('accountgo-token', newToken);
+    sessionStorage.setItem('accountgo-token', newToken);
     if (userData.tenantId) {
-      localStorage.setItem('accountgo-tenant-id', userData.tenantId);
+      sessionStorage.setItem('accountgo-tenant-id', userData.tenantId);
     }
     cacheUser(userData);
     setToken(newToken);
@@ -116,9 +116,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   const logout = () => {
-    localStorage.removeItem('accountgo-token');
-    localStorage.removeItem('accountgo-tenant-id');
-    localStorage.removeItem('accountgo-user');
+    sessionStorage.removeItem('accountgo-token');
+    sessionStorage.removeItem('accountgo-tenant-id');
+    sessionStorage.removeItem('accountgo-user');
     setToken(null);
     setUser(null);
   };
