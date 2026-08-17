@@ -959,6 +959,15 @@ model CashSale {
   voidedByUserId   String?        @map("voided_by_user_id")
   voidedByName     String?        @map("voided_by_name")
   voidReason       String?        @map("void_reason")
+  // Journal entry that posted this sale's revenue (Debit Cash / Credit
+  // Revenue) - null only for sales recorded before this posting existed, or
+  // if posting genuinely failed (see routes/cashTill.ts POST /sales, which
+  // self-heals a missing journalId on the next clientTxnId replay).
+  journalId        String?        @map("journal_id")
+  // Reversing entry (Debit Revenue / Credit Cash) posted when this sale was
+  // voided - same "reversal is its own journal entry" convention used by
+  // creditDebitNoteService, not a status flip on the original entry.
+  voidJournalId    String?        @map("void_journal_id")
   createdAt        DateTime       @default(now()) @map("created_at")
   // Client-generated dedup key for offline-queued/retried sale submissions -
   // lets POST /tills/sales safely replay-and-return-existing instead of
