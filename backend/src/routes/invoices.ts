@@ -25,6 +25,7 @@ import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/sy
 import * as graEvatService from '../services/graEvatService';
 import { GraEvatServiceError } from '../services/graEvatService';
 import * as tenantRepository from '../repository/tenantRepository';
+import { assertWarehouseAccess, WarehouseAccessError } from '../services/warehouseAccessService';
 
 // Sentinel used to unwind a poisoned transaction cleanly on a clientTxnId
 // race (see the POST / handler) - never surfaced to a caller directly.
@@ -74,9 +75,10 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /api/v1/customers
- * Adds a new customer.
+ * Adds a new customer. Shop Manager can add a walk-in customer on the spot
+ * when creating a sale for them - see POST / below.
  */
-router.post('/customers', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { name, email, phone, address, creditLimit, tin } = req.body;
@@ -177,9 +179,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /api/v1/invoices
- * Creates a new invoice.
+ * Creates a new invoice. Shop Manager can create one directly for a walk-in
+ * customer - a real, location-scoped warehouse check (assertWarehouseAccess,
+ * same as inventory.ts/bills.ts) gates the itemized/stock-deducting path
+ * below so they can only sell out of a warehouse they're actually assigned
+ * to, mirroring how they're already scoped for Inventory and POS.
  */
-router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { customerId, dueDate, currency = 'USD', exchangeRate = 1.0, items, taxRateId, fundId, warehouseId, clientTxnId } = req.body;
@@ -363,6 +369,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
           if (!warehouse) {
             throw new InvoiceStockError('Warehouse not found.', 404);
           }
+          await assertWarehouseAccess(client, tenantId, req.user!.id, req.user!.role, warehouseId);
 
           const stockLines = itemData
             .map((it: any, i: number) => ({ inventoryItemId: it.inventoryItemId as string | undefined, quantity: Number(items[i].quantity) || 1, description: it.description }))
@@ -501,6 +508,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
       res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
+    if (error instanceof WarehouseAccessError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
     if (error.message === 'Customer not found.') {
       res.status(404).json({ success: false, error: error.message });
       return;
@@ -516,8 +527,10 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 /**
  * POST /api/v1/invoices/:id/pay
  * Marks invoice as PAID and triggers automatic AR Journal Entry posting.
+ * Shop Manager can record payment here too - a walk-in customer they just
+ * invoiced (POST / above) often pays on the spot.
  */
-router.post('/:id/pay', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/:id/pay', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = actorFromRequest(req);
     // `amount` is optional - omitted (or the existing no-body call every

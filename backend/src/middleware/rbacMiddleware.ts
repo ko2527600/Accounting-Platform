@@ -26,11 +26,12 @@ const ROLE_HIERARCHY: Record<UserRole, number> = {
 // are NOT given blanket operational access as a fallback (rule 5 below) -
 // Auditor/Viewer are read-only reviewers, HR only manages the team roster,
 // and Shop Manager/Cashier are location-scoped to Inventory/POS/Expense
-// Claims (see warehouseAccessService.ts's LOCATION_SCOPED_ROLES and
-// navigation.ts's RESTRICTED_ROLE_NAV, which this list must stay in sync
-// with) - none of them should incidentally gain write access to Journal
-// Entries, Invoices, Banking, etc. just by having a role string the
-// fallback rule doesn't recognize as scoped.
+// Claims, plus creating invoices/vendor bills for their own warehouse (see
+// warehouseAccessService.ts's LOCATION_SCOPED_ROLES and navigation.ts's
+// RESTRICTED_ROLE_NAV, which this list must stay in sync with) - none of
+// them should incidentally gain write access to Journal Entries, Banking,
+// etc. just by having a role string the fallback rule doesn't recognize as
+// scoped.
 const SCOPED_ROLES = new Set(['viewer', 'auditor', 'hr', 'shop manager', 'cashier']);
 
 // Extend Express Request interface to include user payload

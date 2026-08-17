@@ -14,7 +14,7 @@ import { FxRateServiceError } from '../services/fxRateService';
 import * as fundService from '../services/fundService';
 import { FundServiceError } from '../services/fundService';
 import { recordAuditLogTx, actorFromRequest, diffFields } from '../services/auditLogService';
-import { assertWarehouseAccess, WarehouseAccessError } from '../services/warehouseAccessService';
+import { assertWarehouseAccess, isLocationScopedRole, WarehouseAccessError } from '../services/warehouseAccessService';
 import { receiveInventoryForBill, allocateLandedCostToBill } from '../services/vendorBillReceivingService';
 import * as creditDebitNoteService from '../services/creditDebitNoteService';
 import { CreditDebitNoteServiceError } from '../services/creditDebitNoteService';
@@ -50,9 +50,11 @@ router.get('/vendors', async (req: Request, res: Response): Promise<void> => {
 
 /**
  * POST /api/v1/bills/vendors
- * Adds a new vendor.
+ * Adds a new vendor. Shop Manager can add one on the spot when recording a
+ * stock delivery from a supplier they haven't billed before - see POST /
+ * below.
  */
-router.post('/vendors', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/vendors', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { name, email, phone, address } = req.body;
@@ -105,14 +107,28 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
  *      the goods are received into `warehouseId` immediately - stock increments and each
  *      item's cost is recomputed as a moving average, since this represents real inventory
  *      arriving, independent of when the bill actually gets paid.
+ *
+ * Shop Manager can record an itemized delivery into their own warehouse -
+ * assertWarehouseAccess below (already location-scoped for every other
+ * inventory-receiving action) is what keeps them from receiving stock into
+ * a warehouse they're not assigned to. A Simple/lump-sum bill has no
+ * warehouse to scope and no stock to back it, so it's blocked outright for
+ * location-scoped roles below - otherwise Shop Manager/Cashier could record
+ * an arbitrary vendor payable with nothing receivable tying it to a real
+ * delivery, which is a real AP-integrity gap, not just a UX nicety.
  */
-router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { vendorId, dueDate, currency = 'USD', items, warehouseId, fundId, purchaseOrderId } = req.body;
 
     if (!vendorId) {
       res.status(400).json({ success: false, error: 'Vendor ID is required.' });
+      return;
+    }
+
+    if (isLocationScopedRole(req.user!.role) && !(Array.isArray(items) && items.length > 0)) {
+      res.status(403).json({ success: false, error: 'Shop Manager can only record itemized stock deliveries. Ask an Accountant to record a lump-sum vendor bill.' });
       return;
     }
 

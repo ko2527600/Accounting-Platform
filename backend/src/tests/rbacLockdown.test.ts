@@ -10,10 +10,11 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * Verifies the RBAC lockdown: Shop Manager/Cashier previously fell through
  * to hasRequiredRole()'s "legacy free-text job title" fallback rule
  * (rbacMiddleware.ts), which grants full operational access to anything not
- * Admin-only - meaning they could create invoices, post journal entries,
- * view/export the audit trail, and approve/reimburse expense claims, none
- * of which their intended scope (Inventory/POS/Expense Claims) should
- * allow. Both roles are now in SCOPED_ROLES, so they only pass a
+ * Admin-only - meaning they could post journal entries, view/export the
+ * audit trail, and approve/reimburse expense claims, none of which their
+ * intended scope (Inventory/POS/Expense Claims, and - for Shop Manager only
+ * - creating invoices/vendor bills, see shopManagerInvoicingAccess.test.ts)
+ * should allow. Both roles are now in SCOPED_ROLES, so they only pass a
  * requireRole() check where explicitly listed.
  */
 describe('RBAC lockdown for Shop Manager / Cashier', () => {
@@ -147,13 +148,38 @@ describe('RBAC lockdown for Shop Manager / Cashier', () => {
       expect(res.status).toBe(403);
     });
 
-    it('is now blocked from issuing an invoice', async () => {
+    it(`${_roleName === 'Shop Manager' ? 'can now pass the role check to issue an invoice (see shopManagerInvoicingAccess.test.ts for the full flow)' : 'is still blocked from issuing an invoice (this access was only granted to Shop Manager)'}`, async () => {
       const res = await request(app)
         .post('/api/v1/invoices')
         .set('Authorization', `Bearer ${getToken()}`)
         .set('X-Tenant-ID', tenantSlug)
         .send({ customerId: '00000000-0000-0000-0000-000000000000', items: [{ description: 'x', quantity: 1, unitPrice: 1 }] });
-      expect(res.status).toBe(403);
+      if (_roleName === 'Shop Manager') {
+        // Role check passes now - this specific request still 404s since the
+        // customerId is a fake UUID, but that's a business-logic 404, not the
+        // role-based 403 this suite is otherwise asserting throughout.
+        expect(res.status).toBe(404);
+      } else {
+        expect(res.status).toBe(403);
+      }
+    });
+
+    it(`${_roleName === 'Shop Manager' ? 'can now pass the role check to create a vendor bill' : 'is still blocked from creating a vendor bill (this access was only granted to Shop Manager)'}`, async () => {
+      const res = await request(app)
+        .post('/api/v1/bills')
+        .set('Authorization', `Bearer ${getToken()}`)
+        .set('X-Tenant-ID', tenantSlug)
+        .send({ vendorId: '00000000-0000-0000-0000-000000000000', amount: 10 });
+      if (_roleName === 'Shop Manager') {
+        // A lump-sum/simple bill is blocked for a location-scoped role
+        // regardless (see shopManagerInvoicingAccess.test.ts) - 403 here, but
+        // for a different reason than Cashier's blanket role-check denial.
+        expect(res.status).toBe(403);
+        expect(res.body.error).toContain('itemized');
+      } else {
+        expect(res.status).toBe(403);
+        expect(res.body.error).not.toContain('itemized');
+      }
     });
 
     it('is now blocked from posting a journal entry', async () => {
