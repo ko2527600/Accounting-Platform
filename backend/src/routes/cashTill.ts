@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
+import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 import { verifyPassword } from '../utils/password';
@@ -675,6 +676,50 @@ router.get('/void-stats', async (req: Request, res: Response): Promise<void> => 
   } catch (error: any) {
     console.error('[CashTill] Error computing void stats:', error);
     res.status(500).json({ success: false, error: error.message || 'Failed to compute void statistics.' });
+  }
+});
+
+/**
+ * POST /api/v1/tills/backfill-revenue
+ * One-time-per-sale repair for the historical gap where POST /tills/sales
+ * never posted a journal entry at all (fixed above, but only for sales
+ * recorded after that fix deployed - an existing COMPLETED sale's journalId
+ * stays null forever unless something explicitly posts it). Finds every
+ * COMPLETED sale for this tenant with no journalId and posts its Cash/Revenue
+ * entry now, via the same postCashSaleRevenue() used for new sales. Safe to
+ * call repeatedly - a sale that already has a journalId is never touched
+ * again, so this is idempotent and cheap on a second run.
+ */
+router.post('/backfill-revenue', requireRole('Admin', 'Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const actor = actorFromRequest(req);
+
+    const unposted: any[] = await withCurrentTenantDb(prisma, (client) =>
+      (client as any).cashSale.findMany({
+        where: { tenantId, status: 'COMPLETED', journalId: null },
+        orderBy: { createdAt: 'asc' },
+      })
+    );
+
+    let backfilled = 0;
+    let failed = 0;
+    for (const sale of unposted) {
+      const journalId = await postCashSaleRevenue(sale, actor);
+      if (journalId) backfilled++;
+      else failed++;
+    }
+
+    res.status(200).json({
+      success: true,
+      message: backfilled > 0
+        ? `Backfilled revenue for ${backfilled} sale(s) that predate automatic posting.`
+        : 'No missing revenue postings found.',
+      data: { checked: unposted.length, backfilled, failed },
+    });
+  } catch (error: any) {
+    console.error('[CashTill] Error backfilling missing revenue:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to backfill missing revenue.' });
   }
 });
 

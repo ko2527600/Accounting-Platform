@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import type { Account } from '../types/accounting';
 
@@ -17,6 +17,7 @@ export interface ProfitAndLossReport {
   totalExpense: number;
   netIncome: number;
   isLoading: boolean;
+  refetch: () => void;
 }
 
 export function useProfitAndLoss(fundId?: string): ProfitAndLossReport {
@@ -29,6 +30,9 @@ export function useProfitAndLoss(fundId?: string): ProfitAndLossReport {
   const [totalExpense, setTotalExpense] = useState(0);
   const [netIncome, setNetIncome] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [refetchCounter, setRefetchCounter] = useState(0);
+
+  const refetch = useCallback(() => setRefetchCounter((c) => c + 1), []);
 
   useEffect(() => {
     const fetchPnL = async () => {
@@ -67,7 +71,7 @@ export function useProfitAndLoss(fundId?: string): ProfitAndLossReport {
     };
 
     fetchPnL();
-  }, [fundId]);
+  }, [fundId, refetchCounter]);
 
   return {
     revenueAccounts,
@@ -78,6 +82,7 @@ export function useProfitAndLoss(fundId?: string): ProfitAndLossReport {
     grossProfit,
     totalExpense,
     netIncome,
-    isLoading
+    isLoading,
+    refetch
   };
 }

@@ -3,8 +3,11 @@ import app from '../app';
 import { prisma } from '../config/db';
 import { onboardTenant } from '../services/tenantService';
 import { deleteTenantBySlug, ensureTenantTableExists } from '../repository/tenantRepository';
-import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepository';
+import { deleteUserByEmail, ensureUserTableExists, createUser } from '../repository/userRepository';
 import { dropTenantSchema } from '../database/tenantSchemaManager';
+import { withTenantDb } from '../database/tenantClient';
+import { generateJwtToken } from '../utils/jwt';
+import { hashPassword } from '../utils/password';
 
 describe('Cash Till API - concurrent sale safety', () => {
   const runId = Date.now();
@@ -13,6 +16,7 @@ describe('Cash Till API - concurrent sale safety', () => {
   const adminEmail = `admin_till_${runId}@corp1.com`;
 
   let adminToken: string;
+  let tenantId: string;
   let warehouseId: string;
   let itemId: string;
   let tillId: string;
@@ -20,6 +24,7 @@ describe('Cash Till API - concurrent sale safety', () => {
   async function cleanupTestData() {
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
+    await deleteUserByEmail(prisma, `cashier_backfill_${runId}@corp1.com`).catch(() => {});
     await dropTenantSchema(prisma, tenantSchema).catch(() => {});
   }
 
@@ -37,6 +42,7 @@ describe('Cash Till API - concurrent sale safety', () => {
       adminName: 'Till Corp 1 Admin',
     });
     adminToken = onboard.token;
+    tenantId = onboard.tenant.id;
 
     const wh = await request(app)
       .post('/api/v1/inventory/warehouses')
@@ -161,5 +167,82 @@ describe('Cash Till API - concurrent sale safety', () => {
       .set('Authorization', `Bearer ${adminToken}`)
       .set('X-Tenant-ID', tenantSlug);
     expect(Number(plAfter.body.data.totalRevenue)).toBe(revenueBefore + 2);
+  });
+
+  it('backfills revenue for a sale that predates automatic posting (journalId left null)', async () => {
+    const sale = await request(app)
+      .post('/api/v1/tills/sales')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ tillId, items: [{ itemId, quantity: 1 }], cashGiven: 2 });
+    expect(sale.status).toBe(201);
+    const saleId = sale.body.data.sale.id;
+    const originalJournalId = sale.body.data.sale.journalId;
+    expect(originalJournalId).toBeTruthy();
+
+    // Simulate the historical "pre-fix" state: a real completed sale that
+    // never had a journal entry posted at all (not merely one whose
+    // CashSale.journalId pointer went missing) - undo the real posting this
+    // sale just made (ledgers live in the tenant's own Postgres schema,
+    // unlike CashSale itself - see routes/cashTill.ts's migration entry in
+    // STATUS.md), then clear the pointer. Skipping the ledger-row deletion
+    // would leave the original posting intact and double-count revenue once
+    // the backfill posts a second entry for the same sale.
+    await withTenantDb(prisma, tenantSchema, async (client) => {
+      await (client as any).$executeRawUnsafe(`DELETE FROM ledgers WHERE journal_entry_id = $1::uuid`, originalJournalId);
+      await (client as any).$executeRawUnsafe(`DELETE FROM journal_entry_lines WHERE journal_entry_id = $1::uuid`, originalJournalId);
+      await (client as any).$executeRawUnsafe(`DELETE FROM journal_entries WHERE id = $1::uuid`, originalJournalId);
+    });
+    await prisma.cashSale.update({ where: { id: saleId }, data: { journalId: null } });
+
+    const plBefore = await request(app)
+      .get('/api/v1/reports/profit-loss')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug);
+    const revenueBefore = Number(plBefore.body.data.totalRevenue);
+
+    const backfill = await request(app)
+      .post('/api/v1/tills/backfill-revenue')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug);
+    expect(backfill.status).toBe(200);
+    expect(backfill.body.data.backfilled).toBeGreaterThanOrEqual(1);
+
+    const plAfter = await request(app)
+      .get('/api/v1/reports/profit-loss')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug);
+    expect(Number(plAfter.body.data.totalRevenue)).toBe(revenueBefore + 2);
+
+    // A second run is a no-op - already-posted sales are never re-posted.
+    const secondRun = await request(app)
+      .post('/api/v1/tills/backfill-revenue')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug);
+    expect(secondRun.body.data.backfilled).toBe(0);
+  });
+
+  it('blocks a Cashier from triggering the revenue backfill', async () => {
+    const cashierEmail = `cashier_backfill_${runId}@corp1.com`;
+    const cashier = await createUser(prisma, {
+      email: cashierEmail,
+      password: hashPassword('Password123!'),
+      name: 'Backfill Cashier',
+      role: 'Cashier',
+      tenantId,
+      isActive: true,
+    } as any);
+    await request(app)
+      .put(`/api/v1/tenants/members/${cashier.id}/warehouse-access`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ warehouseIds: [warehouseId] });
+    const cashierToken = generateJwtToken({ id: cashier.id, email: cashier.email, role: cashier.role, tenantId, name: cashier.name });
+
+    const res = await request(app)
+      .post('/api/v1/tills/backfill-revenue')
+      .set('Authorization', `Bearer ${cashierToken}`)
+      .set('X-Tenant-ID', tenantSlug);
+    expect(res.status).toBe(403);
   });
 });
