@@ -27,6 +27,7 @@ import {
   Clock,
   Wallet2,
   Building2,
+  MessageSquare,
 } from "lucide-react";
 
 export interface NavItem {
@@ -101,6 +102,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Approvals", href: "/approvals", icon: ShieldCheck },
       { name: "Audit Trail", href: "/audit-logs", icon: ShieldCheck },
       { name: "AI Assistant Activity", href: "/help-assistant/activity", icon: Bot },
+      { name: "Feedback Inbox", href: "/feedback", icon: MessageSquare },
       { name: "Bulk Data Import", href: "/import", icon: FileUp },
       { name: "Team Management", href: "/team", icon: Users },
     ],
@@ -142,6 +144,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/budgets",
     "/audit-logs",
     "/help-assistant/activity",
+    "/feedback",
   ],
 };
 

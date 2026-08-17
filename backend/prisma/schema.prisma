@@ -1047,6 +1047,22 @@ model Notification {
   @@map("notifications")
 }
 
+model Feedback {
+  id        String   @id @default(uuid())
+  tenantId  String   @map("tenant_id")
+  userId    String   @map("user_id")
+  userName  String   @map("user_name")
+  userRole  String   @map("user_role")
+  category  String   @default("GENERAL")
+  message   String
+  status    String   @default("NEW")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@index([status])
+  @@map("feedback")
+}
+
 enum AuditAction {
   CREATE
   UPDATE

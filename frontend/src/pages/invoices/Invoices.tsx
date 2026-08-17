@@ -10,8 +10,19 @@ import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFromServer } from "../../lib/syncEngine";
 import { useToast } from "../../contexts/ToastContext";
+import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, RefreshCw, History, Mail, ChevronDown, ShieldCheck } from "lucide-react";
+
+// Mirrors rbacMiddleware.ts's SCOPED_ROLES - these actions all backend-gate
+// to requireRole('Accountant') (Email Invoice, Request GRA Clearance, Pay
+// Now Link/Paystack, Credit Note), so every scoped role always 403s on
+// them. Hiding the buttons instead of letting the click fail matches the
+// established pattern in ExpenseClaims.tsx's RESTRICTED_DECIDER_ROLES.
+const RESTRICTED_ACCOUNTANT_ACTION_ROLES = new Set(["viewer", "auditor", "hr", "shop manager", "cashier"]);
+// Record Payment backend-gates to requireRole('Accountant', 'Shop Manager') -
+// one role wider than the set above.
+const RESTRICTED_PAYMENT_ROLES = new Set(["viewer", "auditor", "hr", "cashier"]);
 
 interface Customer {
   id: string;
@@ -121,8 +132,12 @@ interface PaystackRequest {
 
 export function Invoices() {
   const { showToast } = useToast();
+  const { user } = useAuth();
   const { settings } = useTenantSettings();
   const navigate = useNavigate();
+  const userRoleLower = (user?.role || "").toLowerCase().trim();
+  const canUseAccountantActions = !RESTRICTED_ACCOUNTANT_ACTION_ROLES.has(userRoleLower);
+  const canRecordPayment = !RESTRICTED_PAYMENT_ROLES.has(userRoleLower);
   // Local-first: renders straight from the IndexedDB mirror (kept fresh by
   // the bootstrap + live push - see useSyncEngineLifecycle) instead of
   // waiting on a network fetch every time this page mounts.
@@ -702,7 +717,7 @@ export function Invoices() {
                             style={{ position: "fixed", top: actionsMenuPosition.top, right: actionsMenuPosition.right }}
                             className="w-64 bg-white dark:bg-secondary-900 border border-secondary-200 dark:border-secondary-800 rounded-lg shadow-lg z-50 py-1 text-left"
                           >
-                            {inv.status !== "DRAFT" && (
+                            {inv.status !== "DRAFT" && canUseAccountantActions && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); handleSendInvoiceEmail(inv); }}
                                 disabled={sendingInvoiceId === inv.id}
@@ -713,7 +728,7 @@ export function Invoices() {
                                 {sendingInvoiceId === inv.id ? "Sending..." : inv.emailedAt ? "Re-send Invoice" : "Email Invoice"}
                               </button>
                             )}
-                            {inv.status !== "DRAFT" && inv.graClearanceStatus !== "CLEARED" && (
+                            {inv.status !== "DRAFT" && inv.graClearanceStatus !== "CLEARED" && canUseAccountantActions && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); handleRequestGraClearance(inv.id); }}
                                 disabled={requestingGraClearanceId === inv.id}
@@ -724,7 +739,7 @@ export function Invoices() {
                                 {requestingGraClearanceId === inv.id ? "Requesting..." : "Request GRA Clearance"}
                               </button>
                             )}
-                            {inv.status !== "PAID" && (
+                            {inv.status !== "PAID" && canRecordPayment && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openPaymentModal(inv); }}
                                 className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
@@ -742,7 +757,7 @@ export function Invoices() {
                                 Payment History
                               </button>
                             )}
-                            {inv.status !== "PAID" && inv.status !== "DRAFT" && (
+                            {inv.status !== "PAID" && inv.status !== "DRAFT" && canUseAccountantActions && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openPaystackModal(inv); }}
                                 className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
@@ -751,7 +766,7 @@ export function Invoices() {
                                 Pay Now Link (Paystack)
                               </button>
                             )}
-                            {inv.status !== "DRAFT" && (
+                            {inv.status !== "DRAFT" && canUseAccountantActions && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openCreditNoteModal(inv); }}
                                 className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
