@@ -144,7 +144,13 @@ describe('Stock Take: printable blind-count sheets + reconciliation', () => {
       // (42 and 17) must never be rendered anywhere on the sheet. Strip out the
       // SKU text first, since the SKUs are timestamp-derived and can otherwise
       // coincidentally contain "42"/"17" as a substring of the run id itself.
-      const textWithoutSkus = text.split(skuA).join('').split(skuB).join('');
+      // Also strip the sheet's own "Date: <day> <month> <year>" line (see
+      // pdfGenerationService.ts) - legitimate content, not a leaked quantity,
+      // but the day-of-month can itself coincidentally equal 17 or 42 (any
+      // month has a 17th), which would otherwise fail this assertion on
+      // whatever date the suite happens to run.
+      const dateLabel = new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' });
+      const textWithoutSkus = text.split(skuA).join('').split(skuB).join('').split(dateLabel).join('');
       expect(textWithoutSkus).not.toContain('42');
       expect(textWithoutSkus).not.toContain('17');
     });
