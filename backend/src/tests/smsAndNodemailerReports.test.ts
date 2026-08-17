@@ -58,9 +58,11 @@ describe('Android SMS Gateway & Nodemailer Email Service Suite', () => {
         testEmail,
         testCompany,
         {
-          weeklySales: 5200.0,
+          periodSales: 5200.0,
           topShopName: 'Central Depot',
           totalItemsSold: 42,
+          salesChangePercent: 12.5,
+          itemsChangePercent: -3.2,
         }
       );
 

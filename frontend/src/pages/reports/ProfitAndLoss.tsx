@@ -1,18 +1,45 @@
-import { Download, Printer, FileText } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Download, Printer, FileText, FileType } from "lucide-react";
 import { useProfitAndLoss } from "../../hooks/useProfitAndLoss";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
 import { exportToCsv } from "../../lib/exportCsv";
+import { api } from "../../lib/api";
+import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { useToast } from "../../contexts/ToastContext";
+
+interface FundOption {
+  id: string;
+  name: string;
+  code: string;
+}
 
 export function ProfitAndLoss() {
   const { settings } = useTenantSettings();
+  const { showToast } = useToast();
+  const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
+  const [funds, setFunds] = useState<FundOption[]>([]);
+  const [selectedFundId, setSelectedFundId] = useState<string>("");
+
+  useEffect(() => {
+    api.get("/funds").then((res) => {
+      if (res.data.success) setFunds(res.data.data.funds || []);
+    }).catch(() => {
+      // Funds are an optional nonprofit feature - silently show none rather
+      // than blocking the report if this fails for an unconfigured tenant.
+    });
+  }, []);
+
   const {
     revenueAccounts,
+    costOfSalesAccounts,
     expenseAccounts,
     totalRevenue,
+    totalCostOfSales,
+    grossProfit,
     totalExpense,
     netIncome
-  } = useProfitAndLoss();
+  } = useProfitAndLoss(selectedFundId || undefined);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
@@ -26,10 +53,26 @@ export function ProfitAndLoss() {
   const handleExport = () => {
     const exportData = [
       ...revenueAccounts.map(r => ({ Category: 'Income', Account: r.account.name, Balance: r.balance })),
+      ...costOfSalesAccounts.map(c => ({ Category: 'Cost of Sales', Account: c.account.name, Balance: c.balance })),
+      { Category: 'Total', Account: 'Gross Profit', Balance: grossProfit },
       ...expenseAccounts.map(e => ({ Category: 'Expense', Account: e.account.name, Balance: e.balance })),
       { Category: 'Total', Account: 'Net Income', Balance: netIncome }
     ];
     exportToCsv(`profit_and_loss_${new Date().toISOString().split('T')[0]}`, exportData);
+  };
+
+  const handleExportFile = async (format: "pdf" | "docx") => {
+    setIsExporting(format);
+    try {
+      const fundParam = selectedFundId ? `&fundId=${selectedFundId}` : "";
+      const response = await api.get(`/reports/profit-loss/export?format=${format}${fundParam}`, { responseType: "blob" });
+      downloadBlobResponse(response, `Profit_And_Loss_${new Date().toISOString().split('T')[0]}.${format}`);
+    } catch (err) {
+      console.error(`Failed to export Profit & Loss as ${format}:`, err);
+      showToast(`Failed to export Profit & Loss as ${format.toUpperCase()}.`, "error");
+    } finally {
+      setIsExporting(null);
+    }
   };
 
   return (
@@ -48,15 +91,13 @@ export function ProfitAndLoss() {
             <Printer className="mr-2 h-4 w-4" />
             Print
           </Button>
-          <Button variant="outline" onClick={async () => {
-            try {
-              window.print();
-            } catch (e) {
-              console.error(e);
-            }
-          }}>
+          <Button variant="outline" disabled={isExporting === "pdf"} onClick={() => handleExportFile("pdf")}>
             <FileText className="mr-2 h-4 w-4 text-primary-600" />
-            Export PDF
+            {isExporting === "pdf" ? "Exporting..." : "Export PDF"}
+          </Button>
+          <Button variant="outline" disabled={isExporting === "docx"} onClick={() => handleExportFile("docx")}>
+            <FileType className="mr-2 h-4 w-4 text-blue-600" />
+            {isExporting === "docx" ? "Exporting..." : "Export Word"}
           </Button>
           <Button variant="primary" onClick={handleExport}>
             <Download className="mr-2 h-4 w-4" />
@@ -65,8 +106,28 @@ export function ProfitAndLoss() {
         </div>
       </div>
 
+      {funds.length > 0 && (
+        <div className="print:hidden">
+          <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+            Filter by Fund
+          </label>
+          <select
+            value={selectedFundId}
+            onChange={(e) => setSelectedFundId(e.target.value)}
+            className="flex h-10 w-full sm:w-80 rounded-md border border-secondary-300 bg-white px-3 py-2 text-sm text-secondary-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-secondary-700 dark:bg-secondary-950 dark:text-secondary-50"
+          >
+            <option value="">All Funds</option>
+            {funds.map((fund) => (
+              <option key={fund.id} value={fund.id}>
+                {fund.name} ({fund.code})
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="bg-white dark:bg-secondary-950 shadow-sm border border-secondary-200 dark:border-secondary-800 rounded-xl p-8 sm:p-12 print:shadow-none print:border-none print:p-0">
-        
+
         {/* Report Header */}
         <div className="text-center mb-10 border-b border-secondary-200 dark:border-secondary-800 pb-6">
           <h1 className="text-2xl font-bold text-secondary-900 dark:text-secondary-50 tracking-tight uppercase">
@@ -108,6 +169,38 @@ export function ProfitAndLoss() {
               <span className="w-32 text-right tabular-nums">{formatCurrency(totalRevenue)}</span>
             </div>
           </section>
+
+          {/* Cost of Sales Section */}
+          {costOfSalesAccounts.length > 0 && (
+            <section>
+              <h3 className="font-bold text-lg text-secondary-900 dark:text-secondary-50 border-b border-secondary-200 dark:border-secondary-800 pb-2 mb-4">
+                Cost of Sales
+              </h3>
+              <div className="space-y-3 pl-4">
+                {costOfSalesAccounts.map((row) => (
+                  <div key={row.account.id} className="flex justify-between items-center text-secondary-700 dark:text-secondary-300">
+                    <span className="flex-1">{row.account.name}</span>
+                    <span className="w-32 text-right tabular-nums">{formatCurrency(row.balance)}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="flex justify-between items-center mt-4 pt-4 border-t border-secondary-200 dark:border-secondary-800 font-bold text-secondary-900 dark:text-secondary-50 pl-4">
+                <span className="flex-1 uppercase tracking-wider text-xs">Total Cost of Sales</span>
+                <span className="w-32 text-right tabular-nums">{formatCurrency(totalCostOfSales)}</span>
+              </div>
+            </section>
+          )}
+
+          {/* Gross Profit Subtotal - only shown once Cost of Sales is in use,
+              otherwise it would just duplicate Total Income and add noise. */}
+          {costOfSalesAccounts.length > 0 && (
+            <section className="pt-2">
+              <div className="flex justify-between items-center text-base font-bold text-secondary-900 dark:text-secondary-50 border-t-2 border-secondary-300 dark:border-secondary-700 pt-3">
+                <span className="flex-1 uppercase tracking-wider text-xs">Gross Profit</span>
+                <span className="w-32 text-right tabular-nums">{formatCurrency(grossProfit)}</span>
+              </div>
+            </section>
+          )}
 
           {/* Expenses Section */}
           <section>

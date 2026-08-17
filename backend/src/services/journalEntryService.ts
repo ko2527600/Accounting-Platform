@@ -9,6 +9,11 @@ import {
 } from '../repository/journalEntryRepository';
 import * as accountRepository from '../repository/accountRepository';
 import * as ledgerRepository from '../repository/ledgerRepository';
+import * as fundService from './fundService';
+import { requireTenantContext } from '../context/tenantContext';
+import * as fiscalPeriodService from './fiscalPeriodService';
+import * as approvalWorkflowService from './approvalWorkflowService';
+import { recordAuditLogTx, AuditActor } from './auditLogService';
 
 export class JournalEntryServiceError extends Error {
   statusCode: number;
@@ -20,6 +25,17 @@ export class JournalEntryServiceError extends Error {
   }
 }
 
+async function assertPeriodOpenOrThrowJournalError(tenantId: string, date: Date): Promise<void> {
+  try {
+    await fiscalPeriodService.assertPeriodOpenForDate(tenantId, date);
+  } catch (error: any) {
+    if (error instanceof fiscalPeriodService.FiscalPeriodServiceError) {
+      throw new JournalEntryServiceError(error.message, error.statusCode);
+    }
+    throw error;
+  }
+}
+
 export interface CreateJournalEntryInput {
   entryNumber?: string;
   entryDate?: string | Date;
@@ -28,7 +44,7 @@ export interface CreateJournalEntryInput {
   lines: CreateJournalEntryLineData[];
 }
 
-export async function createJournalEntry(data: CreateJournalEntryInput): Promise<JournalEntryRecord> {
+export async function createJournalEntry(data: CreateJournalEntryInput, actor?: AuditActor): Promise<JournalEntryRecord> {
   // 1. Validate lines presence & minimum count
   if (!data || !data.lines || !Array.isArray(data.lines) || data.lines.length < 2) {
     throw new JournalEntryServiceError(
@@ -101,7 +117,7 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
     entryNumber = `JE-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  const entry = await withCurrentTenantDb(prisma, async (client) => {
     // Check entryNumber uniqueness
     const existingEntry = await journalEntryRepository.getJournalEntryByEntryNumber(client, entryNumber!);
     if (existingEntry) {
@@ -120,6 +136,24 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
       }
     }
 
+    // Verify any fundId referenced by a line belongs to this tenant (fund
+    // accounting for nonprofit tenants) - Fund lives in the shared public
+    // schema, so this is a separate lookup from the accountId check above.
+    const { tenantId: currentTenantId } = requireTenantContext();
+    for (let i = 0; i < data.lines.length; i++) {
+      const line = data.lines[i];
+      if (line.fundId) {
+        try {
+          await fundService.validateFundId(currentTenantId, line.fundId);
+        } catch (error: any) {
+          if (error instanceof fundService.FundServiceError) {
+            throw new JournalEntryServiceError(`Line ${i + 1}: ${error.message}`, error.statusCode);
+          }
+          throw error;
+        }
+      }
+    }
+
     // Convert date string if provided
     let entryDate: Date | undefined;
     if (data.entryDate) {
@@ -127,6 +161,14 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
       if (isNaN(entryDate.getTime())) {
         throw new JournalEntryServiceError('Invalid entry date format.', 400);
       }
+    }
+
+    // Only entries that post immediately touch the ledger, so only those need
+    // the fiscal-period-open check here - a DRAFT can still be saved for a
+    // closed/locked period date since it has no ledger effect until posted.
+    if (status === 'POSTED') {
+      const { tenantId } = requireTenantContext();
+      await assertPeriodOpenOrThrowJournalError(tenantId, entryDate || new Date());
     }
 
     // Create journal entry in DB
@@ -140,6 +182,7 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
         debit: Number(l.debit || 0),
         credit: Number(l.credit || 0),
         description: l.description,
+        fundId: l.fundId || undefined,
       })),
     });
 
@@ -148,8 +191,92 @@ export async function createJournalEntry(data: CreateJournalEntryInput): Promise
       await ledgerRepository.postJournalEntryToLedger(client, entry.id);
     }
 
+    // Written in the same transaction as the ledger write above so the audit
+    // trail can never desync from the data it describes - a failed audit
+    // write rolls the whole entry back rather than landing unaudited.
+    await recordAuditLogTx(client, {
+      action: 'JOURNAL_ENTRY.CREATED',
+      entity: 'JournalEntry',
+      entityId: entry.id,
+      actor,
+      details: `Journal entry ${entry.entryNumber} created with status ${entry.status}.`,
+    });
+
     return entry;
   });
+
+  return entry;
+}
+
+export interface CreateContraVoucherInput {
+  entryDate?: string | Date;
+  fromAccountId: string;
+  toAccountId: string;
+  amount: number;
+  description?: string;
+}
+
+/**
+ * A Contra Voucher is an internal fund transfer between two of the
+ * business's own cash/bank accounts (e.g. "till to bank"). It's a
+ * constrained, exactly-two-line journal entry: destination account is
+ * debited, source account is credited, both for the same amount. Uses a
+ * distinct `CV-` entryNumber prefix (vs. the generic `JE-`) as the
+ * discriminator between contra vouchers and regular journal entries -
+ * no separate schema column needed since createJournalEntry already
+ * accepts a caller-supplied entryNumber.
+ */
+export async function createContraVoucher(data: CreateContraVoucherInput, actor?: AuditActor): Promise<JournalEntryRecord> {
+  if (!data.fromAccountId || typeof data.fromAccountId !== 'string') {
+    throw new JournalEntryServiceError('A source ("from") account is required.', 400);
+  }
+  if (!data.toAccountId || typeof data.toAccountId !== 'string') {
+    throw new JournalEntryServiceError('A destination ("to") account is required.', 400);
+  }
+  if (data.fromAccountId === data.toAccountId) {
+    throw new JournalEntryServiceError('The source and destination accounts must be different.', 400);
+  }
+  const amount = Number(data.amount);
+  if (isNaN(amount) || amount <= 0) {
+    throw new JournalEntryServiceError('Transfer amount must be a positive number.', 400);
+  }
+
+  const { fromAccount, toAccount } = await withCurrentTenantDb(prisma, async (client) => {
+    const fromAccount = await accountRepository.getAccountById(client, data.fromAccountId);
+    if (!fromAccount) {
+      throw new JournalEntryServiceError(`Source account with ID "${data.fromAccountId}" does not exist.`, 400);
+    }
+    const toAccount = await accountRepository.getAccountById(client, data.toAccountId);
+    if (!toAccount) {
+      throw new JournalEntryServiceError(`Destination account with ID "${data.toAccountId}" does not exist.`, 400);
+    }
+    if (fromAccount.type !== 'ASSET' || toAccount.type !== 'ASSET') {
+      throw new JournalEntryServiceError(
+        'Contra Vouchers can only transfer funds between Asset accounts (cash/bank/till).',
+        400
+      );
+    }
+    return { fromAccount, toAccount };
+  });
+
+  const entryNumber = `CV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+  const description = data.description?.trim()
+    ? `Contra Voucher: ${fromAccount.name} → ${toAccount.name} - ${data.description.trim()}`
+    : `Contra Voucher: ${fromAccount.name} → ${toAccount.name}`;
+
+  return createJournalEntry(
+    {
+      entryNumber,
+      entryDate: data.entryDate,
+      description,
+      status: 'POSTED',
+      lines: [
+        { accountId: data.toAccountId, debit: amount, credit: 0 },
+        { accountId: data.fromAccountId, debit: 0, credit: amount },
+      ],
+    },
+    actor
+  );
 }
 
 export async function listJournalEntries(
@@ -170,12 +297,14 @@ export async function getJournalEntryById(id: string): Promise<JournalEntryRecor
   });
 }
 
-export async function postJournalEntry(id: string): Promise<JournalEntryRecord> {
+export async function postJournalEntry(id: string, actor?: AuditActor): Promise<JournalEntryRecord> {
   if (!id || typeof id !== 'string') {
     throw new JournalEntryServiceError('Journal Entry ID is required.', 400);
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  let previousStatus: JournalEntryStatus = 'DRAFT';
+
+  const updatedEntry = await withCurrentTenantDb(prisma, async (client) => {
     const entry = await journalEntryRepository.getJournalEntryById(client, id);
     if (!entry) {
       throw new JournalEntryServiceError(`Journal entry with ID "${id}" not found.`, 404);
@@ -188,6 +317,8 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
     if (entry.status === 'VOID') {
       throw new JournalEntryServiceError(`Cannot post a voided journal entry.`, 400);
     }
+
+    previousStatus = entry.status;
 
     // Re-verify double-entry balance
     let totalDebit = 0;
@@ -209,6 +340,20 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
       );
     }
 
+    const { tenantId } = requireTenantContext();
+    await assertPeriodOpenOrThrowJournalError(tenantId, entry.entryDate);
+
+    // Opt-in approval gate: only blocks if someone actually requested
+    // approval for this journal entry - most entries have no workflow at all.
+    try {
+      await approvalWorkflowService.assertApprovedOrNoWorkflow(tenantId, 'JournalEntry', id);
+    } catch (error: any) {
+      if (error instanceof approvalWorkflowService.ApprovalWorkflowServiceError) {
+        throw new JournalEntryServiceError(error.message, error.statusCode);
+      }
+      throw error;
+    }
+
     // Update status to POSTED
     const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'POSTED');
     if (!updatedEntry) {
@@ -218,16 +363,37 @@ export async function postJournalEntry(id: string): Promise<JournalEntryRecord> 
     // Create ledger records
     await ledgerRepository.postJournalEntryToLedger(client, id);
 
+    await recordAuditLogTx(client, {
+      action: 'JOURNAL_ENTRY.POSTED',
+      entity: 'JournalEntry',
+      entityId: updatedEntry.id,
+      actor,
+      changes: { status: { from: previousStatus, to: 'POSTED' } },
+    });
+
     return updatedEntry;
   });
+
+  return updatedEntry;
 }
 
-export async function voidJournalEntry(id: string): Promise<JournalEntryRecord> {
+export interface VoidJournalEntryResult {
+  journalEntry: JournalEntryRecord;
+  reversalEntry: JournalEntryRecord | null;
+}
+
+export async function voidJournalEntry(
+  id: string,
+  actor?: AuditActor,
+  reason?: string
+): Promise<VoidJournalEntryResult> {
   if (!id || typeof id !== 'string') {
     throw new JournalEntryServiceError('Journal Entry ID is required.', 400);
   }
 
-  return withCurrentTenantDb(prisma, async (client) => {
+  let previousStatus: JournalEntryStatus = 'DRAFT';
+
+  const { journalEntry, reversalEntry } = await withCurrentTenantDb(prisma, async (client) => {
     const entry = await journalEntryRepository.getJournalEntryById(client, id);
     if (!entry) {
       throw new JournalEntryServiceError(`Journal entry with ID "${id}" not found.`, 404);
@@ -237,11 +403,87 @@ export async function voidJournalEntry(id: string): Promise<JournalEntryRecord> 
       throw new JournalEntryServiceError(`Journal entry "${entry.entryNumber}" is already voided.`, 400);
     }
 
-    const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'VOID');
-    if (!updatedEntry) {
+    previousStatus = entry.status;
+
+    // A DRAFT never touched the ledger, so voiding it is just a status flip -
+    // no reversal is needed or created.
+    if (entry.status === 'DRAFT') {
+      const updatedEntry = await journalEntryRepository.updateJournalEntryStatus(client, id, 'VOID');
+      if (!updatedEntry) {
+        throw new JournalEntryServiceError(`Failed to void journal entry "${id}".`, 500);
+      }
+      await recordAuditLogTx(client, {
+        action: 'JOURNAL_ENTRY.VOIDED',
+        entity: 'JournalEntry',
+        entityId: updatedEntry.id,
+        actor,
+        changes: { status: { from: previousStatus, to: 'VOID' } },
+      });
+      return { journalEntry: updatedEntry, reversalEntry: null as JournalEntryRecord | null };
+    }
+
+    // entry.status === 'POSTED': it already has real ledger rows, so voiding
+    // it must post a real offsetting entry today (not just flip a flag) -
+    // reports/G-L sum directly from `ledgers` with no join back to journal
+    // entry status, so only an actual reversing entry corrects the numbers.
+    const { tenantId } = requireTenantContext();
+    const today = new Date();
+    await assertPeriodOpenOrThrowJournalError(tenantId, today);
+
+    let reversalEntryNumber = `REV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    while (await journalEntryRepository.getJournalEntryByEntryNumber(client, reversalEntryNumber)) {
+      reversalEntryNumber = `REV-${Date.now()}-${Math.floor(1000 + Math.random() * 9000)}`;
+    }
+
+    const reversal = await journalEntryRepository.createJournalEntry(client, {
+      entryNumber: reversalEntryNumber,
+      entryDate: today,
+      description: `Reversal of ${entry.entryNumber}: ${reason?.trim() || entry.description || 'Journal Entry Void'}`,
+      status: 'POSTED',
+      reversalOfEntryId: entry.id,
+      // fundId must be carried through here or a void of a fund-tagged entry
+      // produces a reversal with no fund tag - the original stays counted
+      // against the fund in a fund-filtered report but its reversal never
+      // cancels it out, permanently overstating that fund's balance.
+      lines: (entry.lines || []).map((l) => ({
+        accountId: l.accountId,
+        debit: l.credit,
+        credit: l.debit,
+        description: l.description || undefined,
+        fundId: l.fundId || undefined,
+      })),
+    });
+
+    await ledgerRepository.postJournalEntryToLedger(client, reversal.id);
+
+    const voidedOriginal = await journalEntryRepository.setReversalLink(client, entry.id, reversal.id);
+    if (!voidedOriginal) {
       throw new JournalEntryServiceError(`Failed to void journal entry "${id}".`, 500);
     }
 
-    return updatedEntry;
+    const reversalWithLines = await journalEntryRepository.getJournalEntryById(client, reversal.id);
+
+    await recordAuditLogTx(client, {
+      action: 'JOURNAL_ENTRY.VOIDED',
+      entity: 'JournalEntry',
+      entityId: voidedOriginal.id,
+      actor,
+      changes: { status: { from: previousStatus, to: 'VOID' } },
+      details: reversalWithLines ? `Reversed by ${reversalWithLines.entryNumber}.` : undefined,
+    });
+
+    if (reversalWithLines) {
+      await recordAuditLogTx(client, {
+        action: 'JOURNAL_ENTRY.REVERSED',
+        entity: 'JournalEntry',
+        entityId: reversalWithLines.id,
+        actor,
+        details: `Reversal of ${voidedOriginal.entryNumber}.`,
+      });
+    }
+
+    return { journalEntry: voidedOriginal, reversalEntry: reversalWithLines };
   });
+
+  return { journalEntry, reversalEntry };
 }

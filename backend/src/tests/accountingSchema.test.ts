@@ -11,6 +11,7 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
   const mockPrisma: any = {
     $executeRawUnsafe: jest.fn().mockResolvedValue(1),
     $queryRawUnsafe: jest.fn().mockResolvedValue([]),
+    $transaction: jest.fn((fn: any) => fn(mockPrisma)),
     tenant: {
       findMany: jest.fn().mockResolvedValue([]),
     },
@@ -18,6 +19,9 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
+    mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
+    mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma));
   });
 
   describe('DDL Migrations & Schema Definition', () => {
@@ -76,6 +80,7 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
           parent_id: null,
           currency: 'USD',
           is_active: true,
+          is_cash_equivalent: true,
           created_at: new Date(),
           updated_at: new Date(),
         },
@@ -96,7 +101,16 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         'ASSET',
         null,
         'USD',
-        true
+        true,
+        // isCashEquivalent - auto-defaulted true because the name matches
+        // the cash/bank/till heuristic (see defaultIsCashEquivalent()).
+        true,
+        // isFixedAsset - defaults false when the caller doesn't supply one
+        // (see migration 010_add_fixed_asset_support).
+        false,
+        // clientTxnId - idempotency dedup key for the local-first sync pilot
+        // (see STATUS.md); null when the caller doesn't supply one.
+        null
       );
     });
 
@@ -257,7 +271,7 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         },
       ]);
 
-      // Fetch last balance for acc-1000
+      // Batched fetch of latest balances for all accounts in the entry (acc-1000, acc-3000) - both new, no prior ledger rows
       mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
       // Insert ledger row for acc-1000
       mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([
@@ -274,8 +288,6 @@ describe('Core Accounting Database Schema & DDL Constraints', () => {
         },
       ]);
 
-      // Fetch last balance for acc-3000
-      mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([]);
       // Insert ledger row for acc-3000
       mockPrisma.$queryRawUnsafe.mockResolvedValueOnce([
         {

@@ -1,7 +1,9 @@
+import crypto from 'node:crypto';
 import { prisma } from '../config/db';
 import { EmailService } from './EmailService';
 import { SmsService } from './smsService';
-import { withCurrentTenantDb } from '../database/tenantClient';
+import { recordAuditLog } from './auditLogService';
+import { escapeHtml } from '../utils/htmlEscape';
 
 export interface BroadcastRequestDTO {
   subject: string;
@@ -21,11 +23,22 @@ export interface BroadcastResult {
 
 export class BroadcastService {
   private static get masterPasscode(): string {
-    return process.env.BROADCAST_MASTER_SECRET || 'secret_admin_broadcast_passcode';
+    const secret = process.env.BROADCAST_MASTER_SECRET;
+    if (!secret) {
+      throw new Error(
+        'BROADCAST_MASTER_SECRET environment variable is not set. Refusing to fall back to a default passcode.'
+      );
+    }
+    return secret;
   }
 
   public static verifyPasscode(passcode: string): boolean {
-    return passcode === this.masterPasscode;
+    const provided = Buffer.from(passcode || '', 'utf8');
+    const expected = Buffer.from(this.masterPasscode, 'utf8');
+    if (provided.length !== expected.length) {
+      return false;
+    }
+    return crypto.timingSafeEqual(provided, expected);
   }
 
   public static async executeBroadcast(dto: BroadcastRequestDTO): Promise<BroadcastResult> {
@@ -61,23 +74,27 @@ export class BroadcastService {
       for (const user of chunk) {
         // Send Email
         if (dto.channel === 'EMAIL' || dto.channel === 'BOTH') {
-          const emailSubject = `📢 AccountGo Notice: ${dto.subject}`;
+          // Deliberately plain, low-hype copy - an emoji-laden "Notice"
+          // subject and "official administrative broadcast... System
+          // Administrators" footer both read as promotional/phishing-style
+          // patterns to Gmail's spam filters (confirmed live: an earlier
+          // version of this template landed in spam sent from a personal
+          // Gmail SMTP account, see STATUS.md). Kept close to how a normal
+          // one-to-one business email reads instead.
+          const emailSubject = `Ledgio: ${dto.subject}`;
           const emailHtml = `
             <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
-              <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
-                AccountGo System Notice
-              </h2>
               <p style="font-size: 14px; color: #334155; line-height: 1.6;">
-                Hello <strong>${user.name}</strong> (${user.tenant?.name || 'Business Owner'}),
+                Hi ${escapeHtml(user.name)},
               </p>
-              <div style="background-color: #f1f5f9; padding: 15px; border-left: 4px solid #2563eb; border-radius: 4px; margin: 20px 0;">
-                <h3 style="margin-top: 0; color: #1e293b; font-size: 15px;">${dto.subject}</h3>
-                <p style="font-size: 13px; color: #475569; white-space: pre-line; margin-bottom: 0;">
-                  ${dto.message}
-                </p>
-              </div>
-              <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-                This is an official administrative broadcast sent by <strong>AccountGo ERP System Administrators</strong>.
+              <p style="font-size: 14px; color: #334155; line-height: 1.6; white-space: pre-line;">
+                ${escapeHtml(dto.message)}
+              </p>
+              <p style="font-size: 13px; color: #475569; line-height: 1.6;">
+                - The Ledgio Team
+              </p>
+              <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 20px;">
+                You're receiving this because you're an admin on the ${escapeHtml(user.tenant?.name || 'Ledgio')} workspace.
               </p>
             </div>
           `;
@@ -90,7 +107,7 @@ export class BroadcastService {
         // Send SMS
         if (dto.channel === 'SMS' || dto.channel === 'BOTH') {
           const recipientPhone = user.phone || process.env.OWNER_PHONE_NUMBER || '+233200000000';
-          const smsText = `AccountGo Alert: ${dto.subject} - ${dto.message}`;
+          const smsText = `Ledgio Alert: ${dto.subject} - ${dto.message}`;
 
           const smsOk = await SmsService.send(recipientPhone, smsText);
           if (smsOk) smsSentCount++;
@@ -104,20 +121,12 @@ export class BroadcastService {
       }
     }
 
-    // 3. Log System Broadcast in AuditLog
-    try {
-      await withCurrentTenantDb(prisma, async (client) => {
-        return (client as any).auditLog.create({
-          data: {
-            action: 'SYSTEM_BROADCAST',
-            entity: 'ADMIN_CONSOLE',
-            details: `Admin broadcast dispatched (${dto.channel}). Subject: "${dto.subject}". Targeted: ${totalTargeted}, Emails Sent: ${emailSentCount}, SMS Sent: ${smsSentCount}, Failures: ${failedCount}`,
-          },
-        });
-      });
-    } catch (auditErr) {
-      console.error('[BroadcastService] Audit log write error:', auditErr);
-    }
+    // 3. Log System Broadcast in AuditLog.
+    await recordAuditLog({
+      action: 'SYSTEM_BROADCAST',
+      entity: 'ADMIN_CONSOLE',
+      details: `Admin broadcast dispatched (${dto.channel}). Subject: "${dto.subject}". Targeted: ${totalTargeted}, Emails Sent: ${emailSentCount}, SMS Sent: ${smsSentCount}, Failures: ${failedCount}`,
+    });
 
     return {
       success: true,

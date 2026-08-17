@@ -1,59 +1,84 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import {
-  Smartphone,
-  Mail,
-  Building2,
-  Lock,
   ArrowRight,
   CheckCircle2,
-  ChevronRight
+  ChevronRight,
+  Download,
+  Share,
+  FileText
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
+import { useInstallPrompt } from "../../hooks/useInstallPrompt";
+import { PublicHeader } from "../../components/layout/PublicHeader";
+import { PublicFooter } from "../../components/layout/PublicFooter";
+import { ImageCarousel } from "../../components/landing/ImageCarousel";
+import { LEGAL_DOCS } from "../../lib/legalDocs";
+import { LANDING_FEATURE_CARDS, CARD_ACCENTS } from "../../lib/featureCards";
+
+function isIos(): boolean {
+  return /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
+
+const FAQ_ITEMS: { question: string; answer: string }[] = [
+  {
+    question: "Do I need a credit card to start my free trial?",
+    answer:
+      "No. Registration only asks for your administrator account and business details - no payment card is collected to provision your workspace and start your trial.",
+  },
+  {
+    question: "Is my business data kept separate from other companies?",
+    answer:
+      "Yes. Every business is provisioned its own isolated PostgreSQL schema, so your ledgers, inventory, and reports are never mixed with another tenant's data.",
+  },
+  {
+    question: "How do the SMS shortage alerts work?",
+    answer:
+      "When a shop till closes with a cash shortage, an instant SMS alert is sent to your registered owner mobile number via our Android SMS Gateway. Included with the Professional and Enterprise tiers.",
+  },
+  {
+    question: "What's included in the weekly email reports?",
+    answer:
+      "Every Monday at 8:00 AM, an automated Profit & Loss PDF statement is emailed to your admin address so you can review performance without logging in.",
+  },
+  {
+    question: "Can I move to a different pricing tier later?",
+    answer:
+      "Yes. Reach out to support as your business grows and we'll move your workspace to the tier that fits, from Starter up to a custom Enterprise plan.",
+  },
+  {
+    question: "Is there an implementation or setup fee?",
+    answer:
+      "No. Registration provisions your dedicated workspace instantly - there's no separate implementation cost or onboarding fee on any tier.",
+  },
+  {
+    question: "Does Ledgio support nonprofits, churches, NGOs, or schools?",
+    answer:
+      "Yes. Choose Nonprofit/Church/NGO/School as your organization type at registration to unlock dedicated fund accounting - restricted and unrestricted funds are tracked against every invoice, bill, and journal entry, and POS/Inventory are replaced with a Funds view.",
+  },
+  {
+    question: "Can I control what each team member can see and do?",
+    answer:
+      "Yes. Ledgio supports role-based access - Admin, Accountant, Auditor, HR, Shop Manager, and Cashier roles each see a different, purpose-built navigation, and shop-level roles can be restricted to specific warehouse locations.",
+  },
+  {
+    question: "Does Ledgio work with Mobile Money or my bank?",
+    answer:
+      "Yes. Ledgio supports MTN Mobile Money, Telecel Cash, AirtelTigo Money, Zeepay, and G-Money collections, plus bank account connection for automatic transaction sync.",
+  },
+  {
+    question: "Is two-factor authentication available?",
+    answer:
+      "Yes. Any account can enable TOTP-based two-factor authentication (compatible with apps like Google Authenticator or Authy) with one-time backup codes for account recovery.",
+  },
+];
 
 export function LandingPage() {
   const navigate = useNavigate();
-  const [activeLegalTab, setActiveLegalTab] = useState<"terms" | "sla" | "tier">("terms");
+  const { isInstallable, isInstalled, promptInstall } = useInstallPrompt();
 
   return (
     <div className="min-h-screen bg-secondary-950 text-secondary-100 font-sans selection:bg-emerald-500 selection:text-white">
-      {/* 1. Header Navigation */}
-      <header className="sticky top-0 z-40 border-b border-secondary-800/80 bg-secondary-950/90 backdrop-blur-md">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-20 flex items-center justify-between">
-          <div className="flex items-center space-x-3 cursor-pointer" onClick={() => navigate("/")}>
-            <div className="p-2.5 bg-gradient-to-tr from-emerald-600 to-blue-600 rounded-xl shadow-lg shadow-emerald-950">
-              <Building2 className="h-6 w-6 text-white" />
-            </div>
-            <span className="text-2xl font-black tracking-tight text-white">
-              Account<span className="text-emerald-400">Go</span>
-            </span>
-          </div>
-
-          <div className="hidden md:flex items-center space-x-8 text-sm font-medium text-secondary-300">
-            <a href="#features" className="hover:text-emerald-400 transition-colors">Features</a>
-            <a href="#onboarding" className="hover:text-emerald-400 transition-colors">How It Works</a>
-            <a href="#pricing" className="hover:text-emerald-400 transition-colors">Pricing</a>
-            <a href="#legal" className="hover:text-emerald-400 transition-colors">Terms & SLA</a>
-          </div>
-
-          <div className="flex items-center space-x-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate("/login")}
-              className="border-secondary-700 text-secondary-200 hover:bg-secondary-800 hover:text-white"
-            >
-              Member Login
-            </Button>
-            <Button
-              variant="primary"
-              onClick={() => navigate("/register")}
-              className="bg-emerald-600 hover:bg-emerald-500 text-white shadow-lg shadow-emerald-950 font-bold"
-            >
-              Register Business Free
-            </Button>
-          </div>
-        </div>
-      </header>
+      <PublicHeader />
 
       {/* 2. Hero Section */}
       <section className="relative pt-20 pb-28 overflow-hidden bg-gradient-to-b from-secondary-950 via-secondary-900 to-secondary-950">
@@ -61,7 +86,7 @@ export function LandingPage() {
           {/* Glassmorphic Badge */}
           <div className="inline-flex items-center space-x-2 px-4 py-2 rounded-full bg-emerald-950/60 border border-emerald-500/30 text-emerald-400 text-xs font-semibold mb-8 animate-in fade-in duration-700">
             <SparklesIcon className="h-4 w-4" />
-            <span>The #1 Multi-Tenant ERP & Accounting Engine for Business Owners</span>
+            <span>The #1 Multi-Tenant ERP & Accounting Engine for Businesses & Nonprofits</span>
           </div>
 
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-black tracking-tight text-white max-w-5xl mx-auto leading-tight">
@@ -72,7 +97,7 @@ export function LandingPage() {
           </h1>
 
           <p className="mt-6 text-lg sm:text-xl text-secondary-300 max-w-3xl mx-auto leading-relaxed font-normal">
-            Eliminate shop cash shortages, automate multi-warehouse inventory, and receive executive weekly Profit & Loss PDF statements delivered straight to your email every Monday morning.
+            Eliminate shop cash shortages, automate multi-warehouse inventory, and receive executive weekly Profit & Loss PDF statements delivered straight to your email every Monday morning. Complete with invoicing, bills, role-based team access, mobile money collections, bank sync, and dedicated fund accounting for nonprofits.
           </p>
 
           <div className="mt-10 flex flex-col sm:flex-row justify-center items-center gap-4">
@@ -92,6 +117,11 @@ export function LandingPage() {
               Sign In to Workspace
             </Button>
           </div>
+
+          <p className="mt-4 flex items-center justify-center gap-2 text-xs font-semibold text-secondary-400">
+            <CheckCircle2 className="h-4 w-4 text-emerald-400" />
+            No credit card required to start your trial
+          </p>
 
           {/* Quick Metrics Banner */}
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 max-w-4xl mx-auto p-6 bg-secondary-900/60 border border-secondary-800 rounded-2xl backdrop-blur-sm">
@@ -115,46 +145,56 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* 2b. Photo Carousel */}
+      <section id="gallery" className="py-20 border-t border-secondary-800/60 bg-secondary-950">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-12">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Real People. Real Businesses. Real Numbers.</h2>
+            <p className="mt-4 text-secondary-400 text-base">
+              Built for owners who want to stop guessing where the money went.
+            </p>
+          </div>
+          <ImageCarousel />
+        </div>
+      </section>
+
       {/* 3. Core Features Section */}
       <section id="features" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center max-w-3xl mx-auto mb-16">
-            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Why Businesses Choose AccountGo</h2>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Why Businesses & Nonprofits Choose Ledgio</h2>
             <p className="mt-4 text-secondary-400 text-base">
-              Built specifically to give business owners absolute visibility, anti-fraud protection, and effortless compliance.
+              A complete accounting core - not just a shortage tracker - built for absolute visibility, anti-fraud protection, and effortless compliance.
             </p>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            <div className="p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 hover:border-emerald-500/50 transition-all duration-300 group">
-              <div className="p-3 bg-amber-500/10 rounded-xl text-amber-400 w-fit mb-6 group-hover:scale-110 transition-transform">
-                <Smartphone className="h-7 w-7" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-3">Instant SMS Cash Shortage Warnings</h3>
-              <p className="text-sm text-secondary-400 leading-relaxed">
-                Receive instant SMS shortage warnings directly on your mobile phone whenever a shop drawer closes short. Managed centrally by AccountGo and included in your subscription.
-              </p>
-            </div>
+            {LANDING_FEATURE_CARDS.map((card, i) => {
+              const accent = CARD_ACCENTS[i % CARD_ACCENTS.length];
+              const Icon = card.icon;
+              return (
+                <div
+                  key={card.title}
+                  className={`p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 ${accent.hoverBorder} transition-all duration-300 group`}
+                >
+                  <div className={`p-3 ${accent.bg} rounded-xl ${accent.text} w-fit mb-6 group-hover:scale-110 transition-transform`}>
+                    <Icon className="h-7 w-7" />
+                  </div>
+                  <h3 className="text-xl font-bold text-white mb-3">{card.title}</h3>
+                  <p className="text-sm text-secondary-400 leading-relaxed">{card.description}</p>
+                </div>
+              );
+            })}
+          </div>
 
-            <div className="p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 hover:border-blue-500/50 transition-all duration-300 group">
-              <div className="p-3 bg-blue-500/10 rounded-xl text-blue-400 w-fit mb-6 group-hover:scale-110 transition-transform">
-                <Mail className="h-7 w-7" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-3">Automated Monday Email Reports</h3>
-              <p className="text-sm text-secondary-400 leading-relaxed">
-                Receive weekly Profit & Loss PDF executive performance statements sent automatically to your inbox every Monday at 8:00 AM.
-              </p>
-            </div>
-
-            <div className="p-8 rounded-2xl bg-secondary-900/80 border border-secondary-800 hover:border-emerald-500/50 transition-all duration-300 group">
-              <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400 w-fit mb-6 group-hover:scale-110 transition-transform">
-                <Building2 className="h-7 w-7" />
-              </div>
-              <h3 className="text-xl font-bold text-white mb-3">Multi-Warehouse Logistics ("Godowns")</h3>
-              <p className="text-sm text-secondary-400 leading-relaxed">
-                Identify fast-selling products vs slow-moving dead stock, transfer inventory between shops, and automate re-ordering thresholds.
-              </p>
-            </div>
+          <div className="mt-10 text-center">
+            <Link
+              to="/features"
+              className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View full Features page
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Link>
           </div>
         </div>
       </section>
@@ -174,7 +214,7 @@ export function LandingPage() {
               <div className="text-xs font-bold text-emerald-400 mb-2">STEP 01</div>
               <h4 className="text-lg font-bold text-white mb-2">Register Business</h4>
               <p className="text-xs text-secondary-400 leading-relaxed">
-                Enter your Company Name, Base Operating Currency (GHS, USD, EUR, NGN, GBP), Admin Email, and Owner Mobile Number.
+                Enter your Company Name, choose Business or Nonprofit/Church/NGO/School as your organization type, select your Base Operating Currency (GHS, USD, EUR, NGN, GBP), Admin Email, and Owner Mobile Number.
               </p>
             </div>
 
@@ -208,6 +248,10 @@ export function LandingPage() {
               </li>
               <li className="flex items-center">
                 <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
+                <span><strong>Organization Type:</strong> Business unlocks POS & Inventory; Nonprofit/Church/NGO/School unlocks Fund Accounting instead.</span>
+              </li>
+              <li className="flex items-center">
+                <ChevronRight className="h-4 w-4 text-emerald-400 mr-2" />
                 <span><strong>Valid Owner Mobile Number:</strong> Required for instant till shortage SMS alerts.</span>
               </li>
               <li className="flex items-center">
@@ -220,8 +264,61 @@ export function LandingPage() {
               </li>
             </ul>
           </div>
+
+          <div className="mt-10 text-center">
+            <Link
+              to="/how-it-works"
+              className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View full How It Works page
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Link>
+          </div>
         </div>
       </section>
+
+      {/* 4b. Get the App */}
+      {!isInstalled && (isInstallable || isIos()) && (
+        <section id="get-the-app" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
+          <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 text-center">
+            <div className="p-3 bg-emerald-500/10 rounded-xl text-emerald-400 w-fit mx-auto mb-6">
+              <Download className="h-7 w-7" />
+            </div>
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Get the App on Your Device</h2>
+            <p className="mt-4 text-secondary-400 text-base leading-relaxed">
+              Install Ledgio for quick access from your home screen or desktop, just like a native app -
+              no app store required. It's the same workspace you use in the browser, ready in one tap.
+            </p>
+
+            <div className="mt-8">
+              {isInstallable && (
+                <Button
+                  variant="primary"
+                  onClick={promptInstall}
+                  className="px-8 py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-lg rounded-xl shadow-xl shadow-emerald-950/50 inline-flex items-center justify-center"
+                >
+                  Install App
+                  <Download className="ml-2 h-5 w-5" />
+                </Button>
+              )}
+
+              {!isInstallable && isIos() && (
+                <div className="max-w-md mx-auto p-6 bg-secondary-900 border border-secondary-800 rounded-2xl text-left">
+                  <h4 className="text-sm font-bold text-white mb-3 flex items-center">
+                    <Share className="h-4 w-4 text-emerald-400 mr-2" />
+                    Add to Home Screen (Safari on iOS)
+                  </h4>
+                  <ol className="space-y-2 text-xs text-secondary-300 list-decimal list-inside">
+                    <li>Tap the Share icon in Safari's toolbar.</li>
+                    <li>Scroll down and tap "Add to Home Screen".</li>
+                    <li>Tap "Add" to confirm - Ledgio will appear as an app icon.</li>
+                  </ol>
+                </div>
+              )}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* 5. Pricing Section */}
       <section id="pricing" className="py-24 border-t border-secondary-800/60 bg-secondary-950">
@@ -288,6 +385,30 @@ export function LandingPage() {
         </div>
       </section>
 
+      {/* 5b. Frequently Asked Questions */}
+      <section id="faq" className="py-24 border-t border-secondary-800/60 bg-secondary-900/40">
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="text-center max-w-3xl mx-auto mb-16">
+            <h2 className="text-3xl sm:text-4xl font-extrabold text-white">Frequently Asked Questions</h2>
+            <p className="mt-4 text-secondary-400 text-base">
+              Everything you need to know before starting your trial.
+            </p>
+          </div>
+
+          <div className="space-y-4">
+            {FAQ_ITEMS.map((item) => (
+              <div
+                key={item.question}
+                className="p-6 rounded-2xl bg-secondary-900/80 border border-secondary-800"
+              >
+                <h3 className="text-base font-bold text-white mb-2">{item.question}</h3>
+                <p className="text-sm text-secondary-400 leading-relaxed">{item.answer}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* 6. Legal & Policy Showcase */}
       <section id="legal" className="py-20 border-t border-secondary-800/60 bg-secondary-900/30">
         <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -296,77 +417,40 @@ export function LandingPage() {
             <p className="text-xs text-secondary-400 mt-1">Inspect platform legal terms, SLA guarantees, and tier policies.</p>
           </div>
 
-          <div className="flex justify-center space-x-4 border-b border-secondary-800 pb-4 mb-6">
-            <button
-              onClick={() => setActiveLegalTab("terms")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "terms" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Terms & Conditions
-            </button>
-            <button
-              onClick={() => setActiveLegalTab("sla")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "sla" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Service Level Agreement (SLA 99.9%)
-            </button>
-            <button
-              onClick={() => setActiveLegalTab("tier")}
-              className={`pb-2 text-xs font-semibold transition-colors border-b-2 ${activeLegalTab === "tier" ? "border-emerald-500 text-emerald-400" : "border-transparent text-secondary-400 hover:text-white"}`}
-            >
-              Customization Tier Policy
-            </button>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {LEGAL_DOCS.map((doc) => (
+              <Link
+                key={doc.policyName}
+                to={`/legal/${doc.policyName}`}
+                className="group p-5 bg-secondary-900 border border-secondary-800 rounded-xl hover:border-emerald-600/60 transition-colors flex flex-col"
+              >
+                <div className="flex items-center space-x-2 mb-2">
+                  <FileText className="h-4 w-4 text-emerald-400 flex-shrink-0" />
+                  <h4 className="font-bold text-white text-sm">{doc.label}</h4>
+                </div>
+                <p className="text-xs text-secondary-400 leading-relaxed flex-1">{doc.teaser}</p>
+                <span className="mt-3 inline-flex items-center text-xs font-semibold text-emerald-400 group-hover:text-emerald-300">
+                  Read full document
+                  <ChevronRight className="h-3.5 w-3.5 ml-1 group-hover:translate-x-0.5 transition-transform" />
+                </span>
+              </Link>
+            ))}
           </div>
 
-          <div className="p-6 bg-secondary-900 border border-secondary-800 rounded-xl text-xs text-secondary-300 leading-relaxed font-sans max-h-64 overflow-y-auto">
-            {activeLegalTab === "terms" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">AccountGo Master Terms of Service</h4>
-                <p>By registering a business tenant account on AccountGo ERP, you agree that your database schema will be isolated under PostgreSQL multi-tenant architecture. Account holders are responsible for maintaining owner mobile phone numbers for SMS shortage notifications.</p>
-              </div>
-            )}
-
-            {activeLegalTab === "sla" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">Service Level Agreement (SLA 99.9% Uptime)</h4>
-                <p>AccountGo guarantees 99.9% monthly service uptime for core double-entry general ledgers, point-of-sale cash tills, and financial reporting services. System maintenance windows are communicated in advance via Email and SMS broadcasts.</p>
-              </div>
-            )}
-
-            {activeLegalTab === "tier" && (
-              <div className="space-y-3">
-                <h4 className="font-bold text-white text-sm">Customization & Feature Enforcer Policy</h4>
-                <p>Custom field extensions and dedicated schema isolation options are managed based on your subscribed subscription tier. Tier 1 tenants operate with standard Chart of Accounts templates.</p>
-              </div>
-            )}
+          <div className="mt-10 text-center">
+            <Link
+              to="/legal"
+              className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition-colors"
+            >
+              View full Legal & Compliance Trust Center
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Link>
           </div>
         </div>
       </section>
 
-      {/* 7. Footer & Secret Encrypted Admin Broadcast Access */}
-      <footer className="border-t border-secondary-800/80 bg-secondary-950 py-12">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col sm:flex-row justify-between items-center space-y-4 sm:space-y-0">
-          <div className="flex items-center space-x-2">
-            <Building2 className="h-5 w-5 text-emerald-400" />
-            <span className="text-sm font-bold text-white">AccountGo Multi-Tenant ERP</span>
-          </div>
-
-          <div className="text-xs text-secondary-500">
-            © 2026 AccountGo. All rights reserved. Registered under strict tenant schema isolation.
-          </div>
-
-          {/* SECRET ENCRYPTED FOOTER LINK (Mocking AccountGo Accounting Engine) */}
-          <div>
-            <button
-              onClick={() => navigate("/admin/core-engine")}
-              className="text-[11px] font-mono text-secondary-600 hover:text-amber-400 transition-colors flex items-center space-x-1"
-              title="Click to open Encrypted Admin Core Engine Hub"
-            >
-              <Lock className="h-3 w-3 mr-1" />
-              <span>AccountGo Accounting Engine v2.4 (Encrypted)</span>
-            </button>
-          </div>
-        </div>
-      </footer>
+      {/* 7. Footer */}
+      <PublicFooter />
     </div>
   );
 }

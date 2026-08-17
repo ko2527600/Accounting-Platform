@@ -2,10 +2,13 @@ import { useState } from "react";
 import { Download, BookOpen, ChevronRight } from "lucide-react";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useLedgerReport } from "../../hooks/useLedgerReport";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
 import { Card, CardContent } from "../../components/ui/Card";
 import { Badge } from "../../components/ui/Badge";
+import { Modal } from "../../components/ui/Modal";
 import { exportToCsv } from "../../lib/exportCsv";
+import { api } from "../../lib/api";
 import {
   Table,
   TableBody,
@@ -15,15 +18,62 @@ import {
   TableRow,
 } from "../../components/ui/Table";
 
+interface JournalEntryLineDetail {
+  id: string;
+  accountId: string;
+  debit: number;
+  credit: number;
+  description: string | null;
+}
+
+interface JournalEntryDetail {
+  id: string;
+  entryNumber: string;
+  entryDate: string;
+  description: string | null;
+  status: string;
+  reversalOfEntryId: string | null;
+  reversedByEntryId: string | null;
+  lines: JournalEntryLineDetail[];
+}
+
 export function GeneralLedger() {
   const { accounts } = useAccounts();
   const [selectedAccountId, setSelectedAccountId] = useState<string>(accounts[0]?.id || "");
-  const { account, lines, totalDebit, totalCredit, closingBalance } = useLedgerReport(selectedAccountId);
+  const { account, lines, openingBalance, totalDebit, totalCredit, closingBalance } = useLedgerReport(selectedAccountId);
+  const { settings } = useTenantSettings();
 
+  const [isJournalModalOpen, setIsJournalModalOpen] = useState(false);
+  const [journalEntry, setJournalEntry] = useState<JournalEntryDetail | null>(null);
+  const [isJournalLoading, setIsJournalLoading] = useState(false);
+  const [journalError, setJournalError] = useState<string | null>(null);
+
+  const accountLabelById = new Map(accounts.map((a) => [a.id, `${a.code} - ${a.name}`]));
+
+  const openJournalEntry = async (journalEntryId: string) => {
+    setIsJournalModalOpen(true);
+    setIsJournalLoading(true);
+    setJournalError(null);
+    setJournalEntry(null);
+    try {
+      const res = await api.get(`/journal-entries/${journalEntryId}`);
+      setJournalEntry(res.data.data.journalEntry);
+    } catch (err: any) {
+      setJournalError(err.response?.data?.error || "Failed to load this journal entry.");
+    } finally {
+      setIsJournalLoading(false);
+    }
+  };
+
+  // Formats using the tenant's real configured base currency, the same
+  // source every other report (Chart of Accounts, P&L, Balance Sheet, etc.)
+  // already reads - not the stored per-account `currency` field, which is
+  // write-only accident-of-creation-time data (the ledger is single-currency
+  // by design, so every account's `currency` is always the tenant's own).
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
       style: "currency",
-      currency: "USD",
+      currency: settings.baseCurrency,
     }).format(amount);
   };
 
@@ -32,8 +82,7 @@ export function GeneralLedger() {
     const exportData = lines.map(line => ({
       Date: line.date,
       Journal_ID: line.journalId,
-      Journal_Description: line.description,
-      Line_Description: line.lineDescription || '',
+      Description: line.description,
       Debit: line.debit,
       Credit: line.credit,
       Balance: line.runningBalance
@@ -98,7 +147,7 @@ export function GeneralLedger() {
             <Card className="shadow-sm">
               <CardContent className="p-4">
                 <p className="text-sm font-medium text-secondary-500 dark:text-secondary-400">Opening Balance</p>
-                <p className="text-2xl font-bold mt-1 text-secondary-900 dark:text-secondary-50">$0.00</p>
+                <p className="text-2xl font-bold mt-1 text-secondary-900 dark:text-secondary-50">{formatCurrency(openingBalance)}</p>
               </CardContent>
             </Card>
             <Card className="shadow-sm">
@@ -150,20 +199,24 @@ export function GeneralLedger() {
                         {line.date}
                       </TableCell>
                       <TableCell>
-                        <div className="flex items-center text-primary-600 dark:text-primary-400 hover:underline cursor-pointer">
-                          {line.journalId}
-                          <ChevronRight className="h-3 w-3 ml-1" />
-                        </div>
+                        {line.journalEntryId ? (
+                          <button
+                            type="button"
+                            onClick={() => openJournalEntry(line.journalEntryId!)}
+                            className="flex items-center text-primary-600 dark:text-primary-400 hover:underline cursor-pointer"
+                            title="View the full journal entry"
+                          >
+                            {line.journalId}
+                            <ChevronRight className="h-3 w-3 ml-1" />
+                          </button>
+                        ) : (
+                          <span className="text-secondary-500">{line.journalId}</span>
+                        )}
                       </TableCell>
                       <TableCell>
                         <span className="font-medium text-secondary-900 dark:text-secondary-50">
                           {line.description}
                         </span>
-                        {line.lineDescription && (
-                          <div className="text-xs text-secondary-500 mt-0.5">
-                            {line.lineDescription}
-                          </div>
-                        )}
                       </TableCell>
                       <TableCell className="text-right text-secondary-900 dark:text-secondary-100">
                         {line.debit > 0 ? formatCurrency(line.debit) : "-"}
@@ -189,6 +242,81 @@ export function GeneralLedger() {
           </CardContent>
         </Card>
       )}
+
+      <Modal
+        isOpen={isJournalModalOpen}
+        onClose={() => setIsJournalModalOpen(false)}
+        title={journalEntry ? `Journal Entry ${journalEntry.entryNumber}` : "Journal Entry"}
+        description={journalEntry ? new Date(journalEntry.entryDate).toISOString().split("T")[0] : undefined}
+        className="max-w-2xl"
+      >
+        {isJournalLoading ? (
+          <div className="py-8 text-center text-sm text-secondary-500">Loading journal entry...</div>
+        ) : journalError ? (
+          <div className="py-4 text-sm text-red-600">{journalError}</div>
+        ) : journalEntry ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium text-secondary-900 dark:text-secondary-50">
+                  {journalEntry.description || "No description"}
+                </p>
+                {journalEntry.reversalOfEntryId && (
+                  <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Reversal of another entry</p>
+                )}
+                {journalEntry.reversedByEntryId && (
+                  <p className="text-xs text-secondary-500 mt-0.5">Reversed by another entry</p>
+                )}
+              </div>
+              <Badge
+                variant={
+                  journalEntry.status === "POSTED"
+                    ? "success"
+                    : journalEntry.status === "VOID"
+                    ? "danger"
+                    : "warning"
+                }
+              >
+                {journalEntry.status}
+              </Badge>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Account</TableHead>
+                  <TableHead>Description</TableHead>
+                  <TableHead className="text-right">Debit</TableHead>
+                  <TableHead className="text-right">Credit</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {journalEntry.lines.map((line) => (
+                  <TableRow key={line.id}>
+                    <TableCell className="font-medium text-secondary-900 dark:text-secondary-50">
+                      {accountLabelById.get(line.accountId) || line.accountId}
+                    </TableCell>
+                    <TableCell className="text-secondary-500 text-xs">{line.description || "-"}</TableCell>
+                    <TableCell className="text-right">{line.debit > 0 ? formatCurrency(line.debit) : "-"}</TableCell>
+                    <TableCell className="text-right">{line.credit > 0 ? formatCurrency(line.credit) : "-"}</TableCell>
+                  </TableRow>
+                ))}
+                <TableRow>
+                  <TableCell colSpan={2} className="text-right font-semibold text-xs uppercase tracking-wider text-secondary-500">
+                    Total
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatCurrency(journalEntry.lines.reduce((sum, l) => sum + l.debit, 0))}
+                  </TableCell>
+                  <TableCell className="text-right font-semibold">
+                    {formatCurrency(journalEntry.lines.reduce((sum, l) => sum + l.credit, 0))}
+                  </TableCell>
+                </TableRow>
+              </TableBody>
+            </Table>
+          </div>
+        ) : null}
+      </Modal>
     </div>
   );
 }

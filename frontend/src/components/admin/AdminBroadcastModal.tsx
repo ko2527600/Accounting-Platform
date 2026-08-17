@@ -18,7 +18,7 @@ export function AdminBroadcastModal({ isOpen, onClose }: AdminBroadcastModalProp
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
   const [message, setMessage] = useState(
-    "AccountGo ERP will be undergoing a scheduled system upgrade on Sunday at 2:00 AM UTC. Expect approximately 15 minutes of downtime. Thank you for your patience!"
+    "Ledgio ERP will be undergoing a scheduled system upgrade on Sunday at 2:00 AM UTC. Expect approximately 15 minutes of downtime. Thank you for your patience!"
   );
   const [channel, setChannel] = useState<"EMAIL" | "SMS" | "BOTH">("BOTH");
   const [targetTier, setTargetTier] = useState<string>("ALL");
@@ -49,12 +49,12 @@ export function AdminBroadcastModal({ isOpen, onClose }: AdminBroadcastModalProp
     if (type === "UPGRADE") {
       setSubject("🚀 System Upgrade Announcement v2.5");
       setMessage(
-        "We have deployed major performance upgrades to AccountGo ERP! Enhancements include faster POS cash till closeouts, real-time inventory re-allocation, and zero-latency SMS warnings."
+        "We have deployed major performance upgrades to Ledgio ERP! Enhancements include faster POS cash till closeouts, real-time inventory re-allocation, and zero-latency SMS warnings."
       );
     } else if (type === "MAINTENANCE") {
       setSubject("🛠 Scheduled Maintenance Warning");
       setMessage(
-        "AccountGo will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
+        "Ledgio will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
       );
     } else if (type === "NEWS") {
       setSubject("🎁 New Feature: Automated Weekly Email Reports");
@@ -95,7 +95,7 @@ export function AdminBroadcastModal({ isOpen, onClose }: AdminBroadcastModalProp
           <div className="flex items-center space-x-2">
             <ShieldAlert className="h-5 w-5 text-amber-500" />
             <h3 className="font-bold text-base tracking-wide text-secondary-100">
-              AccountGo Core Engine (Admin Broadcast Gate)
+              Ledgio Core Engine (Admin Broadcast Gate)
             </h3>
           </div>
           <button onClick={onClose} className="text-secondary-400 hover:text-white transition-colors">

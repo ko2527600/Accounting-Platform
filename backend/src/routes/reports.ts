@@ -4,8 +4,21 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import * as reportingService from '../services/reportingService';
 import { ReportingServiceError } from '../services/reportingService';
+import { requireTenantContext } from '../context/tenantContext';
+import { prisma } from '../config/db';
+import { withCurrentTenantDb } from '../database/tenantClient';
+import { generateBalanceSheetPdf, generateProfitAndLossPdf, generateCashFlowPdf } from '../services/pdfGenerationService';
+import { generateBalanceSheetDocx, generateProfitAndLossDocx, generateCashFlowDocx } from '../services/reportDocxService';
+import * as cashFlowForecastService from '../services/cashFlowForecastService';
+import { CashFlowForecastServiceError } from '../services/cashFlowForecastService';
+import * as agingReportService from '../services/agingReportService';
 
 const router = Router();
+
+async function resolveTenantDisplayInfo(tenantId: string, tenantName: string | undefined): Promise<{ name: string; currency: string }> {
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId }, select: { baseCurrency: true } });
+  return { name: tenantName || 'Business', currency: tenant?.baseCurrency || 'USD' };
+}
 
 // Enforce authentication & tenant context on all reports endpoints
 router.use(authenticateJwt);
@@ -50,11 +63,12 @@ router.get('/trial-balance', requireRole('Viewer'), async (req: Request, res: Re
  */
 router.get('/profit-loss', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { startDate, endDate, asOfDate } = req.query;
+    const { startDate, endDate, asOfDate, fundId } = req.query;
     const report = await reportingService.getProfitAndLoss(
       startDate ? (startDate as string) : undefined,
       endDate ? (endDate as string) : undefined,
-      asOfDate ? (asOfDate as string) : undefined
+      asOfDate ? (asOfDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
     );
     res.status(200).json({
       success: true,
@@ -82,10 +96,11 @@ router.get('/profit-loss', requireRole('Viewer'), async (req: Request, res: Resp
  */
 router.get('/balance-sheet', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const { asOfDate, endDate } = req.query;
+    const { asOfDate, endDate, fundId } = req.query;
     const report = await reportingService.getBalanceSheet(
       asOfDate ? (asOfDate as string) : undefined,
-      endDate ? (endDate as string) : undefined
+      endDate ? (endDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
     );
     res.status(200).json({
       success: true,
@@ -102,6 +117,295 @@ router.get('/balance-sheet', requireRole('Viewer'), async (req: Request, res: Re
     res.status(500).json({
       success: false,
       error: error.message || 'Internal Server Error while generating Balance Sheet report.',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/balance-sheet/export?format=pdf|docx
+ * Downloads the Balance Sheet as a real generated PDF or Word document.
+ * Access: Viewer role or higher (matches GET /balance-sheet).
+ */
+router.get('/balance-sheet/export', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const format = req.query.format as string;
+    if (format !== 'pdf' && format !== 'docx') {
+      res.status(400).json({ success: false, error: 'Query param "format" must be "pdf" or "docx".' });
+      return;
+    }
+
+    const { asOfDate, endDate, fundId } = req.query;
+    const report = await reportingService.getBalanceSheet(
+      asOfDate ? (asOfDate as string) : undefined,
+      endDate ? (endDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
+    );
+
+    const { tenantId, tenantName } = requireTenantContext();
+    const { name, currency } = await resolveTenantDisplayInfo(tenantId, tenantName);
+    const asOfLabel = report.asOfDate
+      ? new Date(report.asOfDate).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })
+      : new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+
+    const filenameBase = `Balance_Sheet_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'pdf') {
+      const buffer = await generateBalanceSheetPdf(name, currency, asOfLabel, report);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
+      res.status(200).send(buffer);
+    } else {
+      const buffer = await generateBalanceSheetDocx(name, currency, asOfLabel, report);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.docx`);
+      res.status(200).send(buffer);
+    }
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Balance Sheet export error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate Balance Sheet export.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/profit-loss/export?format=pdf|docx
+ * Downloads the Profit & Loss statement as a real generated PDF or Word document.
+ * Access: Viewer role or higher (matches GET /profit-loss).
+ */
+router.get('/profit-loss/export', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const format = req.query.format as string;
+    if (format !== 'pdf' && format !== 'docx') {
+      res.status(400).json({ success: false, error: 'Query param "format" must be "pdf" or "docx".' });
+      return;
+    }
+
+    const { startDate, endDate, asOfDate, fundId } = req.query;
+    const report = await reportingService.getProfitAndLoss(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined,
+      asOfDate ? (asOfDate as string) : undefined,
+      fundId ? (fundId as string) : undefined
+    );
+
+    const { tenantId, tenantName } = requireTenantContext();
+    const { name, currency } = await resolveTenantDisplayInfo(tenantId, tenantName);
+    const asOfLabel = new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const filenameBase = `Profit_And_Loss_${new Date().toISOString().split('T')[0]}`;
+    // The PDF/DOCX generators only know Revenue/Expenses/Net Profit - fold
+    // Cost of Sales into the expenses list for export so Total Revenue -
+    // Total Expenses still reconciles to Net Profit on the exported
+    // document, same as it does everywhere else this report is read.
+    const exportData = {
+      revenues: report.revenues.map(r => ({ code: r.code, name: r.name, balance: r.amount })),
+      totalRevenue: report.totalRevenue,
+      expenses: [...report.costOfSales, ...report.expenses].map(e => ({ code: e.code, name: e.name, balance: e.amount })),
+      totalExpenses: report.totalCostOfSales + report.totalExpenses,
+      netProfit: report.netProfit,
+      isProfit: report.isProfit,
+    };
+
+    if (format === 'pdf') {
+      const buffer = await generateProfitAndLossPdf(name, currency, asOfLabel, exportData);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
+      res.status(200).send(buffer);
+    } else {
+      const buffer = await generateProfitAndLossDocx(name, currency, asOfLabel, exportData);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.docx`);
+      res.status(200).send(buffer);
+    }
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Profit & Loss export error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate Profit & Loss export.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow
+ * Description: Indirect-method Cash Flow Statement (Operating/Investing/Financing
+ * activities, Net Change in Cash) over a date range. Omit startDate/endDate for since-inception.
+ * Access: Viewer role or higher
+ */
+router.get('/cash-flow', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getCashFlowStatement(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+    res.status(200).json({
+      success: true,
+      data: report,
+    });
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating Cash Flow Statement.',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow/export?format=pdf|docx
+ * Downloads the Cash Flow Statement as a real generated PDF or Word document.
+ * Access: Viewer role or higher (matches GET /cash-flow).
+ */
+router.get('/cash-flow/export', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const format = req.query.format as string;
+    if (format !== 'pdf' && format !== 'docx') {
+      res.status(400).json({ success: false, error: 'Query param "format" must be "pdf" or "docx".' });
+      return;
+    }
+
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getCashFlowStatement(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+
+    const { tenantId, tenantName } = requireTenantContext();
+    const { name, currency } = await resolveTenantDisplayInfo(tenantId, tenantName);
+    const fmtDate = (d: string) => new Date(d).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' });
+    const periodLabel = report.startDate
+      ? `${fmtDate(report.startDate)} to ${report.endDate ? fmtDate(report.endDate) : 'present'}`
+      : `Since inception to ${report.endDate ? fmtDate(report.endDate) : 'present'}`;
+
+    const filenameBase = `Cash_Flow_Statement_${new Date().toISOString().split('T')[0]}`;
+
+    if (format === 'pdf') {
+      const buffer = await generateCashFlowPdf(name, currency, periodLabel, report);
+      res.setHeader('Content-Type', 'application/pdf');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.pdf`);
+      res.status(200).send(buffer);
+    } else {
+      const buffer = await generateCashFlowDocx(name, currency, periodLabel, report);
+      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+      res.setHeader('Content-Disposition', `attachment; filename=${filenameBase}.docx`);
+      res.status(200).send(buffer);
+    }
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Cash Flow Statement export error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate Cash Flow Statement export.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/kpis
+ * Description: A lightweight financial ratio dashboard (Net Profit Margin, Return on
+ * Assets, Debt-to-Equity, Cash Ratio, Equity Ratio) computed from Balance Sheet + P&L
+ * totals. Omit startDate/endDate for since-inception. No Gross Margin/Current Ratio -
+ * this schema has no COGS or current-vs-non-current classification to compute those honestly.
+ * Access: Viewer role or higher
+ */
+router.get('/kpis', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { startDate, endDate } = req.query;
+    const report = await reportingService.getKpiDashboard(
+      startDate ? (startDate as string) : undefined,
+      endDate ? (endDate as string) : undefined
+    );
+    res.status(200).json({
+      success: true,
+      data: report,
+    });
+  } catch (error: any) {
+    if (error instanceof ReportingServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating KPI dashboard.',
+    });
+  }
+});
+
+/**
+ * GET /api/v1/reports/aging/ar
+ * Accounts Receivable aging - every invoice with a real outstanding balance,
+ * bucketed by days past its dueDate (Current / 1-30 / 31-60 / 61-90 / 90+).
+ * Access: Viewer role or higher.
+ */
+router.get('/aging/ar', requireRole('Viewer'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const result = await withCurrentTenantDb(prisma, (client) => agingReportService.getArAging(client as any, tenantId));
+    res.status(200).json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[Reports] Error generating AR aging:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate AR aging report.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/aging/ap
+ * Accounts Payable aging - every UNPAID vendor bill, bucketed the same way
+ * as AR (this schema has no partial-payment support for bills, so a bill's
+ * balance due is always its full amount).
+ * Access: Viewer role or higher.
+ */
+router.get('/aging/ap', requireRole('Viewer'), async (_req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const result = await withCurrentTenantDb(prisma, (client) => agingReportService.getApAging(client as any, tenantId));
+    res.status(200).json({ success: true, data: result });
+  } catch (error: any) {
+    console.error('[Reports] Error generating AP aging:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate AP aging report.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/cash-flow-forecast?days=180
+ * A recurring-transaction-aware, event-grounded forward cash projection -
+ * NOT a trend-based extrapolation. Every dollar traces back to a real
+ * scheduled RecurringTransaction occurrence or a real outstanding
+ * Invoice/VendorBill due date, weekly-bucketed. No PDF/Word export (same
+ * scope call as /kpis - a forward projection is read in-app, not typically
+ * submitted as a formal document).
+ * Access: Viewer role or higher.
+ */
+router.get('/cash-flow-forecast', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const days = req.query.days ? Number(req.query.days) : 180;
+    const forecast = await cashFlowForecastService.getCashFlowForecast(days);
+    res.status(200).json({
+      success: true,
+      data: forecast,
+    });
+  } catch (error: any) {
+    if (error instanceof CashFlowForecastServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    console.error('[Reports] Cash Flow Forecast error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while generating Cash Flow Forecast.',
     });
   }
 });

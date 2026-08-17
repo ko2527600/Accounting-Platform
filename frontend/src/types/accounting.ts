@@ -1,5 +1,12 @@
-export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense';
+export type AccountType = 'Asset' | 'Liability' | 'Equity' | 'Revenue' | 'Expense' | 'Cost of Sales';
 export type AccountStatus = 'Active' | 'Archived';
+
+// Which single account auto-posting features (invoice payments, credit/
+// debit notes, vendor bill payments, expense reimbursements, fixed-asset
+// depreciation) target for the generic cash/revenue/expense/depreciation
+// side of a transaction - see backend accountRepository.ts's
+// resolveDefaultAccount. At most one account per role at a time.
+export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION';
 
 export interface Account {
   id: string;
@@ -9,6 +16,13 @@ export interface Account {
   description?: string;
   status: AccountStatus;
   balance: number;
+  currency: string;
+  isCashEquivalent?: boolean;
+  // Which ASSET accounts represent long-lived fixed assets (Vehicles,
+  // Equipment, etc.) - drives the Cash Flow Statement's Investing section.
+  // Unlike defaultRole, multiple accounts can hold this flag.
+  isFixedAsset?: boolean;
+  defaultRole?: AccountDefaultRole | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -16,7 +30,7 @@ export interface Account {
 export type CreateAccountDTO = Omit<Account, 'id' | 'status' | 'balance' | 'createdAt' | 'updatedAt'>;
 export type UpdateAccountDTO = Partial<CreateAccountDTO> & { status?: AccountStatus };
 
-export type JournalStatus = 'Draft' | 'Posted';
+export type JournalStatus = 'Draft' | 'Posted' | 'Void';
 
 export interface JournalLine {
   id: string;
@@ -24,10 +38,24 @@ export interface JournalLine {
   description?: string;
   debit: number;
   credit: number;
+  fundId?: string;
+}
+
+export interface Fund {
+  id: string;
+  tenantId: string;
+  name: string;
+  code: string;
+  description: string | null;
+  isRestricted: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface JournalEntry {
   id: string;
+  entryNumber?: string;
   date: string;
   description: string;
   status: JournalStatus;
@@ -35,6 +63,8 @@ export interface JournalEntry {
   totalDebit: number;
   totalCredit: number;
   createdAt: string;
+  reversalOfEntryId?: string | null;
+  reversedByEntryId?: string | null;
 }
 
 export type CreateJournalEntryDTO = Omit<JournalEntry, 'id' | 'status' | 'totalDebit' | 'totalCredit' | 'createdAt'>;

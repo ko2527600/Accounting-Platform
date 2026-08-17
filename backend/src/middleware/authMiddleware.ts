@@ -10,7 +10,7 @@ export interface AuthMiddlewareOptions {
  * Token can be passed in `Authorization: Bearer <token>` header or `X-Auth-Token` header.
  */
 export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
-  return (req: Request, res: Response, next: NextFunction): void => {
+  return async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     const authHeader = req.headers.authorization || (req.headers['x-auth-token'] as string);
 
     if (!authHeader) {
@@ -30,7 +30,18 @@ export function createAuthMiddleware(options: AuthMiddlewareOptions = {}) {
     }
 
     try {
-      const payload: JwtPayload = verifyJwtToken(token);
+      const payload: JwtPayload = await verifyJwtToken(token);
+      // A pending-MFA token (issued after password verification, before the
+      // TOTP/backup-code step) proves the password was correct but not that
+      // MFA was completed - it must never be accepted as a real session by
+      // any protected route, only by POST /auth/login/verify-mfa itself.
+      if (payload.mfaPending) {
+        res.status(401).json({
+          error: 'Unauthorized',
+          message: 'MFA verification required before this token can be used.',
+        });
+        return;
+      }
       req.user = payload;
       next();
     } catch (error: any) {

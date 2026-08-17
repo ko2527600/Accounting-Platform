@@ -1,14 +1,28 @@
 import { useEffect, useState } from "react";
 import { Command } from "cmdk";
-import { Search, LayoutDashboard, BookOpen, FileSpreadsheet, PieChart, Settings, Sun, Moon } from "lucide-react";
+import { Search, Settings, Sun, Moon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../contexts/ThemeContext";
+import { useAuth } from "../../contexts/AuthContext";
+import { getVisibleNavGroups, getVisibleHrefs } from "../../lib/navigation";
+
+const ITEM_CLASSNAME =
+  "flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300";
 
 export function CommandMenu() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
   const { setTheme } = useTheme();
+  const { user } = useAuth();
+
+  // Same source of truth (and same role-based filtering) as the sidebar, so
+  // Cmd+K never offers a page a user's own sidebar hides from them.
+  const navGroups = getVisibleNavGroups(user?.role, user?.orgType);
+  // "Preferences" (/settings) is blocked for the same roles at the route
+  // level (App.tsx's SETTINGS_RESTRICTED_ROLES) - offering it here would be
+  // a dead-end navigation that immediately redirects.
+  const canAccessSettings = getVisibleHrefs(user?.role) === null;
 
   // Toggle the menu when ⌘K is pressed
   useEffect(() => {
@@ -42,72 +56,50 @@ export function CommandMenu() {
         <Search className="mr-2 h-4 w-4 shrink-0 text-secondary-500" />
         <Command.Input
           className="flex h-12 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-secondary-400 disabled:cursor-not-allowed disabled:opacity-50 text-secondary-900 dark:text-secondary-50"
-          placeholder="Type a command or search..."
+          placeholder="Jump to a page or setting..."
         />
       </div>
-      
-      <Command.List className="max-h-[300px] overflow-y-auto p-2">
+
+      <Command.List className="max-h-[400px] overflow-y-auto p-2">
         <Command.Empty className="py-6 text-center text-sm text-secondary-500">
           No results found.
         </Command.Empty>
 
-        <Command.Group heading="Navigation" className="px-2 text-xs font-medium text-secondary-500 py-2">
-          <Command.Item
-            onSelect={() => runCommand(() => navigate("/dashboard"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
+        {navGroups.map((group) => (
+          <Command.Group
+            key={group.sectionTitle}
+            heading={group.sectionTitle}
+            className="px-2 text-xs font-medium text-secondary-500 py-2"
           >
-            <LayoutDashboard className="mr-2 h-4 w-4" />
-            Dashboard
-          </Command.Item>
-          <Command.Item
-            onSelect={() => runCommand(() => navigate("/accounts"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
-            <BookOpen className="mr-2 h-4 w-4" />
-            Chart of Accounts
-          </Command.Item>
-          <Command.Item
-            onSelect={() => runCommand(() => navigate("/journals"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
-            <FileSpreadsheet className="mr-2 h-4 w-4" />
-            Journal Entries
-          </Command.Item>
-          <Command.Item
-            onSelect={() => runCommand(() => navigate("/reports/ledger"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
-            <BookOpen className="mr-2 h-4 w-4" />
-            General Ledger
-          </Command.Item>
-          <Command.Item
-            onSelect={() => runCommand(() => navigate("/reports/pnl"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
-            <PieChart className="mr-2 h-4 w-4" />
-            Profit & Loss
-          </Command.Item>
-        </Command.Group>
+            {group.items.map((item) => {
+              const Icon = item.icon;
+              return (
+                <Command.Item
+                  key={item.href}
+                  value={item.name}
+                  onSelect={() => runCommand(() => navigate(item.href))}
+                  className={ITEM_CLASSNAME}
+                >
+                  <Icon className="mr-2 h-4 w-4" />
+                  {item.name}
+                </Command.Item>
+              );
+            })}
+          </Command.Group>
+        ))}
 
         <Command.Group heading="Settings" className="px-2 text-xs font-medium text-secondary-500 py-2">
-          <Command.Item
-            onSelect={() => runCommand(() => navigate("/settings"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
-            <Settings className="mr-2 h-4 w-4" />
-            Preferences
-          </Command.Item>
-          <Command.Item
-            onSelect={() => runCommand(() => setTheme("light"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
+          {canAccessSettings && (
+            <Command.Item onSelect={() => runCommand(() => navigate("/settings"))} className={ITEM_CLASSNAME}>
+              <Settings className="mr-2 h-4 w-4" />
+              Preferences
+            </Command.Item>
+          )}
+          <Command.Item onSelect={() => runCommand(() => setTheme("light"))} className={ITEM_CLASSNAME}>
             <Sun className="mr-2 h-4 w-4" />
             Light Mode
           </Command.Item>
-          <Command.Item
-            onSelect={() => runCommand(() => setTheme("dark"))}
-            className="flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300"
-          >
+          <Command.Item onSelect={() => runCommand(() => setTheme("dark"))} className={ITEM_CLASSNAME}>
             <Moon className="mr-2 h-4 w-4" />
             Dark Mode
           </Command.Item>

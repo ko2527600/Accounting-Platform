@@ -2,6 +2,8 @@ import app from './app';
 import { connectDatabase, disconnectDatabase } from './config/db';
 import { connectRedis, disconnectRedis } from './config/redis';
 import { startTelemetry, stopTelemetry } from './config/telemetry';
+import { initSyncSocketServer } from './websocket/syncSocketServer';
+import { initPresenceSocketServer } from './websocket/presenceSocketServer';
 
 const PORT = process.env.PORT || 4000;
 
@@ -18,9 +20,43 @@ const startServer = async () => {
     // Initialize Redis connection
     await connectRedis();
 
+    // Initialize the local-first sync pilot's WebSocket push channel
+    initSyncSocketServer(server);
+
+    // Initialize live "who's online" presence tracking
+    initPresenceSocketServer(server);
+
     // Initialize Monday 8:00 AM Automated Email Reporting Cron Job
     const { ScheduledEmailCronService } = require('./services/scheduledEmailService');
     ScheduledEmailCronService.init();
+
+    // Initialize hourly Recurring Transactions generator
+    const { RecurringTransactionCronService } = require('./services/recurringTransactionService');
+    RecurringTransactionCronService.init();
+
+    // Initialize FX rate cache refresher (no-op if FX_RATE_API_KEY isn't configured)
+    const { FxRateCronService } = require('./services/fxRateCronService');
+    FxRateCronService.init();
+
+    // Initialize daily overdue-invoice payment reminder (dunning) sweep
+    const { DunningReminderCronService } = require('./services/dunningReminderService');
+    DunningReminderCronService.init();
+
+    // Initialize daily Help Assistant conversation-log retention sweep
+    const { HelpAssistantMaintenanceCronService } = require('./services/helpAssistantMaintenanceCronService');
+    HelpAssistantMaintenanceCronService.init();
+
+    // Initialize daily scheduled vendor-bill payments sweep
+    const { VendorPaymentSchedulingCronService } = require('./services/vendorPaymentSchedulingCronService');
+    VendorPaymentSchedulingCronService.init();
+
+    // Initialize daily recurring-invoice generation sweep
+    const { RecurringInvoiceCronService } = require('./services/recurringInvoiceCronService');
+    RecurringInvoiceCronService.init();
+
+    // Initialize daily fixed-asset depreciation sweep
+    const { FixedAssetDepreciationCronService } = require('./services/fixedAssetDepreciationCronService');
+    FixedAssetDepreciationCronService.init();
   });
 
   const gracefulShutdown = async () => {

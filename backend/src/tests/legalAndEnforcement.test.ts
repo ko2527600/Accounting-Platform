@@ -117,6 +117,16 @@ describe('Legal Policy & Customization Enforcement API', () => {
       expect(res.body.content).toContain('# Terms and Conditions');
     });
 
+    it('should fetch Privacy Policy Markdown successfully', async () => {
+      const res = await request(app).get('/api/legal/privacy-policy');
+
+      expect(res.status).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.policyName).toBe('privacy-policy');
+      expect(res.body.title).toBe('Privacy Policy');
+      expect(res.body.content).toContain('# Privacy Policy');
+    });
+
     it('should fetch SLA Markdown successfully', async () => {
       const res = await request(app).get('/api/v1/legal/sla');
 
@@ -150,6 +160,18 @@ describe('Legal Policy & Customization Enforcement API', () => {
     let tier2Token: string;
 
     beforeAll(async () => {
+      // The Tier 1 admin created in the first test block is isActive:false until
+      // email+SMS verification completes, so complete that flow before logging in
+      // (same pattern as verifiedRegistration.test.ts).
+      const dbUser = await prisma.user.findUnique({ where: { email: testEmail } });
+      await request(app)
+        .post('/api/v1/auth/verify')
+        .send({
+          email: testEmail,
+          emailVerificationToken: dbUser?.emailVerificationToken,
+          smsCode: dbUser?.smsVerificationCode,
+        });
+
       // Login/Fetch token for Tier 1 admin created in first test block
       const loginRes1 = await request(app)
         .post('/api/v1/auth/login')
@@ -182,8 +204,9 @@ describe('Legal Policy & Customization Enforcement API', () => {
         });
 
       expect(res.status).toBe(403);
-      expect(res.body.error).toBe('Customization Tier Restriction');
-      expect(res.body.message).toContain('requires Customization Tier 2 or higher');
+      expect(res.body.success).toBe(false);
+      expect(res.body.upgradeRequired).toBe(true);
+      expect(res.body.error).toContain('Custom Fields requires the Business plan or higher');
       expect(res.body.currentTier).toBe(1);
       expect(res.body.requiredTier).toBe(2);
     });

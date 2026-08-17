@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { isTokenRevoked } from '../services/tokenRevocationService';
 
 export interface JwtPayload {
   id: string;
@@ -6,12 +7,18 @@ export interface JwtPayload {
   role: string;
   tenantId?: string;
   name?: string;
+  // "BUSINESS" | "NONPROFIT" - the tenant's org type at the time this token
+  // was issued, ridden through so nav filtering doesn't need an extra DB
+  // round trip on every authenticated request.
+  orgType?: string;
+  // True only on the short-lived intermediate token issued after password
+  // verification but before MFA verification - authMiddleware rejects any
+  // request bearing this token outright, see authMiddleware.ts.
+  mfaPending?: boolean;
   iat?: number;
   exp?: number;
   [key: string]: any;
 }
-
-const DEFAULT_JWT_SECRET = 'super-secret-jwt-key-for-accounting-platform-dev';
 
 // In-memory LRU cache for validated JWT tokens
 // Prevents repeated HMAC signature verification for the same token
@@ -42,10 +49,10 @@ class LRUCache<K, V> {
   set(key: K, value: V): void {
     // Delete if exists (to move to end)
     this.cache.delete(key);
-    
+
     // Add to end
     this.cache.set(key, value);
-    
+
     // Evict oldest if over capacity
     if (this.cache.size > this.maxSize) {
       const firstKey = this.cache.keys().next().value;
@@ -53,6 +60,10 @@ class LRUCache<K, V> {
         this.cache.delete(firstKey);
       }
     }
+  }
+
+  delete(key: K): void {
+    this.cache.delete(key);
   }
 
   clear(): void {
@@ -92,7 +103,16 @@ setInterval(() => {
 }, 5 * 60 * 1000);
 
 function getJwtSecret(): string {
-  return process.env.JWT_SECRET || DEFAULT_JWT_SECRET;
+  const secret = process.env.JWT_SECRET;
+  if (!secret) {
+    if (process.env.NODE_ENV === 'test') {
+      return 'test-super-secret-jwt-key-2026-accountgo';
+    }
+    throw new Error(
+      'JWT_SECRET environment variable is not set. Refusing to sign or verify tokens with a default secret.'
+    );
+  }
+  return secret;
 }
 
 /**
@@ -150,23 +170,46 @@ export function generateJwtToken(payload: JwtPayload, expiresInSeconds = 86400):
 }
 
 /**
- * Verifies and decodes a signed JWT token with LRU caching.
- * Throws an Error if token structure, signature, or expiration is invalid.
+ * Computes the same short SHA-256-derived hash used as the cache key and as
+ * the revocation-list key, so callers (e.g. the logout route) can revoke a
+ * token without duplicating the hashing logic.
  */
-export function verifyJwtToken(token: string): JwtPayload {
+export function computeTokenHash(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex').substring(0, 16);
+}
+
+/**
+ * Evicts a single token from the in-memory verified-token cache. Used on
+ * logout/revocation so a just-revoked token can't keep being served from
+ * cache for the remainder of its cache entry's life.
+ */
+export function evictFromJwtCache(token: string): void {
+  tokenCache.delete(computeTokenHash(token));
+}
+
+/**
+ * Verifies and decodes a signed JWT token with LRU caching.
+ * Throws an Error if token structure, signature, expiration, or revocation
+ * status is invalid.
+ */
+export async function verifyJwtToken(token: string): Promise<JwtPayload> {
   if (!token || typeof token !== 'string') {
     throw new Error('Token must be a non-empty string');
   }
 
   // Generate cache key from token hash
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex').substring(0, 16);
-  
+  const tokenHash = computeTokenHash(token);
+
   // Check cache first
   const now = Math.floor(Date.now() / 1000);
   const cached = tokenCache.get(tokenHash);
-  
+
   if (cached && cached.expiresAt > now) {
-    // Cache hit - return without verification
+    // Cache hit - still must check revocation, since a logout could have
+    // happened after this token was cached but before it naturally expired.
+    if (await isTokenRevoked(tokenHash)) {
+      throw new Error('Token has been revoked');
+    }
     return cached.payload;
   }
 
@@ -209,6 +252,10 @@ export function verifyJwtToken(token: string): JwtPayload {
   // Verify expiration
   if (payload.exp && payload.exp < now) {
     throw new Error('JWT token has expired');
+  }
+
+  if (await isTokenRevoked(tokenHash)) {
+    throw new Error('Token has been revoked');
   }
 
   // Store in cache (TTL = until token expiry)

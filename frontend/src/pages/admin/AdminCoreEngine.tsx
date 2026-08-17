@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   ShieldAlert,
@@ -16,15 +16,31 @@ import {
   Server,
   Smartphone,
   Mail,
-  Users
+  Users,
+  Building2,
+  Plug
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "../../components/ui/Card";
+import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
+
+const EMPTY_AUDIT_FILTERS = {
+  action: "",
+  entity: "",
+  entityId: "",
+  userEmail: "",
+  ipAddress: "",
+  tenantId: "",
+  dateFrom: "",
+  dateTo: "",
+};
 
 export function AdminCoreEngine() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
 
   // Master Lock State
   const [passcode, setPasscode] = useState("");
@@ -33,18 +49,81 @@ export function AdminCoreEngine() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Hub Tab
-  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "schemas" | "audit">("broadcast");
+  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "integrations" | "schemas" | "audit" | "onboard">("broadcast");
+
+  // Engine Diagnostics State
+  const [healthData, setHealthData] = useState<{
+    status: string;
+    database: string;
+    redis: string;
+    uptime: number;
+    timestamp: string;
+    integrations?: { email: string; sms: string };
+  } | null>(null);
+  const [healthError, setHealthError] = useState<string | null>(null);
+  const [isLoadingHealth, setIsLoadingHealth] = useState(false);
+
+  // Tenant Schemas & Tiers state
+  const [tenants, setTenants] = useState<
+    { id: string; name: string; slug: string; schema: string; tier: number; createdAt: string }[] | null
+  >(null);
+  const [tenantsError, setTenantsError] = useState<string | null>(null);
+  const [isLoadingTenants, setIsLoadingTenants] = useState(false);
+  // No self-serve billing yet - a tenant's plan tier is set here by a
+  // platform admin. Draft value per row so the dropdown doesn't jump back
+  // to the saved tier while a change is pending.
+  const [tierDrafts, setTierDrafts] = useState<Record<string, number>>({});
+  const [savingTierId, setSavingTierId] = useState<string | null>(null);
+
+  // Platform-wide Audit Logs state
+  const [auditLogs, setAuditLogs] = useState<
+    {
+      id: string;
+      action: string;
+      entity: string;
+      entityId: string | null;
+      userEmail: string | null;
+      userId: string | null;
+      details: string | null;
+      changes: Record<string, { from: unknown; to: unknown }> | null;
+      createdAt: string;
+      tenant: { name: string; slug: string } | null;
+    }[] | null
+  >(null);
+  const [auditLogsError, setAuditLogsError] = useState<string | null>(null);
+  const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false);
+  const [isExportingAuditLogs, setIsExportingAuditLogs] = useState(false);
+
+  // Audit log filters - draft (what's being typed) vs. applied (what was
+  // last submitted), so typing doesn't refetch on every keystroke.
+  const [draftAuditFilters, setDraftAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [appliedAuditFilters, setAppliedAuditFilters] = useState(EMPTY_AUDIT_FILTERS);
+  const [auditActionOptions, setAuditActionOptions] = useState<string[]>([]);
+  const [auditEntityOptions, setAuditEntityOptions] = useState<string[]>([]);
 
   // Broadcast Form State
   const [subject, setSubject] = useState("System Maintenance & Upgrade Notice");
   const [message, setMessage] = useState(
-    "AccountGo ERP will undergo a scheduled system upgrade on Sunday at 2:00 AM UTC. Expect approximately 15 minutes of downtime. Thank you for your patience!"
+    "Ledgio ERP will undergo a scheduled system upgrade on Sunday at 2:00 AM UTC. Expect approximately 15 minutes of downtime. Thank you for your patience!"
   );
   const [channel, setChannel] = useState<"EMAIL" | "SMS" | "BOTH">("BOTH");
   const [targetTier, setTargetTier] = useState<string>("ALL");
   const [isSending, setIsSending] = useState(false);
   const [broadcastResult, setBroadcastResult] = useState<any>(null);
   const [confirmStep, setConfirmStep] = useState(false);
+
+  // Onboard Contracted Client state
+  const [onboardCompanyName, setOnboardCompanyName] = useState("");
+  const [onboardSlug, setOnboardSlug] = useState("");
+  const [onboardAdminName, setOnboardAdminName] = useState("");
+  const [onboardAdminEmail, setOnboardAdminEmail] = useState("");
+  const [onboardAdminPhone, setOnboardAdminPhone] = useState("");
+  const [onboardAdminPassword, setOnboardAdminPassword] = useState("");
+  const [onboardBaseCurrency, setOnboardBaseCurrency] = useState("GHS");
+  const [onboardOrgType, setOnboardOrgType] = useState("BUSINESS");
+  const [isOnboarding, setIsOnboarding] = useState(false);
+  const [onboardError, setOnboardError] = useState<string | null>(null);
+  const [onboardResult, setOnboardResult] = useState<{ tenant: { name: string; slug: string }; admin: { email: string } } | null>(null);
 
   // Auto-check if already unlocked in session
   useEffect(() => {
@@ -54,6 +133,199 @@ export function AdminCoreEngine() {
       setIsUnlocked(true);
     }
   }, []);
+
+  // Fetch real infrastructure health once unlocked (the top status card and the
+  // Engine Diagnostics tab both read from this, so it isn't gated to one tab).
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    let cancelled = false;
+    setIsLoadingHealth(true);
+    setHealthError(null);
+
+    api
+      .get("/health")
+      .then((res) => {
+        if (!cancelled) setHealthData(res.data);
+      })
+      .catch((err) => {
+        // A degraded backend responds 503 with the same health payload shape,
+        // so still show it if present rather than treating it as a fetch failure.
+        if (!cancelled) {
+          if (err.response?.data?.status) {
+            setHealthData(err.response.data);
+          } else {
+            setHealthError("Failed to reach the backend health endpoint.");
+          }
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingHealth(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked]);
+
+  // Fetch the real platform-wide integrations status for the "Integrations"
+  // tab once unlocked - every third-party integration this codebase has,
+  // sourced live from each service's own isXConfigured() check plus real
+  // per-tenant adoption counts for GRA E-VAT / Mono bank feeds (the two
+  // integrations configured per-tenant rather than platform-wide).
+  const [integrationsData, setIntegrationsData] = useState<{
+    platformWide: { key: string; name: string; purpose: string; configured: boolean }[];
+    perTenant: { key: string; name: string; purpose: string; tenantsConfigured: number; totalTenants: number }[];
+  } | null>(null);
+  const [isLoadingIntegrations, setIsLoadingIntegrations] = useState(false);
+  const [integrationsError, setIntegrationsError] = useState<string | null>(null);
+
+  const fetchIntegrations = useCallback(() => {
+    setIsLoadingIntegrations(true);
+    setIntegrationsError(null);
+    return api
+      .get("/admin/integrations", { params: { passcode } })
+      .then((res) => setIntegrationsData(res.data.data))
+      .catch(() => setIntegrationsError("Failed to load integrations status."))
+      .finally(() => setIsLoadingIntegrations(false));
+  }, [passcode]);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    fetchIntegrations();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUnlocked, passcode]);
+
+  // Fetch the real platform-wide tenant roster for the "Tenant Schemas & Tiers"
+  // tab once unlocked, using the same master passcode already used to unlock
+  // this console (GET /api/v1/tenants is passcode-gated, not tenant-JWT-scoped).
+  const fetchTenants = useCallback(() => {
+    setIsLoadingTenants(true);
+    setTenantsError(null);
+    return api
+      .get("/tenants", { params: { passcode } })
+      .then((res) => {
+        setTenants(res.data.data.tenants);
+        setTierDrafts(Object.fromEntries(res.data.data.tenants.map((t: any) => [t.id, t.tier])));
+      })
+      .catch(() => {
+        setTenantsError("Failed to load the tenant roster.");
+      })
+      .finally(() => {
+        setIsLoadingTenants(false);
+      });
+  }, [passcode]);
+
+  useEffect(() => {
+    if (!isUnlocked) return;
+    fetchTenants();
+    // fetchTenants intentionally omitted - it's recreated per passcode change,
+    // which already re-runs this effect via the passcode dependency below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUnlocked, passcode]);
+
+  const handleSaveTier = async (tenantId: string) => {
+    const tier = tierDrafts[tenantId];
+    setSavingTierId(tenantId);
+    try {
+      const res = await api.put(`/tenants/${tenantId}/tier`, { tier, passcode });
+      if (res.data.success) {
+        showToast(`Plan updated to ${res.data.data.tenant.tier === 1 ? "Shop" : res.data.data.tenant.tier === 2 ? "Business" : "Enterprise"}.`, "success");
+        fetchTenants();
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to update tenant plan.", "error");
+    } finally {
+      setSavingTierId(null);
+    }
+  };
+
+  const buildAuditLogParams = (filters: typeof EMPTY_AUDIT_FILTERS) => {
+    const params: Record<string, string | number> = { passcode, limit: 50 };
+    if (filters.action.trim()) params.action = filters.action.trim();
+    if (filters.entity.trim()) params.entity = filters.entity.trim();
+    if (filters.entityId.trim()) params.entityId = filters.entityId.trim();
+    if (filters.userEmail.trim()) params.userEmail = filters.userEmail.trim();
+    if (filters.ipAddress.trim()) params.ipAddress = filters.ipAddress.trim();
+    if (filters.tenantId) params.tenantId = filters.tenantId;
+    if (filters.dateFrom) params.dateFrom = filters.dateFrom;
+    if (filters.dateTo) params.dateTo = filters.dateTo;
+    return params;
+  };
+
+  // Fetch the real platform-wide audit log for the "System Audit Logs" tab
+  // once unlocked - same passcode-gated pattern as the tenant roster above.
+  useEffect(() => {
+    if (!isUnlocked) return;
+
+    let cancelled = false;
+    setIsLoadingAuditLogs(true);
+    setAuditLogsError(null);
+
+    api
+      .get("/admin/audit-logs", { params: buildAuditLogParams(appliedAuditFilters) })
+      .then((res) => {
+        if (!cancelled) setAuditLogs(res.data.data.logs);
+      })
+      .catch(() => {
+        if (!cancelled) setAuditLogsError("Failed to load the platform-wide audit log.");
+      })
+      .finally(() => {
+        if (!cancelled) setIsLoadingAuditLogs(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isUnlocked, passcode, appliedAuditFilters]);
+
+  // Distinct action/entity values platform-wide, feeding the filter inputs'
+  // autocomplete - same purpose as the tenant-facing Audit Trail page's.
+  useEffect(() => {
+    if (!isUnlocked) return;
+    api
+      .get("/admin/audit-logs/meta/values", { params: { passcode } })
+      .then((res) => {
+        if (res.data.success) {
+          setAuditActionOptions(res.data.data.actions || []);
+          setAuditEntityOptions(res.data.data.entities || []);
+        }
+      })
+      .catch(() => { /* autocomplete is a nice-to-have, fail silently */ });
+  }, [isUnlocked, passcode]);
+
+  const applyAuditFilters = () => setAppliedAuditFilters(draftAuditFilters);
+
+  const clearAuditFilters = () => {
+    setDraftAuditFilters(EMPTY_AUDIT_FILTERS);
+    setAppliedAuditFilters(EMPTY_AUDIT_FILTERS);
+  };
+
+  const hasActiveAuditFilters = Object.values(appliedAuditFilters).some((v) => v.trim() !== "");
+
+  const handleExportAuditLogs = async () => {
+    setIsExportingAuditLogs(true);
+    try {
+      const res = await api.get("/admin/audit-logs/export", {
+        params: buildAuditLogParams(appliedAuditFilters),
+        responseType: "blob",
+      });
+      const blob = new Blob([res.data], { type: "text/csv" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.setAttribute("download", `platform-audit-log-export-${Date.now()}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("Failed to export platform audit log:", err);
+      showToast("Failed to export the audit log.", "error");
+    } finally {
+      setIsExportingAuditLogs(false);
+    }
+  };
 
   const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -73,21 +345,25 @@ export function AdminCoreEngine() {
     }
   };
 
+  // Deliberately plain, low-hype subject/message copy - emoji and
+  // exclamation-heavy "announcement" language reads as promotional/spam to
+  // Gmail's filters (confirmed live via a real broadcast landing in spam -
+  // see broadcastService.ts's header comment and STATUS.md).
   const applyTemplate = (type: "UPGRADE" | "MAINTENANCE" | "NEWS") => {
     if (type === "UPGRADE") {
-      setSubject("🚀 System Upgrade Announcement v2.5");
+      setSubject("System upgrade deployed (v2.5)");
       setMessage(
-        "We have deployed major performance upgrades to AccountGo ERP! Enhancements include faster POS cash till closeouts, real-time inventory re-allocation, and zero-latency SMS warnings."
+        "We've deployed performance upgrades to Ledgio. This includes faster POS till closeouts, real-time inventory re-allocation, and quicker SMS alerts."
       );
     } else if (type === "MAINTENANCE") {
-      setSubject("🛠 Scheduled Maintenance Warning");
+      setSubject("Scheduled maintenance this Sunday");
       setMessage(
-        "AccountGo will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
+        "Ledgio will undergo routine server maintenance this Sunday between 02:00 AM and 02:15 AM UTC. Database connections will be briefly paused during this window."
       );
     } else if (type === "NEWS") {
-      setSubject("🎁 New Feature: Automated Weekly Email Reports");
+      setSubject("New feature: automated weekly email reports");
       setMessage(
-        "You can now configure automated Monday 8:00 AM Profit & Loss PDF executive performance statements sent straight to your email inbox! Configure your preferences in Settings."
+        "You can now configure automated Monday 8:00 AM Profit & Loss PDF reports sent to your email. Configure this in Settings."
       );
     }
   };
@@ -115,6 +391,41 @@ export function AdminCoreEngine() {
     }
   };
 
+  const handleOnboardClient = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setOnboardError(null);
+    setOnboardResult(null);
+    setIsOnboarding(true);
+    try {
+      const res = await api.post("/tenants/admin-onboard", {
+        passcode,
+        companyName: onboardCompanyName,
+        slug: onboardSlug,
+        adminName: onboardAdminName,
+        adminEmail: onboardAdminEmail,
+        adminPassword: onboardAdminPassword,
+        phone: onboardAdminPhone || undefined,
+        baseCurrency: onboardBaseCurrency,
+        orgType: onboardOrgType,
+      });
+      if (res.data.success) {
+        setOnboardResult(res.data.data);
+        setOnboardCompanyName("");
+        setOnboardSlug("");
+        setOnboardAdminName("");
+        setOnboardAdminEmail("");
+        setOnboardAdminPhone("");
+        setOnboardAdminPassword("");
+        setOnboardOrgType("BUSINESS");
+        showToast(`${res.data.data.tenant.name} onboarded and pre-verified.`, "success");
+      }
+    } catch (err: any) {
+      setOnboardError(err.response?.data?.error || "Failed to onboard contracted client.");
+    } finally {
+      setIsOnboarding(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-secondary-950 text-white font-sans selection:bg-amber-500 selection:text-secondary-950">
       {/* Top Engine Navigation Header */}
@@ -133,7 +444,7 @@ export function AdminCoreEngine() {
                 <ShieldAlert className="h-5 w-5" />
               </div>
               <h1 className="text-lg font-extrabold tracking-tight">
-                AccountGo <span className="text-amber-400">Core Control Engine</span>
+                Ledgio <span className="text-amber-400">Core Control Engine</span>
               </h1>
             </div>
           </div>
@@ -168,7 +479,7 @@ export function AdminCoreEngine() {
                 <div className="inline-flex p-4 bg-amber-500/10 rounded-full border border-amber-500/20 text-amber-400 mb-3 mx-auto">
                   <Lock className="h-10 w-10" />
                 </div>
-                <CardTitle className="text-2xl font-bold">AccountGo Core Engine Gate</CardTitle>
+                <CardTitle className="text-2xl font-bold">Ledgio Core Engine Gate</CardTitle>
                 <CardDescription className="text-secondary-400 text-xs mt-1">
                   Enter your master passcode to access platform-wide system upgrade broadcasts, tenant schema inspectors, and engine health controls.
                 </CardDescription>
@@ -218,31 +529,45 @@ export function AdminCoreEngine() {
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Core System Status</div>
-                    <div className="text-lg font-extrabold text-emerald-400">Operational 99.9%</div>
+                    <div className={`text-lg font-extrabold ${healthData?.status === "healthy" ? "text-emerald-400" : healthData ? "text-red-400" : "text-secondary-500"}`}>
+                      {healthData ? (healthData.status === "healthy" ? "Operational" : "Degraded") : "Checking..."}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="bg-secondary-900 border-secondary-800 text-white">
                 <CardContent className="p-4 flex items-center space-x-4">
-                  <div className="p-3 bg-amber-500/10 text-amber-400 rounded-xl">
+                  <div className="p-3 bg-secondary-500/10 text-secondary-400 rounded-xl">
                     <Smartphone className="h-6 w-6" />
                   </div>
                   <div>
                     <div className="text-xs text-secondary-400">Android SMS Gateway</div>
-                    <div className="text-lg font-extrabold text-amber-400">Online (SIM 92k+)</div>
+                    <div
+                      className={`text-lg font-extrabold ${
+                        !healthData ? "text-secondary-500" : healthData.integrations?.sms === "configured" ? "text-emerald-400" : "text-amber-400"
+                      }`}
+                    >
+                      {!healthData ? "Checking..." : healthData.integrations?.sms === "configured" ? "Configured" : "Not Configured"}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
 
               <Card className="bg-secondary-900 border-secondary-800 text-white">
                 <CardContent className="p-4 flex items-center space-x-4">
-                  <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-xl">
+                  <div className="p-3 bg-secondary-500/10 text-secondary-400 rounded-xl">
                     <Mail className="h-6 w-6" />
                   </div>
                   <div>
-                    <div className="text-xs text-secondary-400">Gmail SMTP Service</div>
-                    <div className="text-lg font-extrabold text-emerald-400">Connected (SSL:465)</div>
+                    <div className="text-xs text-secondary-400">Email Service (Gmail SMTP)</div>
+                    <div
+                      className={`text-lg font-extrabold ${
+                        !healthData ? "text-secondary-500" : healthData.integrations?.email === "configured" ? "text-emerald-400" : "text-amber-400"
+                      }`}
+                    >
+                      {!healthData ? "Checking..." : healthData.integrations?.email === "configured" ? "Configured" : "Not Configured"}
+                    </div>
                   </div>
                 </CardContent>
               </Card>
@@ -281,6 +606,15 @@ export function AdminCoreEngine() {
                 <span>Engine Diagnostics</span>
               </button>
               <button
+                onClick={() => setActiveTab("integrations")}
+                className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
+                  activeTab === "integrations" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
+                }`}
+              >
+                <Plug className="h-4 w-4" />
+                <span>Integrations</span>
+              </button>
+              <button
                 onClick={() => setActiveTab("schemas")}
                 className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
                   activeTab === "schemas" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
@@ -297,6 +631,15 @@ export function AdminCoreEngine() {
               >
                 <History className="h-4 w-4" />
                 <span>System Audit Logs</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("onboard")}
+                className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
+                  activeTab === "onboard" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
+                }`}
+              >
+                <Building2 className="h-4 w-4" />
+                <span>Onboard Client</span>
               </button>
             </div>
 
@@ -465,39 +808,153 @@ export function AdminCoreEngine() {
                 <CardHeader>
                   <CardTitle className="text-xl font-bold">Platform Diagnostics & Service Uptime</CardTitle>
                   <CardDescription className="text-secondary-400 text-xs">
-                    Live system metrics and operational statuses for AccountGo infrastructure.
+                    Live status from the backend's /health endpoint.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>PostgreSQL Database Pool</span>
-                      <span className="text-emerald-400 font-bold">CONNECTED (Pooled SSL)</span>
+                  {isLoadingHealth && !healthData && (
+                    <div className="flex items-center justify-center py-8 text-secondary-400 text-sm gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Checking infrastructure status...
                     </div>
-                    <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
-                      <div className="bg-emerald-500 h-full w-[99.9%]" />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>Android SMS Gateway API (`api.sms-gate.app`)</span>
-                      <span className="text-emerald-400 font-bold">READY (SIM Active)</span>
+                  {healthError && (
+                    <div className="p-4 bg-red-950/30 border border-red-900 rounded-lg text-red-300 text-xs">
+                      {healthError}
                     </div>
-                    <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
-                      <div className="bg-amber-400 h-full w-[100%]" />
-                    </div>
-                  </div>
+                  )}
 
-                  <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
-                    <div className="flex justify-between text-xs font-semibold">
-                      <span>Gmail SMTP Mail Transport (`smtp.gmail.com:465`)</span>
-                      <span className="text-emerald-400 font-bold">AUTHENTICATED</span>
+                  {healthData && (
+                    <>
+                      <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span>PostgreSQL Database</span>
+                          <span className={healthData.database === "connected" ? "text-emerald-400 font-bold" : "text-red-400 font-bold"}>
+                            {healthData.database === "connected" ? "CONNECTED" : "DISCONNECTED"}
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${healthData.database === "connected" ? "bg-emerald-500 w-full" : "bg-red-500 w-[10%]"}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 space-y-2">
+                        <div className="flex justify-between text-xs font-semibold">
+                          <span>Redis Cache</span>
+                          <span className={healthData.redis === "connected" ? "text-emerald-400 font-bold" : "text-amber-400 font-bold"}>
+                            {healthData.redis === "connected" ? "CONNECTED" : "DISCONNECTED (fallback mode)"}
+                          </span>
+                        </div>
+                        <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
+                          <div
+                            className={`h-full ${healthData.redis === "connected" ? "bg-emerald-500 w-full" : "bg-amber-500 w-[10%]"}`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-secondary-400 pt-2">
+                        <span>Overall status: <span className="text-white font-semibold">{healthData.status}</span></span>
+                        <span>Uptime: {Math.floor(healthData.uptime / 60)}m {Math.floor(healthData.uptime % 60)}s</span>
+                      </div>
+                      <p className="text-[11px] text-secondary-500">
+                        SMS gateway and email transport have no live health-check endpoint yet, so they aren't shown here rather than displaying a fabricated status.
+                      </p>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tab 2b: Integrations */}
+            {activeTab === "integrations" && (
+              <Card className="bg-secondary-900 border-secondary-800 text-white">
+                <CardHeader>
+                  <CardTitle className="text-xl font-bold flex items-center">
+                    <Plug className="h-5 w-5 mr-2 text-amber-400" />
+                    Third-Party Integrations
+                  </CardTitle>
+                  <CardDescription className="text-secondary-400 text-xs">
+                    Live configured/not-configured status for every integration Ledgio has - booleans only, credential
+                    values are never exposed here.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-6">
+                  {isLoadingIntegrations && !integrationsData && (
+                    <div className="flex items-center justify-center py-8 text-secondary-400 text-sm gap-2">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Checking integrations...
                     </div>
-                    <div className="w-full bg-secondary-800 h-2 rounded-full overflow-hidden">
-                      <div className="bg-blue-400 h-full w-[100%]" />
+                  )}
+
+                  {integrationsError && (
+                    <div className="p-4 bg-red-950/30 border border-red-900 rounded-lg text-red-300 text-xs">
+                      {integrationsError}
                     </div>
-                  </div>
+                  )}
+
+                  {integrationsData && (
+                    <>
+                      <div>
+                        <div className="text-xs font-bold text-secondary-300 uppercase tracking-wide mb-3">
+                          Platform-Wide (one credential serves every tenant)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {integrationsData.platformWide.map((integration) => (
+                            <div
+                              key={integration.key}
+                              className="p-4 bg-secondary-950 rounded-lg border border-secondary-800 flex items-start justify-between gap-3"
+                            >
+                              <div>
+                                <div className="text-sm font-semibold text-white">{integration.name}</div>
+                                <div className="text-[11px] text-secondary-500 mt-0.5">{integration.purpose}</div>
+                              </div>
+                              <span
+                                className={`text-[11px] font-bold px-2 py-1 rounded-full whitespace-nowrap ${
+                                  integration.configured
+                                    ? "bg-emerald-500/10 text-emerald-400"
+                                    : "bg-amber-500/10 text-amber-400"
+                                }`}
+                              >
+                                {integration.configured ? "CONFIGURED" : "NOT CONFIGURED"}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="text-xs font-bold text-secondary-300 uppercase tracking-wide mb-3">
+                          Per-Tenant (each business enters its own credentials)
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {integrationsData.perTenant.map((integration) => (
+                            <div key={integration.key} className="p-4 bg-secondary-950 rounded-lg border border-secondary-800">
+                              <div className="flex items-start justify-between gap-3">
+                                <div>
+                                  <div className="text-sm font-semibold text-white">{integration.name}</div>
+                                  <div className="text-[11px] text-secondary-500 mt-0.5">{integration.purpose}</div>
+                                </div>
+                                <span className="text-lg font-extrabold text-white whitespace-nowrap">
+                                  {integration.tenantsConfigured}/{integration.totalTenants}
+                                </span>
+                              </div>
+                              <div className="w-full bg-secondary-800 h-1.5 rounded-full overflow-hidden mt-2">
+                                <div
+                                  className="h-full bg-amber-400"
+                                  style={{
+                                    width: `${integration.totalTenants > 0 ? (integration.tenantsConfigured / integration.totalTenants) * 100 : 0}%`,
+                                  }}
+                                />
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -516,6 +973,69 @@ export function AdminCoreEngine() {
                     <h4 className="font-bold text-white mb-2">Schema Isolation Architecture</h4>
                     <p>Every onboarded business operates in a dedicated PostgreSQL schema to ensure zero cross-tenant data leakage and enterprise compliance.</p>
                   </div>
+
+                  {isLoadingTenants && (
+                    <div className="text-center py-6 text-secondary-500">Loading tenant roster...</div>
+                  )}
+
+                  {tenantsError && (
+                    <div className="text-rose-400 bg-rose-950/40 p-3 rounded-lg border border-rose-900">
+                      {tenantsError}
+                    </div>
+                  )}
+
+                  {!isLoadingTenants && !tenantsError && tenants && (
+                    <div className="rounded-lg border border-secondary-800 overflow-x-auto">
+                      <Table>
+                        <TableHeader className="!bg-secondary-950">
+                          <TableRow className="border-secondary-800 hover:bg-transparent">
+                            <TableHead className="text-secondary-400">Name</TableHead>
+                            <TableHead className="text-secondary-400">Slug</TableHead>
+                            <TableHead className="text-secondary-400">Schema</TableHead>
+                            <TableHead className="text-secondary-400">Plan</TableHead>
+                            <TableHead className="text-secondary-400">Onboarded</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {tenants.map((t) => (
+                            <TableRow key={t.id} className="border-secondary-800 hover:bg-secondary-950/60">
+                              <TableCell className="font-semibold text-white">{t.name}</TableCell>
+                              <TableCell className="font-mono text-secondary-300">{t.slug}</TableCell>
+                              <TableCell className="font-mono text-secondary-300">{t.schema}</TableCell>
+                              <TableCell className="text-secondary-300">
+                                <div className="flex items-center gap-2">
+                                  <select
+                                    className="h-8 px-2 rounded-md border border-secondary-700 bg-secondary-950 text-secondary-100 text-xs"
+                                    value={tierDrafts[t.id] ?? t.tier}
+                                    onChange={(e) => setTierDrafts((prev) => ({ ...prev, [t.id]: Number(e.target.value) }))}
+                                  >
+                                    <option value={1}>Shop</option>
+                                    <option value={2}>Business</option>
+                                    <option value={3}>Enterprise</option>
+                                  </select>
+                                  {(tierDrafts[t.id] ?? t.tier) !== t.tier && (
+                                    <Button
+                                      size="sm"
+                                      variant="outline"
+                                      className="h-8 text-xs"
+                                      disabled={savingTierId === t.id}
+                                      onClick={() => handleSaveTier(t.id)}
+                                    >
+                                      {savingTierId === t.id ? "Saving..." : "Save"}
+                                    </Button>
+                                  )}
+                                </div>
+                              </TableCell>
+                              <TableCell className="text-secondary-300">{new Date(t.createdAt).toLocaleDateString()}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {tenants.length === 0 && (
+                        <div className="text-center py-6 text-secondary-500">No tenants onboarded yet.</div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
@@ -523,14 +1043,332 @@ export function AdminCoreEngine() {
             {/* Tab 4: System Audit Logs */}
             {activeTab === "audit" && (
               <Card className="bg-secondary-900 border-secondary-800 text-white">
+                <CardHeader className="flex flex-row items-start justify-between">
+                  <div>
+                    <CardTitle className="text-xl font-bold">System Audit Logs</CardTitle>
+                    <CardDescription className="text-secondary-400 text-xs">
+                      Platform-wide activity across every tenant - administrative broadcasts, system configuration events, and tenant-level actions.
+                    </CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    className="border-secondary-700 text-secondary-200 hover:text-white text-xs h-8"
+                    onClick={handleExportAuditLogs}
+                    disabled={isExportingAuditLogs}
+                  >
+                    {isExportingAuditLogs ? "Exporting..." : "Export CSV"}
+                  </Button>
+                </CardHeader>
+                <CardContent className="space-y-4 text-xs text-secondary-300">
+                  {/* Filter Bar */}
+                  <div className="grid grid-cols-2 md:grid-cols-6 gap-3 p-3 rounded-lg bg-secondary-950 border border-secondary-800">
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Action</label>
+                      <Input
+                        placeholder="e.g. JOURNAL_ENTRY"
+                        list="admin-audit-action-options"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.action}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, action: e.target.value }))}
+                      />
+                      <datalist id="admin-audit-action-options">
+                        {auditActionOptions.map((a) => <option key={a} value={a} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity</label>
+                      <Input
+                        placeholder="e.g. Invoice"
+                        list="admin-audit-entity-options"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.entity}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, entity: e.target.value }))}
+                      />
+                      <datalist id="admin-audit-entity-options">
+                        {auditEntityOptions.map((e) => <option key={e} value={e} />)}
+                      </datalist>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Entity ID</label>
+                      <Input
+                        placeholder="exact record ID"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.entityId}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, entityId: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">User Email</label>
+                      <Input
+                        placeholder="e.g. jane@shop.com"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.userEmail}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, userEmail: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">IP Address</label>
+                      <Input
+                        placeholder="e.g. 197.251"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.ipAddress}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, ipAddress: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">Tenant</label>
+                      <select
+                        className="w-full h-8 px-2 text-xs rounded-md bg-secondary-900 border border-secondary-700 text-white"
+                        value={draftAuditFilters.tenantId}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, tenantId: e.target.value }))}
+                      >
+                        <option value="">All tenants</option>
+                        {(tenants || []).map((t) => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">From</label>
+                      <Input
+                        type="date"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.dateFrom}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, dateFrom: e.target.value }))}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-secondary-500 mb-1">To</label>
+                      <Input
+                        type="date"
+                        className="h-8 text-xs bg-secondary-900 border-secondary-700 text-white"
+                        value={draftAuditFilters.dateTo}
+                        onChange={(e) => setDraftAuditFilters((f) => ({ ...f, dateTo: e.target.value }))}
+                      />
+                    </div>
+                    <div className="col-span-2 md:col-span-6 flex gap-2">
+                      <Button variant="primary" className="h-8 text-xs" onClick={applyAuditFilters}>
+                        Apply Filters
+                      </Button>
+                      {hasActiveAuditFilters && (
+                        <Button
+                          variant="outline"
+                          className="h-8 text-xs border-secondary-700 text-secondary-200 hover:text-white"
+                          onClick={clearAuditFilters}
+                        >
+                          Clear
+                        </Button>
+                      )}
+                    </div>
+                  </div>
+
+                  {isLoadingAuditLogs && (
+                    <div className="text-center py-6 text-secondary-500">Loading audit logs...</div>
+                  )}
+
+                  {auditLogsError && (
+                    <div className="text-rose-400 bg-rose-950/40 p-3 rounded-lg border border-rose-900">
+                      {auditLogsError}
+                    </div>
+                  )}
+
+                  {!isLoadingAuditLogs && !auditLogsError && auditLogs && (
+                    <div className="rounded-lg border border-secondary-800 overflow-x-auto">
+                      <Table>
+                        <TableHeader className="!bg-secondary-950">
+                          <TableRow className="border-secondary-800 hover:bg-transparent">
+                            <TableHead className="text-secondary-400">Timestamp</TableHead>
+                            <TableHead className="text-secondary-400">Tenant</TableHead>
+                            <TableHead className="text-secondary-400">Action</TableHead>
+                            <TableHead className="text-secondary-400">Entity</TableHead>
+                            <TableHead className="text-secondary-400">User</TableHead>
+                            <TableHead className="text-secondary-400">Details</TableHead>
+                            <TableHead className="text-secondary-400">Changes</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {auditLogs.map((log) => (
+                            <TableRow key={log.id} className="border-secondary-800 hover:bg-secondary-950/60">
+                              <TableCell className="text-secondary-300 whitespace-nowrap">
+                                {new Date(log.createdAt).toLocaleString()}
+                              </TableCell>
+                              <TableCell className="text-secondary-300">
+                                {log.tenant ? log.tenant.name : <span className="text-secondary-600">Platform</span>}
+                              </TableCell>
+                              <TableCell>
+                                <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-900/40 text-amber-300 border border-amber-800">
+                                  {log.action}
+                                </span>
+                              </TableCell>
+                              <TableCell className="font-mono text-secondary-400">
+                                {log.entity}
+                                {log.entityId && <span className="text-secondary-600">:{log.entityId.slice(0, 8)}</span>}
+                              </TableCell>
+                              <TableCell className="text-secondary-300">{log.userEmail || log.userId || "System"}</TableCell>
+                              <TableCell className="text-secondary-400 font-mono max-w-xs truncate" title={log.details || ""}>
+                                {log.details || "-"}
+                              </TableCell>
+                              <TableCell className="text-secondary-400">
+                                {log.changes && Object.keys(log.changes).length > 0 ? (
+                                  <div className="space-y-0.5">
+                                    {Object.entries(log.changes).map(([field, diff]) => (
+                                      <div key={field} className="text-[10px] whitespace-nowrap">
+                                        <span className="text-secondary-300 font-semibold">{field}</span>
+                                        <span className="text-secondary-600">: </span>
+                                        {String((diff as any)?.from ?? "—")}
+                                        <span className="text-secondary-600"> → </span>
+                                        <span className="text-secondary-200">{String((diff as any)?.to ?? "—")}</span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  "-"
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                      {auditLogs.length === 0 && (
+                        <div className="text-center py-6 text-secondary-500">
+                          {hasActiveAuditFilters ? "No audit logs match the current filters." : "No audit log entries yet."}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tab 5: Onboard Contracted Client */}
+            {activeTab === "onboard" && (
+              <Card className="bg-secondary-900 border-secondary-800 text-white">
                 <CardHeader>
-                  <CardTitle className="text-xl font-bold">System Audit Logs</CardTitle>
+                  <CardTitle className="text-xl font-bold flex items-center">
+                    <Building2 className="h-5 w-5 mr-2 text-amber-400" />
+                    Onboard a Contracted Client
+                  </CardTitle>
                   <CardDescription className="text-secondary-400 text-xs">
-                    Historical record of administrative broadcasts and system configuration events.
+                    Directly provisions a new tenant with its account pre-verified (no email/SMS verification round-trip) - use this only for a business you've already vetted directly (a signed contract), not a self-service signup. They can log in immediately with the credentials below.
                   </CardDescription>
                 </CardHeader>
-                <CardContent className="text-xs text-secondary-400 text-center py-8">
-                  Audit logs automatically record all `SYSTEM_BROADCAST` actions in the master database.
+                <CardContent>
+                  <form onSubmit={handleOnboardClient} className="space-y-4">
+                    {onboardError && (
+                      <div className="p-3 text-xs bg-rose-950/40 text-rose-300 rounded-md border border-rose-900">
+                        {onboardError}
+                      </div>
+                    )}
+                    {onboardResult && (
+                      <div className="p-4 bg-emerald-950/60 border border-emerald-800 text-emerald-200 rounded-lg text-xs space-y-1">
+                        <div className="flex items-center font-bold text-emerald-400 text-sm">
+                          <CheckCircle2 className="h-5 w-5 mr-2" />
+                          Client Onboarded & Pre-Verified
+                        </div>
+                        <div>Workspace: <strong>{onboardResult.tenant.name}</strong> ({onboardResult.tenant.slug})</div>
+                        <div>Admin login: <strong>{onboardResult.admin.email}</strong></div>
+                        <div className="text-emerald-300/80">They can log in right now with the password you set - no verification step needed.</div>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Company Name</label>
+                        <Input
+                          required
+                          value={onboardCompanyName}
+                          onChange={(e) => setOnboardCompanyName(e.target.value)}
+                          placeholder="Acme Retail Ltd"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Workspace Slug (optional)</label>
+                        <Input
+                          value={onboardSlug}
+                          onChange={(e) => setOnboardSlug(e.target.value)}
+                          placeholder="Auto-generated from company name if left blank"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Name</label>
+                        <Input
+                          required
+                          value={onboardAdminName}
+                          onChange={(e) => setOnboardAdminName(e.target.value)}
+                          placeholder="Jane Doe"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Email</label>
+                        <Input
+                          required
+                          type="email"
+                          value={onboardAdminEmail}
+                          onChange={(e) => setOnboardAdminEmail(e.target.value)}
+                          placeholder="jane@acme.com"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Phone (optional)</label>
+                        <Input
+                          value={onboardAdminPhone}
+                          onChange={(e) => setOnboardAdminPhone(e.target.value)}
+                          placeholder="+233201234567"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Admin Password</label>
+                        <Input
+                          required
+                          type="password"
+                          value={onboardAdminPassword}
+                          onChange={(e) => setOnboardAdminPassword(e.target.value)}
+                          placeholder="Set a password they'll change later"
+                          className="bg-secondary-950 border-secondary-700 text-white text-xs"
+                        />
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Base Currency</label>
+                        <select
+                          value={onboardBaseCurrency}
+                          onChange={(e) => setOnboardBaseCurrency(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs"
+                        >
+                          <option value="GHS">GHS - Ghanaian Cedi</option>
+                          <option value="USD">USD - US Dollar</option>
+                          <option value="NGN">NGN - Nigerian Naira</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1.5">
+                        <label className="text-xs font-semibold text-secondary-300">Organization Type</label>
+                        <select
+                          value={onboardOrgType}
+                          onChange={(e) => setOnboardOrgType(e.target.value)}
+                          className="w-full h-10 px-3 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs"
+                        >
+                          <option value="BUSINESS">Business</option>
+                          <option value="NONPROFIT">Nonprofit / Church / NGO / School</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="flex justify-end pt-2 border-t border-secondary-800">
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        className="bg-amber-600 hover:bg-amber-500 text-white text-xs flex items-center py-2.5 px-5"
+                        disabled={isOnboarding}
+                      >
+                        {isOnboarding ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : <Building2 className="mr-2 h-4 w-4" />}
+                        {isOnboarding ? "Onboarding..." : "Onboard Pre-Verified Client"}
+                      </Button>
+                    </div>
+                  </form>
                 </CardContent>
               </Card>
             )}

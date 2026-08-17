@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { api } from '../lib/api';
 import type { Account } from '../types/accounting';
 
@@ -9,32 +9,47 @@ export interface PnLAccountRow {
 
 export interface ProfitAndLossReport {
   revenueAccounts: PnLAccountRow[];
+  costOfSalesAccounts: PnLAccountRow[];
   expenseAccounts: PnLAccountRow[];
   totalRevenue: number;
+  totalCostOfSales: number;
+  grossProfit: number;
   totalExpense: number;
   netIncome: number;
   isLoading: boolean;
+  refetch: () => void;
 }
 
-export function useProfitAndLoss(): ProfitAndLossReport {
+export function useProfitAndLoss(fundId?: string): ProfitAndLossReport {
   const [revenueAccounts, setRevenueAccounts] = useState<PnLAccountRow[]>([]);
+  const [costOfSalesAccounts, setCostOfSalesAccounts] = useState<PnLAccountRow[]>([]);
   const [expenseAccounts, setExpenseAccounts] = useState<PnLAccountRow[]>([]);
   const [totalRevenue, setTotalRevenue] = useState(0);
+  const [totalCostOfSales, setTotalCostOfSales] = useState(0);
+  const [grossProfit, setGrossProfit] = useState(0);
   const [totalExpense, setTotalExpense] = useState(0);
   const [netIncome, setNetIncome] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
+  const [refetchCounter, setRefetchCounter] = useState(0);
+
+  const refetch = useCallback(() => setRefetchCounter((c) => c + 1), []);
 
   useEffect(() => {
     const fetchPnL = async () => {
       setIsLoading(true);
       try {
-        const response = await api.get('/reports/profit-loss');
+        const response = await api.get('/reports/profit-loss', { params: fundId ? { fundId } : {} });
         if (response.data.success) {
           const data = response.data.data;
-          
+
           setRevenueAccounts(data.revenues.map((r: any) => ({
             account: { id: r.id, code: r.code, name: r.name, type: 'Revenue' },
             balance: r.amount
+          })));
+
+          setCostOfSalesAccounts((data.costOfSales || []).map((c: any) => ({
+            account: { id: c.id, code: c.code, name: c.name, type: 'Cost of Sales' },
+            balance: c.amount
           })));
 
           setExpenseAccounts(data.expenses.map((e: any) => ({
@@ -43,6 +58,8 @@ export function useProfitAndLoss(): ProfitAndLossReport {
           })));
 
           setTotalRevenue(data.totalRevenue);
+          setTotalCostOfSales(data.totalCostOfSales || 0);
+          setGrossProfit(data.grossProfit ?? data.totalRevenue);
           setTotalExpense(data.totalExpenses);
           setNetIncome(data.netProfit);
         }
@@ -54,14 +71,18 @@ export function useProfitAndLoss(): ProfitAndLossReport {
     };
 
     fetchPnL();
-  }, []);
+  }, [fundId, refetchCounter]);
 
   return {
     revenueAccounts,
+    costOfSalesAccounts,
     expenseAccounts,
     totalRevenue,
+    totalCostOfSales,
+    grossProfit,
     totalExpense,
     netIncome,
-    isLoading
+    isLoading,
+    refetch
   };
 }

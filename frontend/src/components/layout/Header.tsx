@@ -6,6 +6,7 @@ import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { useNavigate } from "react-router-dom";
 import { api } from "../../lib/api";
+import { isSettingsRestricted } from "../../lib/navigation";
 
 interface AppNotification {
   id: string;
@@ -115,7 +116,7 @@ export function Header() {
           <Input
             type="text"
             readOnly
-            placeholder="Search accounts, entries, reports... (Cmd+K)"
+            placeholder="Quick navigation... (Cmd+K)"
             className="pl-9 bg-secondary-50 dark:bg-secondary-800/50 border-transparent focus:border-primary-500 focus:bg-white dark:focus:bg-secondary-900 transition-all shadow-none cursor-pointer"
           />
         </div>
@@ -231,17 +232,19 @@ export function Header() {
             <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-secondary-900 rounded-lg shadow-lg border border-secondary-200 dark:border-secondary-800 z-50 overflow-hidden animate-in slide-in-from-top-2">
               <div className="px-4 py-3 border-b border-secondary-200 dark:border-secondary-800">
                 <p className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{user?.name || "Admin User"}</p>
-                <p className="text-xs text-secondary-500 truncate">{user?.email || "admin@accountgo.com"}</p>
+                <p className="text-xs text-secondary-500 truncate">{user?.email || "admin@ledgiobusinessaccountingsoftware.com"}</p>
               </div>
               <div className="py-1">
-                <button 
-                  onClick={() => { setShowProfile(false); navigate("/settings"); }}
-                  className="w-full flex items-center px-4 py-2 text-sm text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 transition-colors"
-                >
-                  <SettingsIcon className="mr-2 h-4 w-4" />
-                  Preferences
-                </button>
-                <button 
+                {!isSettingsRestricted(user?.role) && (
+                  <button
+                    onClick={() => { setShowProfile(false); navigate("/settings"); }}
+                    className="w-full flex items-center px-4 py-2 text-sm text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 transition-colors"
+                  >
+                    <SettingsIcon className="mr-2 h-4 w-4" />
+                    Preferences
+                  </button>
+                )}
+                <button
                   onClick={() => { 
                     setShowProfile(false); 
                     logout();

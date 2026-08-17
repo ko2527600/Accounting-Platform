@@ -5,6 +5,7 @@ import { requireRole } from '../middleware/rbacMiddleware';
 import * as journalEntryService from '../services/journalEntryService';
 import { JournalEntryServiceError } from '../services/journalEntryService';
 import { JournalEntryStatus } from '../repository/journalEntryRepository';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -93,7 +94,7 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.createJournalEntry(req.body);
+    const journalEntry = await journalEntryService.createJournalEntry(req.body, actorFromRequest(req));
     res.status(201).json({
       success: true,
       message: 'Journal entry created successfully',
@@ -118,13 +119,51 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
 });
 
 /**
+ * POST /api/v1/journal-entries/contra
+ * Description: Record a Contra Voucher - an internal fund transfer between
+ * two of the business's own cash/bank accounts (e.g. "till to bank").
+ * Posts immediately to the ledger (it records a transfer that already
+ * happened, not a draft to review later).
+ * Access: Accountant role or higher
+ */
+router.post('/contra', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { entryDate, fromAccountId, toAccountId, amount, description } = req.body;
+    const journalEntry = await journalEntryService.createContraVoucher(
+      { entryDate, fromAccountId, toAccountId, amount, description },
+      actorFromRequest(req)
+    );
+    res.status(201).json({
+      success: true,
+      message: 'Contra Voucher recorded successfully',
+      data: {
+        journalEntry,
+      },
+    });
+  } catch (error: any) {
+    if (error instanceof JournalEntryServiceError) {
+      res.status(error.statusCode).json({
+        success: false,
+        error: error.message,
+      });
+      return;
+    }
+    console.error('CREATE CONTRA VOUCHER 500 ERROR:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while creating Contra Voucher.',
+    });
+  }
+});
+
+/**
  * POST /api/v1/journal-entries/:id/post
  * Description: Post a draft journal entry to the general ledger.
  * Access: Accountant role or higher
  */
 router.post('/:id/post', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.postJournalEntry(req.params.id);
+    const journalEntry = await journalEntryService.postJournalEntry(req.params.id, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Journal entry posted successfully',
@@ -149,17 +188,28 @@ router.post('/:id/post', requireRole('Accountant'), async (req: Request, res: Re
 
 /**
  * POST /api/v1/journal-entries/:id/void
- * Description: Void a journal entry.
+ * Description: Void a journal entry. A DRAFT is simply flipped to VOID
+ * (it never touched the ledger). A POSTED entry cannot be edited, so
+ * voiding it auto-generates and posts a reversing entry that offsets it -
+ * both the voided original and the new reversal are returned.
  * Access: Accountant role or higher
  */
 router.post('/:id/void', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const journalEntry = await journalEntryService.voidJournalEntry(req.params.id);
+    const { reason } = req.body || {};
+    const { journalEntry, reversalEntry } = await journalEntryService.voidJournalEntry(
+      req.params.id,
+      actorFromRequest(req),
+      reason
+    );
     res.status(200).json({
       success: true,
-      message: 'Journal entry voided successfully',
+      message: reversalEntry
+        ? `Journal entry voided successfully. Reversal ${reversalEntry.entryNumber} posted.`
+        : 'Journal entry voided successfully',
       data: {
         journalEntry,
+        reversalEntry,
       },
     });
   } catch (error: any) {

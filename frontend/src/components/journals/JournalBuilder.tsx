@@ -1,18 +1,32 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Plus, Trash2, ArrowLeft, Calculator, Sparkles } from "lucide-react";
 import { useJournals } from "../../hooks/useJournals";
 import { useAccounts } from "../../hooks/useAccounts";
-import type { CreateJournalEntryDTO, JournalLine } from "../../types/accounting";
+import type { CreateJournalEntryDTO, JournalLine, Fund } from "../../types/accounting";
 import { Button } from "../ui/Button";
 import { Input } from "../ui/Input";
 import { Card, CardHeader, CardContent, CardFooter } from "../ui/Card";
 import { api } from "../../lib/api";
+import { useToast } from "../../contexts/ToastContext";
+import { useTenantSettings } from "../../hooks/useTenantSettings";
 
 export function JournalBuilder() {
   const navigate = useNavigate();
   const { postJournal, isLoading: isPosting } = useJournals();
   const { accounts } = useAccounts();
+  const { showToast } = useToast();
+  const { settings } = useTenantSettings();
+
+  const [funds, setFunds] = useState<Fund[]>([]);
+  useEffect(() => {
+    api.get("/funds").then((res) => {
+      if (res.data.success) setFunds((res.data.data.funds || []).filter((f: Fund) => f.isActive));
+    }).catch(() => {
+      // Funds are an optional nonprofit feature - silently show none rather
+      // than blocking the builder if this fails for an unconfigured tenant.
+    });
+  }, []);
 
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
   const [description, setDescription] = useState("");
@@ -75,7 +89,7 @@ export function JournalBuilder() {
     const validLines = lines.filter(l => l.accountId && (Number(l.debit) > 0 || Number(l.credit) > 0));
 
     if (validLines.length < 2) {
-      alert("At least two valid lines are required.");
+      showToast("At least two valid lines are required.", "error");
       return;
     }
 
@@ -89,12 +103,12 @@ export function JournalBuilder() {
       await postJournal(payload);
       navigate("/journals");
     } catch (err: any) {
-      alert(err.message);
+      showToast(err.message, "error");
     }
   };
 
   const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(amount);
+    return new Intl.NumberFormat("en-US", { style: "currency", currency: settings.baseCurrency }).format(amount);
   };
 
   return (
@@ -105,10 +119,10 @@ export function JournalBuilder() {
           Back to Journals
         </Button>
         <h2 className="text-3xl font-bold tracking-tight text-secondary-900 dark:text-secondary-50">
-          Create Journal Entry
+          Create Journal Voucher
         </h2>
         <p className="text-secondary-500 dark:text-secondary-400 mt-1">
-          Record a manual double-entry transaction.
+          Record a manual double-entry transaction. It's saved as a Draft voucher - post it from the Journal Vouchers list to send it to the general ledger.
         </p>
       </div>
 
@@ -139,7 +153,7 @@ export function JournalBuilder() {
                     className="text-xs text-primary-600 dark:text-primary-400 hover:underline flex items-center font-medium"
                   >
                     <Sparkles className="mr-1 h-3 w-3" />
-                    {isAiLoading ? "Analyzing..." : "AI Suggest Category"}
+                    {isAiLoading ? "Analyzing..." : "Suggest Category"}
                   </button>
                 </div>
                 <Input
@@ -157,7 +171,7 @@ export function JournalBuilder() {
                     <div>
                       <span className="font-semibold text-primary-700 dark:text-primary-300 flex items-center">
                         <Sparkles className="mr-1 h-3.5 w-3.5 text-primary-600" />
-                        AI Recommendation ({Math.round(aiSuggestion.confidence * 100)}% match):
+                        Suggested Category ({Math.round(aiSuggestion.confidence * 100)}% match):
                       </span>
                       <span className="text-secondary-600 dark:text-secondary-400">
                         {aiSuggestion.accountName} • {aiSuggestion.rationale}
@@ -187,6 +201,7 @@ export function JournalBuilder() {
                 <thead className="bg-secondary-50 dark:bg-secondary-900/80 text-secondary-500 dark:text-secondary-400 font-medium border-b border-secondary-200 dark:border-secondary-800">
                   <tr>
                     <th className="px-4 py-3 w-1/3">Account</th>
+                    {funds.length > 0 && <th className="px-4 py-3 w-40">Fund</th>}
                     <th className="px-4 py-3 w-1/3">Description</th>
                     <th className="px-4 py-3 w-32 text-right">Debit</th>
                     <th className="px-4 py-3 w-32 text-right">Credit</th>
@@ -209,6 +224,20 @@ export function JournalBuilder() {
                           ))}
                         </select>
                       </td>
+                      {funds.length > 0 && (
+                        <td className="px-4 py-2 align-top">
+                          <select
+                            value={line.fundId || ""}
+                            onChange={(e) => updateLine(line.id!, "fundId", e.target.value || undefined)}
+                            className="flex h-10 w-full rounded-md border border-secondary-300 bg-transparent px-3 py-2 text-sm text-secondary-900 focus:outline-none focus:ring-2 focus:ring-primary-500 dark:border-secondary-700 dark:text-secondary-50"
+                          >
+                            <option value="">No fund</option>
+                            {funds.map(f => (
+                              <option key={f.id} value={f.id}>{f.name} ({f.code})</option>
+                            ))}
+                          </select>
+                        </td>
+                      )}
                       <td className="px-4 py-2 align-top">
                         <Input
                           placeholder="Line description..."
@@ -295,7 +324,7 @@ export function JournalBuilder() {
               </div>
               <div className="h-10 w-px bg-secondary-300 dark:bg-secondary-700 mx-2"></div>
               <Button type="submit" disabled={!isBalanced || totalDebit === 0} isLoading={isPosting} className="w-32">
-                Post Entry
+                Save Voucher
               </Button>
             </div>
           </CardFooter>

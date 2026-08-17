@@ -3,7 +3,9 @@ import { Card, CardHeader, CardTitle, CardContent, CardDescription } from "../..
 import { Button } from "../../components/ui/Button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
-import { Flame, Clock, Lightbulb, Download, FileSpreadsheet, RefreshCw, ArrowRight } from "lucide-react";
+import { downloadBlobResponse } from "../../lib/downloadBlob";
+import { useToast } from "../../contexts/ToastContext";
+import { Flame, Clock, Lightbulb, Download, FileSpreadsheet, FileType, RefreshCw, ArrowRight } from "lucide-react";
 
 interface FastSeller {
   id: string;
@@ -37,6 +39,8 @@ export function InventoryIntelligence() {
   const [slowMoving, setSlowMoving] = useState<SlowMoving[]>([]);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isExporting, setIsExporting] = useState<"pdf" | "docx" | null>(null);
+  const { showToast } = useToast();
 
   const fetchIntelligence = async () => {
     setIsLoading(true);
@@ -61,19 +65,22 @@ export function InventoryIntelligence() {
   const handleExportCSV = async () => {
     try {
       const res = await api.get("/analytics/export/csv?reportType=stock-intelligence", { responseType: "blob" });
-      const url = window.URL.createObjectURL(new Blob([res.data]));
-      const link = document.createElement("a");
-      link.href = url;
-      link.setAttribute("download", `Stock_Intelligence_Report_${Date.now()}.csv`);
-      document.body.appendChild(link);
-      link.click();
+      downloadBlobResponse(res, `Stock_Intelligence_Report_${Date.now()}.csv`);
     } catch (err) {
-      alert("Failed to export CSV dataset.");
+      showToast("Failed to export CSV dataset.", "error");
     }
   };
 
-  const handleExportPDF = () => {
-    window.print();
+  const handleExportFile = async (format: "pdf" | "docx") => {
+    setIsExporting(format);
+    try {
+      const res = await api.get(`/analytics/export/${format}?reportType=stock-intelligence`, { responseType: "blob" });
+      downloadBlobResponse(res, `Stock_Intelligence_Report_${Date.now()}.${format}`);
+    } catch (err) {
+      showToast(`Failed to export ${format.toUpperCase()} report.`, "error");
+    } finally {
+      setIsExporting(null);
+    }
   };
 
   return (
@@ -97,9 +104,13 @@ export function InventoryIntelligence() {
             <FileSpreadsheet className="mr-2 h-4 w-4 text-emerald-600" />
             Export Excel / CSV
           </Button>
-          <Button variant="primary" onClick={handleExportPDF} className="flex items-center">
+          <Button variant="outline" disabled={isExporting === "docx"} onClick={() => handleExportFile("docx")} className="flex items-center">
+            <FileType className="mr-2 h-4 w-4 text-blue-600" />
+            {isExporting === "docx" ? "Exporting..." : "Export Word"}
+          </Button>
+          <Button variant="primary" disabled={isExporting === "pdf"} onClick={() => handleExportFile("pdf")} className="flex items-center">
             <Download className="mr-2 h-4 w-4" />
-            Export PDF
+            {isExporting === "pdf" ? "Exporting..." : "Export PDF"}
           </Button>
         </div>
       </div>

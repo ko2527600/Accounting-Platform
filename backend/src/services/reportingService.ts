@@ -5,6 +5,8 @@ import {
   TrialBalanceResult,
   ProfitLossResult,
   BalanceSheetResult,
+  CashFlowResult,
+  KpiDashboardResult,
 } from '../repository/reportRepository';
 
 export class ReportingServiceError extends Error {
@@ -46,25 +48,51 @@ export async function getTrialBalance(
 export async function getProfitAndLoss(
   startDate?: string,
   endDate?: string,
-  asOfDate?: string
+  asOfDate?: string,
+  fundId?: string
 ): Promise<ProfitLossResult> {
   if (startDate) validateDateFormat(startDate, 'startDate');
   if (endDate) validateDateFormat(endDate, 'endDate');
   if (asOfDate) validateDateFormat(asOfDate, 'asOfDate');
 
   return withCurrentTenantDb(prisma, async (client) => {
-    return reportRepository.getProfitAndLoss(client, startDate, endDate, asOfDate);
+    return reportRepository.getProfitAndLoss(client, startDate, endDate, asOfDate, fundId);
   });
 }
 
 export async function getBalanceSheet(
   asOfDate?: string,
-  endDate?: string
+  endDate?: string,
+  fundId?: string
 ): Promise<BalanceSheetResult> {
   if (asOfDate) validateDateFormat(asOfDate, 'asOfDate');
   if (endDate) validateDateFormat(endDate, 'endDate');
 
   return withCurrentTenantDb(prisma, async (client) => {
-    return reportRepository.getBalanceSheet(client, asOfDate, endDate);
+    return reportRepository.getBalanceSheet(client, asOfDate, endDate, fundId);
+  });
+}
+
+export async function getCashFlowStatement(
+  startDate?: string,
+  endDate?: string
+): Promise<CashFlowResult> {
+  if (startDate) validateDateFormat(startDate, 'startDate');
+  if (endDate) validateDateFormat(endDate, 'endDate');
+
+  return withCurrentTenantDb(prisma, async (client) => {
+    return reportRepository.getCashFlowStatement(client, startDate, endDate);
+  });
+}
+
+export async function getKpiDashboard(
+  startDate?: string,
+  endDate?: string
+): Promise<KpiDashboardResult> {
+  if (startDate) validateDateFormat(startDate, 'startDate');
+  if (endDate) validateDateFormat(endDate, 'endDate');
+
+  return withCurrentTenantDb(prisma, async (client) => {
+    return reportRepository.getKpiDashboard(client, startDate, endDate);
   });
 }

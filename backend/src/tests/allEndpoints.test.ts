@@ -1,7 +1,8 @@
 import request from 'supertest';
 import app from '../app';
+import { prisma } from '../config/db';
 
-describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
+describe('Ledgio System-Wide End-to-End API Integration Suite', () => {
   let adminToken: string;
   let tenantId: string;
   let warehouseAId: string;
@@ -66,6 +67,18 @@ describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
   // 2. Auth Flow
   describe('Authentication Flow', () => {
     it('POST /api/v1/auth/login - should authenticate admin user & return JWT', async () => {
+      // Onboarding creates the admin as isActive:false until email+SMS verification
+      // completes, so login must complete that flow first (same pattern as
+      // verifiedRegistration.test.ts) rather than logging in immediately.
+      const dbUser = await prisma.user.findUnique({ where: { email: testEmail } });
+      await request(app)
+        .post('/api/v1/auth/verify')
+        .send({
+          email: testEmail,
+          emailVerificationToken: dbUser?.emailVerificationToken,
+          smsCode: dbUser?.smsVerificationCode,
+        });
+
       const res = await request(app)
         .post('/api/v1/auth/login')
         .send({
@@ -104,9 +117,45 @@ describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.tenant.name).toBe(`${testCompany} Updated`);
+
+      const auditLog = await prisma.auditLog.findFirst({
+        where: { tenantId, entity: 'Tenant', entityId: tenantId, action: 'TENANT_SETTINGS.UPDATED' },
+        orderBy: { createdAt: 'desc' },
+      });
+      expect(auditLog).toBeTruthy();
+      expect((auditLog!.changes as any).name).toEqual({ from: testCompany, to: `${testCompany} Updated` });
     });
 
-    it('POST /api/v1/tenants/invite - should accept custom worker job titles', async () => {
+    it('POST /api/v1/tenants/invite - should accept a closed-set role like Accountant', async () => {
+      const res = await request(app)
+        .post('/api/v1/tenants/invite')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantId)
+        .send({
+          email: `worker.${Date.now()}@example.com`,
+          role: 'Accountant',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.invitation.role).toBe('Accountant');
+    });
+
+    it('POST /api/v1/tenants/invite - should reject an unrecognized custom job title', async () => {
+      const res = await request(app)
+        .post('/api/v1/tenants/invite')
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('X-Tenant-ID', tenantId)
+        .send({
+          email: `worker.${Date.now()}@example.com`,
+          role: 'Inventory Lead',
+        });
+
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+    });
+
+    it('POST /api/v1/tenants/invite - should require at least one assigned shop for a shop-scoped role', async () => {
       const res = await request(app)
         .post('/api/v1/tenants/invite')
         .set('Authorization', `Bearer ${adminToken}`)
@@ -116,9 +165,9 @@ describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
           role: 'Shop Manager',
         });
 
-      expect(res.status).toBe(201);
-      expect(res.body.success).toBe(true);
-      expect(res.body.data.invitation.role).toBe('Shop Manager');
+      expect(res.status).toBe(400);
+      expect(res.body.success).toBe(false);
+      expect(res.body.error).toContain('shop-scoped role');
     });
   });
 
@@ -207,8 +256,7 @@ describe('AccountGo System-Wide End-to-End API Integration Suite', () => {
         .set('X-Tenant-ID', tenantId)
         .send({
           tillId,
-          itemId,
-          quantity: 1,
+          items: [{ itemId, quantity: 1 }],
           cashGiven: 1000,
         });
 

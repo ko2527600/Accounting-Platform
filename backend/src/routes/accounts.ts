@@ -4,6 +4,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import * as accountService from '../services/accountService';
 import { AccountServiceError } from '../services/accountService';
+import { actorFromRequest } from '../services/auditLogService';
 
 const router = Router();
 
@@ -14,9 +15,11 @@ router.use(tenantContextMiddleware);
 /**
  * GET /api/v1/accounts
  * Description: Retrieve list of all accounts for the active tenant, including flat list and nested tree structure.
- * Access: Viewer role or higher
+ * Access: Viewer role or higher. Also explicitly grants Shop Manager/Cashier
+ * (otherwise scoped to Inventory/POS/Expense Claims) since the Expense
+ * Claims form needs this to populate its expense-category dropdown.
  */
-router.get('/', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+router.get('/', requireRole('Viewer', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const result = await accountService.listAccounts();
     res.status(200).json({
@@ -84,7 +87,11 @@ router.get('/:id', requireRole('Viewer'), async (req: Request, res: Response): P
  */
 router.post('/', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const account = await accountService.createAccount(req.body);
+    if (req.body?.clientTxnId !== undefined && (typeof req.body.clientTxnId !== 'string' || !req.body.clientTxnId)) {
+      res.status(400).json({ success: false, error: 'clientTxnId, if provided, must be a non-empty string.' });
+      return;
+    }
+    const account = await accountService.createAccount(req.body, actorFromRequest(req));
     res.status(201).json({
       success: true,
       message: 'Account created successfully',
@@ -114,7 +121,7 @@ router.post('/', requireRole('Accountant'), async (req: Request, res: Response):
  */
 router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    const account = await accountService.updateAccount(req.params.id, req.body);
+    const account = await accountService.updateAccount(req.params.id, req.body, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Account updated successfully',
@@ -138,13 +145,48 @@ router.put('/:id', requireRole('Accountant'), async (req: Request, res: Response
 });
 
 /**
+ * PUT /api/v1/accounts/:id/default-role
+ * Designates (or clears) which single account auto-posting services
+ * (invoice payments, credit/debit notes, vendor bill payments, expense
+ * reimbursements) should target for the generic cash/revenue/expense side
+ * of a transaction - see accountService.setDefaultRole for why this exists.
+ * Body: { role: 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION' | null }
+ * Access: Accountant role or higher
+ */
+router.put('/:id/default-role', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { role } = req.body;
+    const VALID_ROLES = ['CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION'];
+    if (role !== null && !VALID_ROLES.includes(role)) {
+      res.status(400).json({ success: false, error: `role must be one of ${VALID_ROLES.join(', ')}, or null.` });
+      return;
+    }
+    const account = await accountService.setDefaultRole(req.params.id, role, actorFromRequest(req));
+    res.status(200).json({
+      success: true,
+      message: role ? `Set as the default ${role} account.` : 'Default role cleared.',
+      data: { account },
+    });
+  } catch (error: any) {
+    if (error instanceof AccountServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Internal Server Error while updating account default role.',
+    });
+  }
+});
+
+/**
  * DELETE /api/v1/accounts/:id
  * Description: Delete an account by ID for the active tenant.
  * Access: Accountant role or higher
  */
 router.delete('/:id', requireRole('Accountant'), async (req: Request, res: Response): Promise<void> => {
   try {
-    await accountService.deleteAccount(req.params.id);
+    await accountService.deleteAccount(req.params.id, actorFromRequest(req));
     res.status(200).json({
       success: true,
       message: 'Account deleted successfully',

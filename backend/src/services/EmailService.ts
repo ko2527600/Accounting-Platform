@@ -1,6 +1,26 @@
-import nodemailer from 'nodemailer';
-import { prisma } from '../config/db';
-import { withCurrentTenantDb } from '../database/tenantClient';
+import nodemailer, { Transporter } from 'nodemailer';
+import SMTPTransport from 'nodemailer/lib/smtp-transport';
+import dns from 'node:dns';
+import { generateQuickStartGuidePdf, generateInvoicePdf, InvoicePdfItem } from './pdfGenerationService';
+import { recordAuditLog } from './auditLogService';
+import { escapeHtml } from '../utils/htmlEscape';
+
+// Direct SMTP to Gmail previously hit ETIMEDOUT connecting from Render's free
+// tier (both port 465 and 587), so this moved to SendGrid's HTTP API for a
+// while. Live-retested 2026-08-17 after upgrading to Render's Starter plan -
+// port 465 now connects successfully (confirmed via a real TCP handshake
+// from the Render Shell, not just documentation) - so this is back on direct
+// Gmail SMTP via nodemailer. If a future downgrade re-blocks outbound SMTP,
+// EmailService.isConfigured()/sendMail() are the only two places that would
+// need to change again.
+try {
+  // Prefer IPv4 DNS resolution - smtp.gmail.com previously failed with
+  // ENETUNREACH over IPv6 from this class of host; unrelated to (and
+  // unaffected by) the SMTP-port-blocking issue above, so kept regardless.
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Older Node versions without this API - falls back to default resolution order.
+}
 
 export interface EmailAttachment {
   filename: string;
@@ -9,17 +29,29 @@ export interface EmailAttachment {
 }
 
 export class EmailService {
-  private static getTransporter() {
-    const user = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
-    const pass = (process.env.EMAIL_PASS || 'hvrbjnbhpmdibowm').replace(/["'\s]/g, '');
+  public static isConfigured(): boolean {
+    return Boolean(process.env.EMAIL_USER?.trim() && process.env.EMAIL_PASS?.trim());
+  }
 
-    return nodemailer.createTransport({
-      service: 'gmail',
-      auth: {
-        user,
-        pass,
-      },
-    });
+  private static getTransporter(): Transporter {
+    const user = process.env.EMAIL_USER?.trim();
+    const pass = process.env.EMAIL_PASS?.replace(/["'\s]/g, '');
+    if (!user || !pass) {
+      throw new Error('Email sending is not configured: EMAIL_USER and EMAIL_PASS environment variables are required (EMAIL_PASS must be a Gmail App Password, not the account\'s regular login password).');
+    }
+
+    // `family` (force IPv4 - see the dns.setDefaultResultOrder note above) is
+    // a genuine nodemailer/Node net.connect option that @types/nodemailer
+    // doesn't declare, hence the cast below.
+    const options: SMTPTransport.Options & { family?: number } = {
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // implicit TLS - the port confirmed reachable on Starter
+      auth: { user, pass },
+      family: 4,
+      connectionTimeout: 10000,
+    };
+    return nodemailer.createTransport(options as SMTPTransport.Options);
   }
 
   /**
@@ -33,20 +65,24 @@ export class EmailService {
     html: string,
     attachments: EmailAttachment[] = []
   ): Promise<boolean> {
-    const from = (process.env.EMAIL_USER || 'ko2527600@gmail.com').trim();
-
-    const mailOptions = {
-      from: `"AccountGo ERP" <${from}>`,
-      to,
-      subject,
-      html,
-      attachments,
-    };
-
     if (process.env.NODE_ENV === 'test' && !process.env.EMAIL_TEST_LIVE) {
       // Mock dispatch in test environment
       return true;
     }
+
+    if (!this.isConfigured()) {
+      console.error('[EmailService] Email sending is not configured: EMAIL_USER and EMAIL_PASS environment variables are both required.');
+      return false;
+    }
+
+    const from = process.env.EMAIL_USER!.trim();
+    const mailOptions = {
+      from: `"Ledgio ERP" <${from}>`,
+      to,
+      subject,
+      html,
+      attachments: attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
+    };
 
     try {
       const transporter = this.getTransporter();
@@ -54,22 +90,25 @@ export class EmailService {
       console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
 
       // Log successful email dispatch in AuditLog
-      await this.logAudit('EMAIL_SENT', `Email sent to ${to} (${subject}).`);
+      await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Email sent to ${to} (${subject}).` });
       return true;
     } catch (firstErr: any) {
-      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr);
+      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr.message);
 
       // Retry once after 5 minutes (300,000ms)
       setTimeout(async () => {
         try {
-          await this.getTransporter().sendMail(mailOptions);
-          await this.logAudit('EMAIL_SENT', `Retry succeeded: Email sent to ${to}.`);
+          const transporter = this.getTransporter();
+          const info = await transporter.sendMail(mailOptions);
+          console.log(`[EmailService] ✅ Retry succeeded: Email dispatched to ${to}. MessageId: ${info.messageId}`);
+          await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Retry succeeded: Email sent to ${to}.` });
         } catch (retryErr: any) {
           console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, retryErr.message);
-          await this.logAudit(
-            'CRITICAL_FAILURE',
-            `Critical Failure: Automated email report to ${to} failed twice. Error: ${retryErr.message}`
-          );
+          await recordAuditLog({
+            action: 'CRITICAL_FAILURE',
+            entity: 'EMAIL_SERVICE',
+            details: `Critical Failure: Automated email report to ${to} failed twice. Error: ${retryErr.message}`,
+          });
         }
       }, 300000);
 
@@ -78,38 +117,109 @@ export class EmailService {
   }
 
   /**
+   * Renders a single "vs previous period" delta as a colored span, matching
+   * the red/green up-down indicators used by third-party monitoring digest
+   * emails (e.g. "-5.54%"). Null means there's no prior-period data to
+   * compare against (e.g. a brand-new tenant), so it renders as a neutral
+   * "New" badge instead of a misleading 0%/infinite change.
+   */
+  private static renderDelta(changePercent: number | null): string {
+    if (changePercent === null) {
+      return '<span style="color: #94a3b8;">New</span>';
+    }
+    const isPositive = changePercent >= 0;
+    const color = isPositive ? '#059669' : '#dc2626';
+    const arrow = isPositive ? '▲' : '▼';
+    return `<span style="color: ${color}; font-weight: 600;">${arrow} ${Math.abs(changePercent).toFixed(2)}%</span>`;
+  }
+
+  /**
+   * Builds the shared stat-grid body for period executive reports (weekly
+   * and monthly): a 2-column tile grid with each figure's delta vs the
+   * immediately preceding period of the same length.
+   */
+  private static buildPeriodReportHtml(
+    periodLabel: 'Week' | 'Month',
+    tenantName: string,
+    reportData: {
+      periodSales: number;
+      topShopName: string;
+      totalItemsSold: number;
+      salesChangePercent: number | null;
+      itemsChangePercent: number | null;
+    }
+  ): string {
+    const accent = periodLabel === 'Week' ? '#3b82f6' : '#7c3aed';
+    const tile = (label: string, value: string, delta?: string) => `
+      <td style="width: 50%; padding: 14px; background-color: #f8fafc; border-radius: 6px;">
+        <div style="font-size: 11px; color: #64748b; text-transform: uppercase; letter-spacing: 0.03em;">${label}</div>
+        <div style="font-size: 20px; font-weight: 700; color: #0f172a; margin-top: 4px;">${value}</div>
+        ${delta ? `<div style="font-size: 12px; margin-top: 4px;">${delta} vs prior ${periodLabel.toLowerCase()}</div>` : ''}
+      </td>
+    `;
+
+    return `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid ${accent}; padding-bottom: 10px;">
+          ${periodLabel}ly Executive Performance Summary
+        </h2>
+        <p style="font-size: 14px; color: #475569;">
+          Here is your automated ${periodLabel.toLowerCase()}ly business breakdown for <strong>${escapeHtml(tenantName)}</strong>.
+        </p>
+
+        <table role="presentation" style="width: 100%; border-collapse: separate; border-spacing: 10px 10px; margin: 10px -10px;">
+          <tr>
+            ${tile('Total Cash Sales', `GH₵ ${reportData.periodSales.toFixed(2)}`, this.renderDelta(reportData.salesChangePercent))}
+            ${tile('Total Items Sold', `${reportData.totalItemsSold} pcs`, this.renderDelta(reportData.itemsChangePercent))}
+          </tr>
+          <tr>
+            ${tile('Top Performing Branch', escapeHtml(reportData.topShopName))}
+          </tr>
+        </table>
+
+        <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px; margin-top: 15px;">
+          Generated automatically by <strong>Ledgio Multi-Tenant ERP</strong>. All shop closeouts and ledger records are reconciled.
+        </p>
+      </div>
+    `;
+  }
+
+  /**
    * Sends weekly executive Profit & Loss performance summary with HTML formatting.
    */
   public static async sendWeeklyExecutiveReport(
     to: string,
     tenantName: string,
-    reportData: { weeklySales: number; topShopName: string; totalItemsSold: number }
+    reportData: {
+      periodSales: number;
+      topShopName: string;
+      totalItemsSold: number;
+      salesChangePercent: number | null;
+      itemsChangePercent: number | null;
+    }
   ): Promise<boolean> {
-    const subject = `📊 AccountGo Weekly Executive Performance - ${tenantName}`;
-    const html = `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; rounded-lg: 8px;">
-        <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">
-          Weekly Executive Performance Summary
-        </h2>
-        <p style="font-size: 14px; color: #475569;">
-          Here is your automated weekly business breakdown for <strong>${tenantName}</strong>.
-        </p>
+    const subject = `📊 Ledgio Weekly Executive Performance - ${tenantName}`;
+    const html = this.buildPeriodReportHtml('Week', tenantName, reportData);
+    return this.sendMail(to, subject, html);
+  }
 
-        <div style="background-color: #f8fafc; padding: 15px; border-radius: 6px; margin: 20px 0;">
-          <h3 style="margin-top: 0; color: #1e293b; font-size: 16px;">Week at a Glance</h3>
-          <ul style="font-size: 14px; color: #334155; line-height: 1.6;">
-            <li><strong>Total Weekly Cash Sales:</strong> GH₵ ${reportData.weeklySales.toFixed(2)}</li>
-            <li><strong>Top Performing Branch:</strong> ${reportData.topShopName}</li>
-            <li><strong>Total Items Sold:</strong> ${reportData.totalItemsSold} pcs</li>
-          </ul>
-        </div>
-
-        <p style="font-size: 12px; color: #94a3b8; border-top: 1px solid #e2e8f0; padding-top: 15px;">
-          Generated automatically by <strong>AccountGo Multi-Tenant ERP</strong>. All shop closeouts and ledger records are reconciled.
-        </p>
-      </div>
-    `;
-
+  /**
+   * Sends monthly executive Profit & Loss performance summary, comparing
+   * the trailing 30 days against the preceding 30-day window.
+   */
+  public static async sendMonthlyExecutiveReport(
+    to: string,
+    tenantName: string,
+    reportData: {
+      periodSales: number;
+      topShopName: string;
+      totalItemsSold: number;
+      salesChangePercent: number | null;
+      itemsChangePercent: number | null;
+    }
+  ): Promise<boolean> {
+    const subject = `📈 Ledgio Monthly Executive Performance - ${tenantName}`;
+    const html = this.buildPeriodReportHtml('Month', tenantName, reportData);
     return this.sendMail(to, subject, html);
   }
 
@@ -118,11 +228,11 @@ export class EmailService {
    */
   public static async sendVerificationEmail(to: string, name: string, token: string): Promise<boolean> {
     const verifyUrl = `${process.env.APP_URL || 'http://localhost:5173'}/verify-account?token=${token}&email=${encodeURIComponent(to)}`;
-    const subject = '🔐 Verify Your Email Address - AccountGo ERP';
+    const subject = '🔐 Verify Your Email Address - Ledgio ERP';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #3b82f6; padding-bottom: 10px;">
-          Welcome to AccountGo, ${name}!
+          Welcome to Ledgio, ${escapeHtml(name)}!
         </h2>
         <p style="font-size: 14px; color: #475569;">
           Please verify your email address to activate your account.
@@ -143,17 +253,17 @@ export class EmailService {
   }
 
   /**
-   * Sends "Welcome to AccountGo" sequence with attached Quick Start Guide PDF payload.
+   * Sends "Welcome to Ledgio" sequence with attached Quick Start Guide PDF payload.
    */
-  public static async sendWelcomePackage(to: string, name: string): Promise<boolean> {
-    const subject = '🎉 Welcome to AccountGo - Quick Start Guide Included';
+  public static async sendWelcomePackage(to: string, name: string, businessName?: string): Promise<boolean> {
+    const subject = '🎉 Welcome to Ledgio - Quick Start Guide Included';
     const html = `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
         <h2 style="color: #0f172a; border-bottom: 2px solid #10b981; padding-bottom: 10px;">
           Your Account is Fully Verified & Active!
         </h2>
         <p style="font-size: 14px; color: #334155;">
-          Congratulations <strong>${name}</strong>! Both your email and mobile phone numbers have been successfully verified.
+          Congratulations <strong>${escapeHtml(name)}</strong>! Both your email and mobile phone numbers have been successfully verified.
         </p>
         <div style="background-color: #ecfdf5; padding: 15px; border-radius: 6px; border: 1px solid #a7f3d0; margin: 20px 0;">
           <h3 style="margin-top: 0; color: #065f46; font-size: 15px;">Next Steps:</h3>
@@ -164,20 +274,17 @@ export class EmailService {
           </ul>
         </div>
         <p style="font-size: 13px; color: #475569;">
-          We have attached the official <strong>AccountGo Quick Start Guide PDF</strong> to this email to help you get up to speed.
+          We have attached the official <strong>Ledgio Quick Start Guide PDF</strong> to this email to help you get up to speed.
         </p>
       </div>
     `;
 
-    // Attached PDF Guide Buffer
-    const samplePdfBuffer = Buffer.from(
-      `%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n2 0 obj << /Type /Pages /Kinds [3 0 R] /Count 1 >> endobj\n3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R >> endobj\n4 0 obj << /Length 55 >> stream\nBT /F1 12 Tf 100 700 TD (AccountGo ERP Quick Start Guide) Tj ET\nendstream\nendobj\nxref\n0 5\n0000000000 65535 f\n0000000009 00000 n\n0000000058 00000 n\n0000000115 00000 n\n0000000214 00000 n\ntrailer << /Size 5 /Root 1 0 R >>\nstartxref\n320\n%%EOF`
-    );
+    const guidePdfBuffer = await generateQuickStartGuidePdf(businessName || name, name);
 
     const attachments: EmailAttachment[] = [
       {
-        filename: 'AccountGo_Quick_Start_Guide.pdf',
-        content: samplePdfBuffer,
+        filename: 'Ledgio_Quick_Start_Guide.pdf',
+        content: guidePdfBuffer,
         contentType: 'application/pdf',
       },
     ];
@@ -185,19 +292,134 @@ export class EmailService {
     return this.sendMail(to, subject, html, attachments);
   }
 
-  private static async logAudit(action: string, details: string): Promise<void> {
-    try {
-      await withCurrentTenantDb(prisma, async (client) => {
-        return (client as any).auditLog.create({
-          data: {
-            action,
-            entity: 'EMAIL_SERVICE',
-            details,
-          },
-        });
-      });
-    } catch (_err) {
-      // Audit log optional if outside tenant context
+  /**
+   * Emails a customer their invoice as a PDF attachment, with the key
+   * figures also shown inline in the email body itself (so the total/due
+   * date are visible without opening the attachment).
+   */
+  public static async sendInvoiceEmail(
+    to: string,
+    customerName: string,
+    tenantName: string,
+    invoice: {
+      invoiceNumber: string;
+      issueDateLabel: string;
+      dueDateLabel: string;
+      currency: string;
+      customerAddress?: string | null;
+      items: InvoicePdfItem[];
+      subtotal: number;
+      tax: number;
+      taxBreakdown: { name: string; rate: number; amount: number }[] | null;
+      total: number;
     }
+  ): Promise<boolean> {
+    const subject = `Invoice ${invoice.invoiceNumber} from ${tenantName}`;
+    const formattedTotal = new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(invoice.total);
+    const itemRows = invoice.items
+      .map(
+        (item) => `
+          <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0;">${escapeHtml(item.description)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${item.quantity}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(item.unitPrice)}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #e2e8f0; text-align: right;">${new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(item.amount)}</td>
+          </tr>
+        `
+      )
+      .join('');
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #2563eb; padding-bottom: 10px;">
+          Invoice ${escapeHtml(invoice.invoiceNumber)}
+        </h2>
+        <p style="font-size: 14px; color: #475569;">
+          Hi ${escapeHtml(customerName)}, here is your invoice from <strong>${escapeHtml(tenantName)}</strong>. The full itemized invoice is also attached as a PDF.
+        </p>
+        <table role="presentation" style="width: 100%; border-collapse: collapse; font-size: 13px; margin: 16px 0;">
+          <thead>
+            <tr style="background-color: #f8fafc;">
+              <th style="padding: 8px; text-align: left;">Description</th>
+              <th style="padding: 8px; text-align: right;">Qty</th>
+              <th style="padding: 8px; text-align: right;">Unit Price</th>
+              <th style="padding: 8px; text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>${itemRows}</tbody>
+        </table>
+        <div style="text-align: right; font-size: 16px; font-weight: 700; color: #0f172a; margin-top: 8px;">
+          Total Due: ${formattedTotal}
+        </div>
+        <p style="font-size: 13px; color: #475569; margin-top: 12px;">
+          Issued ${escapeHtml(invoice.issueDateLabel)} · Due ${escapeHtml(invoice.dueDateLabel)}
+        </p>
+      </div>
+    `;
+
+    const pdfBuffer = await generateInvoicePdf(tenantName, {
+      invoiceNumber: invoice.invoiceNumber,
+      issueDateLabel: invoice.issueDateLabel,
+      dueDateLabel: invoice.dueDateLabel,
+      currency: invoice.currency,
+      customerName,
+      customerEmail: to,
+      customerAddress: invoice.customerAddress,
+      items: invoice.items,
+      subtotal: invoice.subtotal,
+      tax: invoice.tax,
+      taxBreakdown: invoice.taxBreakdown,
+      total: invoice.total,
+    });
+
+    const attachments: EmailAttachment[] = [
+      {
+        filename: `Invoice-${invoice.invoiceNumber}.pdf`,
+        content: pdfBuffer,
+        contentType: 'application/pdf',
+      },
+    ];
+
+    return this.sendMail(to, subject, html, attachments);
+  }
+
+  /**
+   * Emails a customer a late-payment reminder for an overdue invoice. No PDF
+   * attachment - just a concise nudge with the amount due and how overdue it
+   * is, matching sendInvoiceEmail's template conventions.
+   */
+  public static async sendPaymentReminderEmail(
+    to: string,
+    customerName: string,
+    tenantName: string,
+    invoice: {
+      invoiceNumber: string;
+      dueDateLabel: string;
+      currency: string;
+      total: number;
+      daysOverdue: number;
+    }
+  ): Promise<boolean> {
+    const subject = `Payment Reminder: Invoice ${invoice.invoiceNumber} from ${tenantName} is ${invoice.daysOverdue} day${invoice.daysOverdue === 1 ? '' : 's'} overdue`;
+    const formattedTotal = new Intl.NumberFormat('en-US', { style: 'currency', currency: invoice.currency }).format(invoice.total);
+
+    const html = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e2e8f0; border-radius: 8px;">
+        <h2 style="color: #0f172a; border-bottom: 2px solid #dc2626; padding-bottom: 10px;">
+          Payment Reminder: Invoice ${escapeHtml(invoice.invoiceNumber)}
+        </h2>
+        <p style="font-size: 14px; color: #475569;">
+          Hi ${escapeHtml(customerName)}, this is a friendly reminder that invoice <strong>${escapeHtml(invoice.invoiceNumber)}</strong> from <strong>${escapeHtml(tenantName)}</strong> was due on ${escapeHtml(invoice.dueDateLabel)} and is now <strong>${invoice.daysOverdue} day${invoice.daysOverdue === 1 ? '' : 's'} overdue</strong>.
+        </p>
+        <div style="text-align: right; font-size: 16px; font-weight: 700; color: #dc2626; margin-top: 8px;">
+          Amount Due: ${formattedTotal}
+        </div>
+        <p style="font-size: 13px; color: #475569; margin-top: 12px;">
+          If you've already made this payment, please disregard this notice. Otherwise, we'd appreciate settlement at your earliest convenience.
+        </p>
+      </div>
+    `;
+
+    return this.sendMail(to, subject, html, []);
   }
 }

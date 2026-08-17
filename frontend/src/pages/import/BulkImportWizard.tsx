@@ -4,12 +4,14 @@ import { Button } from "../../components/ui/Button";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "../../components/ui/Table";
 import { api } from "../../lib/api";
 import { useNavigate } from "react-router-dom";
+import { useToast } from "../../contexts/ToastContext";
 import { CheckCircle, AlertTriangle, ArrowRight, ArrowLeft } from "lucide-react";
 
 export function BulkImportWizard() {
   const navigate = useNavigate();
+  const { showToast } = useToast();
   const [step, setStep] = useState<1 | 2 | 3>(1);
-  const [importType, setImportType] = useState<"accounts" | "journals">("accounts");
+  const [importType] = useState<"accounts">("accounts");
 
   const sampleCsvAccounts = `Code, Name, Type\n1010, Petty Cash, Asset\n2010, Accounts Payable, Liability\n4010, Consulting Income, Revenue\n5010, Office Rent, Expense`;
 
@@ -25,7 +27,7 @@ export function BulkImportWizard() {
   const handleParseCsv = () => {
     const lines = rawCsv.split("\n").map((l) => l.trim()).filter(Boolean);
     if (lines.length <= 1) {
-      alert("Please enter a header row and at least 1 data row.");
+      showToast("Please enter a header row and at least 1 data row.", "error");
       return;
     }
 
@@ -62,7 +64,7 @@ export function BulkImportWizard() {
         }
       }
     } catch (err: any) {
-      alert(err.response?.data?.error || "Import execution failed.");
+      showToast(err.response?.data?.error || "Import execution failed.", "error");
     } finally {
       setIsSubmitting(false);
     }
@@ -111,7 +113,7 @@ export function BulkImportWizard() {
               </label>
               <select
                 value={importType}
-                onChange={(e) => setImportType(e.target.value as any)}
+                disabled
                 className="w-full h-10 px-3 rounded-md border border-secondary-300 dark:border-secondary-700 bg-white dark:bg-secondary-900 text-secondary-900 dark:text-secondary-50 text-sm focus:outline-none focus:ring-2 focus:ring-primary-500"
               >
                 <option value="accounts">Chart of Accounts (Code, Name, Type)</option>

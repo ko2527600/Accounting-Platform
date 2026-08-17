@@ -74,54 +74,61 @@ export async function runMigrationsForSchema(
   const appliedMigrations: string[] = [];
   let skippedCount = 0;
 
-  // 2. Set search path to target schema
-  await prismaClient.$executeRawUnsafe(`SET search_path TO "${schemaName}", public;`);
+  // Steps 2-6 must all run on the same physical database connection: `SET search_path`
+  // is connection-scoped, but Prisma's pool can otherwise dispatch each $executeRawUnsafe
+  // call to a different pooled connection, silently dropping the search_path and letting
+  // unqualified DDL (e.g. `CREATE TABLE journal_entries`) land in the "public" schema
+  // instead of the tenant schema. Wrapping in $transaction pins everything to one connection.
+  await prismaClient.$transaction(async (tx) => {
+    // 2. Set search path to target schema
+    await tx.$executeRawUnsafe(`SET search_path TO "${schemaName}", public;`);
 
-  try {
-    // 3. Ensure tracking table exists inside tenant schema
-    await prismaClient.$executeRawUnsafe(`
-      CREATE TABLE IF NOT EXISTS "${schemaName}".schema_migrations (
-        version INTEGER PRIMARY KEY,
-        name VARCHAR(255) NOT NULL,
-        applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
+    try {
+      // 3. Ensure tracking table exists inside tenant schema
+      await tx.$executeRawUnsafe(`
+        CREATE TABLE IF NOT EXISTS "${schemaName}".schema_migrations (
+          version INTEGER PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          applied_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+      `);
 
-    // 4. Fetch already applied versions
-    const appliedRows: Array<{ version: number }> = await prismaClient.$queryRawUnsafe(
-      `SELECT version FROM "${schemaName}".schema_migrations;`
-    ) || [];
-    const appliedVersions = new Set(appliedRows.map((r) => Number(r.version)));
+      // 4. Fetch already applied versions
+      const appliedRows: Array<{ version: number }> = await tx.$queryRawUnsafe(
+        `SELECT version FROM "${schemaName}".schema_migrations;`
+      ) || [];
+      const appliedVersions = new Set(appliedRows.map((r) => Number(r.version)));
 
-    // 5. Run unapplied migrations sequentially
-    for (const migration of TENANT_MIGRATIONS) {
-      if (appliedVersions.has(migration.version)) {
-        skippedCount++;
-        continue;
+      // 5. Run unapplied migrations sequentially
+      for (const migration of TENANT_MIGRATIONS) {
+        if (appliedVersions.has(migration.version)) {
+          skippedCount++;
+          continue;
+        }
+
+        console.log(`[TenantMigration] Executing version ${migration.version} (${migration.name}) on schema "${schemaName}"...`);
+
+        // Execute migration DDL statements individually to support multi-statement DDLs
+        const statements = splitSqlStatements(migration.sql);
+
+        for (const stmt of statements) {
+          await tx.$executeRawUnsafe(stmt);
+        }
+
+        // Record applied migration
+        await tx.$executeRawUnsafe(
+          `INSERT INTO "${schemaName}".schema_migrations (version, name) VALUES ($1, $2);`,
+          migration.version,
+          migration.name
+        );
+
+        appliedMigrations.push(migration.name);
       }
-
-      console.log(`[TenantMigration] Executing version ${migration.version} (${migration.name}) on schema "${schemaName}"...`);
-      
-      // Execute migration DDL statements individually to support multi-statement DDLs
-      const statements = splitSqlStatements(migration.sql);
-
-      for (const stmt of statements) {
-        await prismaClient.$executeRawUnsafe(stmt);
-      }
-
-      // Record applied migration
-      await prismaClient.$executeRawUnsafe(
-        `INSERT INTO "${schemaName}".schema_migrations (version, name) VALUES ($1, $2);`,
-        migration.version,
-        migration.name
-      );
-
-      appliedMigrations.push(migration.name);
+    } finally {
+      // 6. Always reset search path back to public
+      await tx.$executeRawUnsafe(`SET search_path TO public;`);
     }
-  } finally {
-    // 6. Always reset search path back to public
-    await prismaClient.$executeRawUnsafe(`SET search_path TO public;`);
-  }
+  }, { timeout: 30000, maxWait: 10000 });
 
   return {
     tenantId,

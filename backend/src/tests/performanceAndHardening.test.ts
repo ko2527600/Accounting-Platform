@@ -2,19 +2,28 @@ import request from 'supertest';
 import app from '../app';
 import { getTenantFromCache, setTenantInCache, clearTenantCache, invalidateTenantCache } from '../cache/tenantCache';
 import { TENANT_MIGRATIONS } from '../database/migrations/tenantMigrations';
+import { connectRedis } from '../config/redis';
 
 // ─── 1. Tenant Metadata Cache Unit Tests ────────────────────────────────────────
 
 describe('TenantCache', () => {
-  beforeEach(() => {
-    clearTenantCache();
+  beforeAll(async () => {
+    // app.ts never calls connectRedis() (only the real server entrypoint index.ts
+    // does) - the client is lazyConnect + enableOfflineQueue:false, so the very
+    // first command issued against it fails immediately instead of waiting for
+    // the connection handshake. Establish the connection before any cache ops.
+    await connectRedis();
   });
 
-  it('returns null for uncached identifiers', () => {
-    expect(getTenantFromCache('unknown-slug')).toBeNull();
+  beforeEach(async () => {
+    await clearTenantCache();
   });
 
-  it('stores and retrieves a tenant by slug', () => {
+  it('returns null for uncached identifiers', async () => {
+    expect(await getTenantFromCache('unknown-slug')).toBeNull();
+  });
+
+  it('stores and retrieves a tenant by slug', async () => {
     const tenant = {
       id: 'test-id-001',
       name: 'Test Corp',
@@ -28,11 +37,14 @@ describe('TenantCache', () => {
     };
 
     setTenantInCache('test-corp', tenant);
+    // setTenantInCache is fire-and-forget (doesn't block requests on cache writes),
+    // so give the underlying Redis SETs a moment to land before reading them back.
+    await new Promise((r) => setTimeout(r, 50));
 
-    expect(getTenantFromCache('test-corp')).not.toBeNull();
-    expect(getTenantFromCache('test-corp')?.id).toBe('test-id-001');
-    expect(getTenantFromCache('tenant_test_corp')?.slug).toBe('test-corp');
-    expect(getTenantFromCache('test-id-001')?.name).toBe('Test Corp');
+    expect(await getTenantFromCache('test-corp')).not.toBeNull();
+    expect((await getTenantFromCache('test-corp'))?.id).toBe('test-id-001');
+    expect((await getTenantFromCache('tenant_test_corp'))?.slug).toBe('test-corp');
+    expect((await getTenantFromCache('test-id-001'))?.name).toBe('Test Corp');
   });
 
   it('returns null for expired cache entries', async () => {
@@ -48,18 +60,19 @@ describe('TenantCache', () => {
       updatedAt: new Date(),
     };
 
-    setTenantInCache('expiry-corp', tenant, 50); // 50ms TTL
+    setTenantInCache('expiry-corp', tenant, 1); // 1 second TTL (Redis TTL granularity is seconds)
+    await new Promise((r) => setTimeout(r, 50));
 
     // Should hit immediately
-    expect(getTenantFromCache('expiry-corp')).not.toBeNull();
+    expect(await getTenantFromCache('expiry-corp')).not.toBeNull();
 
     // Wait for TTL to expire
-    await new Promise((r) => setTimeout(r, 100));
+    await new Promise((r) => setTimeout(r, 1200));
 
-    expect(getTenantFromCache('expiry-corp')).toBeNull();
+    expect(await getTenantFromCache('expiry-corp')).toBeNull();
   });
 
-  it('invalidates specific tenant cache entries', () => {
+  it('invalidates specific tenant cache entries', async () => {
     const tenant = {
       id: 'inv-id-001',
       name: 'Invalid Corp',
@@ -73,10 +86,11 @@ describe('TenantCache', () => {
     };
 
     setTenantInCache('invalid-corp', tenant);
-    expect(getTenantFromCache('invalid-corp')).not.toBeNull();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(await getTenantFromCache('invalid-corp')).not.toBeNull();
 
-    invalidateTenantCache('invalid-corp');
-    expect(getTenantFromCache('invalid-corp')).toBeNull();
+    await invalidateTenantCache('invalid-corp');
+    expect(await getTenantFromCache('invalid-corp')).toBeNull();
   });
 });
 

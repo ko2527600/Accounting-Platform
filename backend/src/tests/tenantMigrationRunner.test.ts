@@ -5,6 +5,7 @@ describe('Tenant Migration Runner', () => {
   const mockPrisma: any = {
     $executeRawUnsafe: jest.fn(),
     $queryRawUnsafe: jest.fn(),
+    $transaction: jest.fn(),
     tenant: {
       findMany: jest.fn(),
     },
@@ -14,6 +15,7 @@ describe('Tenant Migration Runner', () => {
     // Re-apply implementations after jest resetMocks:true clears them
     mockPrisma.$executeRawUnsafe.mockResolvedValue(1);
     mockPrisma.$queryRawUnsafe.mockResolvedValue([]);
+    mockPrisma.$transaction.mockImplementation((fn: any) => fn(mockPrisma));
     mockPrisma.tenant.findMany.mockResolvedValue([
       { id: 'tenant-1', name: 'Tenant 1', schema: 'tenant_1' },
       { id: 'tenant-2', name: 'Tenant 2', schema: 'tenant_2' },

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { invalidateTenantCache } from '../cache/tenantCache';
 
 export interface TenantRecord {
   id: string;
@@ -8,6 +9,29 @@ export interface TenantRecord {
   acceptedTermsVersion: string | null;
   termsAcceptedAt: Date | null;
   tier: number;
+  baseCurrency: string;
+  orgType: string;
+  businessType: string | null;
+  vatRegistered: boolean;
+  graTin: string | null;
+  // GRA VSDC credentials - see graEvatService.ts. graSecurityKeyEncrypted is
+  // an AES-256-GCM ciphertext (utils/credentialEncryption.ts), never the
+  // plaintext key - callers must decrypt before using it, and must never
+  // return it verbatim in an API response (see sanitizeTenantForResponse in
+  // routes/tenants.ts).
+  graDeviceNumber: string | null;
+  graSecurityKeyEncrypted: string | null;
+  // Paystack uses Subaccounts instead of a per-tenant secret - see
+  // paystackService.ts. No secret is stored: paystackSubaccountCode is
+  // Paystack's own reference id for this tenant's subaccount, and
+  // paystackAccountNumber/paystackAccountName are the tenant's own bank
+  // account details (identifying, not credentials).
+  paystackSubaccountCode: string | null;
+  paystackBankCode: string | null;
+  paystackAccountNumber: string | null;
+  paystackAccountName: string | null;
+  isLive: boolean;
+  bossPhone: string | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -19,6 +43,8 @@ export interface CreateTenantData {
   acceptedTermsVersion?: string | null;
   termsAcceptedAt?: Date | null;
   tier?: number;
+  baseCurrency?: string;
+  orgType?: string;
 }
 
 /**
@@ -43,6 +69,8 @@ export async function createTenant(prisma: PrismaClient, data: CreateTenantData)
       acceptedTermsVersion: data.acceptedTermsVersion || null,
       termsAcceptedAt: data.termsAcceptedAt || null,
       tier,
+      ...(data.baseCurrency ? { baseCurrency: data.baseCurrency } : {}),
+      ...(data.orgType ? { orgType: data.orgType } : {}),
     },
   });
 
@@ -84,6 +112,14 @@ export async function deleteTenantBySlug(prisma: PrismaClient, slug: string): Pr
     const result = await prisma.tenant.delete({
       where: { slug: slug.toLowerCase().trim() },
     });
+    // Deleting the DB row alone leaves a stale Redis entry (up to the 30-minute
+    // TTL) under the id/slug/schema keys, which would let a tenant re-onboarded
+    // with the same slug get silently resolved to the deleted tenant's old id.
+    await Promise.all([
+      invalidateTenantCache(result.id),
+      invalidateTenantCache(result.slug),
+      invalidateTenantCache(result.schema),
+    ]).catch(() => {});
     return !!result;
   } catch {
     return false;

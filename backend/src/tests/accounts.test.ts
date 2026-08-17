@@ -30,8 +30,12 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
   let parentAccountId: string;
   let subAccountId: string;
   let leafAccountId: string;
+  let costOfSalesAccountId: string;
 
   async function cleanupTestData() {
+    if (tenant1Id) {
+      await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
+    }
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});
 
@@ -255,6 +259,24 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
       expect(res.body.success).toBe(false);
       expect(res.body.error).toContain('Parent account');
     });
+
+    it('should create a COST_OF_SALES account (real Gross Profit support)', async () => {
+      const res = await request(app)
+        .post('/api/v1/accounts')
+        .set('Authorization', `Bearer ${accountantToken1}`)
+        .set('X-Tenant-ID', tenant1Slug)
+        .send({
+          code: '5000',
+          name: 'Cost of Goods Sold',
+          type: 'COST_OF_SALES',
+        });
+
+      expect(res.status).toBe(201);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.account.type).toBe('COST_OF_SALES');
+
+      costOfSalesAccountId = res.body.data.account.id;
+    });
   });
 
   describe('3. GET /api/v1/accounts - List Accounts & Tree Hierarchy', () => {
@@ -332,6 +354,12 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data.account.name).toBe('Main Checking Account');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'Account', entityId: leafAccountId, action: 'ACCOUNT.UPDATED' },
+      });
+      expect(auditRows).toHaveLength(1);
+      expect(auditRows[0].changes).toMatchObject({ name: { to: 'Main Checking Account' } });
     });
 
     it('should return 400 Bad Request when setting parentId to itself', async () => {
@@ -385,6 +413,11 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.message).toContain('deleted successfully');
+
+      const auditRows = await prisma.auditLog.findMany({
+        where: { tenantId: tenant1Id, entity: 'Account', entityId: leafAccountId, action: 'ACCOUNT.DELETED' },
+      });
+      expect(auditRows).toHaveLength(1);
 
       // Verify deletion
       const getRes = await request(app)

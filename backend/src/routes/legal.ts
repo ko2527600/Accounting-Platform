@@ -9,6 +9,10 @@ const ALLOWED_POLICIES: Record<string, { file: string; title: string }> = {
     file: 'TERMS_AND_CONDITIONS.md',
     title: 'Terms and Conditions',
   },
+  'privacy-policy': {
+    file: 'PRIVACY_POLICY.md',
+    title: 'Privacy Policy',
+  },
   'sla': {
     file: 'SLA.md',
     title: 'Service Level Agreement (SLA)',

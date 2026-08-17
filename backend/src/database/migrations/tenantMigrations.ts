@@ -178,6 +178,207 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_account ON journal_entry_lines(account_id);
       CREATE INDEX IF NOT EXISTS idx_accounts_parent ON accounts(parent_id);
     `
+  },
+  {
+    version: 4,
+    name: '004_add_cash_equivalent_flag',
+    sql: `
+      -- Marks which ASSET accounts represent cash/bank/till balances, so the
+      -- Cash Flow Statement can separate "cash itself" from every other
+      -- account whose change in balance is a source or use of that cash.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_cash_equivalent BOOLEAN NOT NULL DEFAULT false;
+
+      -- Backfill existing accounts using the same Cash/Bank/Till naming
+      -- convention already implicit across this codebase (e.g. the '1010'
+      -- code used by invoices.ts/bills.ts default payment postings), so
+      -- tenants get a working report immediately without manual setup.
+      UPDATE accounts
+      SET is_cash_equivalent = true
+      WHERE type = 'ASSET'
+        AND is_cash_equivalent = false
+        AND (name ILIKE '%cash%' OR name ILIKE '%bank%' OR name ILIKE '%till%');
+
+      CREATE INDEX IF NOT EXISTS idx_accounts_is_cash_equivalent ON accounts(is_cash_equivalent);
+    `
+  },
+  {
+    version: 5,
+    name: '005_add_journal_entry_reversal_linkage',
+    sql: `
+      -- Traceability for auto-generated reversing entries created when a
+      -- POSTED journal entry is voided. reversal_of_entry_id lives on the
+      -- NEW reversal, pointing back to the entry it corrects;
+      -- reversed_by_entry_id lives on the ORIGINAL, pointing forward to its
+      -- reversal. Both nullable - normal entries never set them. No new
+      -- status value: a reversed original still uses the existing VOID
+      -- status (see journalEntryService.voidJournalEntry).
+      ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reversal_of_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL;
+      ALTER TABLE journal_entries ADD COLUMN IF NOT EXISTS reversed_by_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_reversal_not_self') THEN
+          ALTER TABLE journal_entries ADD CONSTRAINT chk_reversal_not_self CHECK (reversal_of_entry_id IS NULL OR reversal_of_entry_id <> id);
+        END IF;
+      END $$;
+
+      CREATE INDEX IF NOT EXISTS idx_journal_entries_reversal_of ON journal_entries(reversal_of_entry_id);
+    `
+  },
+  {
+    version: 6,
+    name: '006_add_cost_of_sales_account_type',
+    sql: `
+      -- Adds a real Cost of Sales account type so tenants can post COGS
+      -- and get a genuine Gross Profit line on the P&L (Revenue - Cost of
+      -- Sales), rather than Cost of Sales being silently indistinguishable
+      -- from ordinary Operating Expenses. accounts.type is a plain VARCHAR +
+      -- CHECK (not a global Postgres enum, unlike journal_entries.status),
+      -- so this is a simple additive constraint swap.
+      ALTER TABLE accounts DROP CONSTRAINT IF EXISTS chk_account_type;
+      ALTER TABLE accounts ADD CONSTRAINT chk_account_type CHECK (type IN ('ASSET', 'LIABILITY', 'EQUITY', 'REVENUE', 'EXPENSE', 'COST_OF_SALES'));
+    `
+  },
+  {
+    version: 7,
+    name: '007_add_fund_id_to_journal_lines_and_ledgers',
+    sql: `
+      -- Fund dimension for restricted-fund accounting (NGO/church/school
+      -- tenants). fund_id is a bare nullable UUID column, not a real FK -
+      -- Fund lives in the shared public.funds table (tenantId-scoped Prisma
+      -- model), not this tenant's own schema, so it can't be a native FK
+      -- across schemas. Existence/tenant-ownership is instead validated at
+      -- the service layer before every write (see fundService.validateFundId),
+      -- the same cross-schema-reference pattern TaxRate.accountId already
+      -- uses in reverse. Nullable and purely additive - every existing
+      -- line/ledger row is fund-less (general/unrestricted) and keeps
+      -- working unchanged - NULL simply means "not tagged to any fund."
+      ALTER TABLE journal_entry_lines ADD COLUMN IF NOT EXISTS fund_id UUID;
+      ALTER TABLE ledgers ADD COLUMN IF NOT EXISTS fund_id UUID;
+
+      CREATE INDEX IF NOT EXISTS idx_journal_entry_lines_fund ON journal_entry_lines(fund_id);
+      CREATE INDEX IF NOT EXISTS idx_ledgers_fund ON ledgers(fund_id);
+    `
+  },
+  {
+    version: 8,
+    name: '008_add_account_client_txn_id',
+    sql: `
+      -- Client-generated dedup key for offline-queued/retried account
+      -- creation (local-first sync pilot, see STATUS.md) - same
+      -- clientTxnId pattern already proven by CashSale/Invoice, added here
+      -- too since accounts.* lives in this per-tenant schema (raw SQL, not
+      -- Prisma-managed) rather than the shared public schema.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS client_txn_id UUID;
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'uq_accounts_client_txn_id') THEN
+          ALTER TABLE accounts ADD CONSTRAINT uq_accounts_client_txn_id UNIQUE (client_txn_id);
+        END IF;
+      END $$;
+    `
+  },
+  {
+    version: 9,
+    name: '009_add_account_default_role',
+    sql: `
+      -- Which single account the auto-posting services (invoice payments,
+      -- credit/debit notes, vendor bill payments, expense reimbursements)
+      -- should target for the generic "cash"/"revenue"/"expense" side of a
+      -- transaction. Previously resolved by guessing a hardcoded account
+      -- CODE ('1010'/'4010'/'5010') with an index-based fallback
+      -- (accounts[1], accounts[accounts.length-1]) that silently posted to
+      -- the WRONG account - e.g. crediting an ASSET account as if it were
+      -- REVENUE - whenever a tenant's chart didn't happen to use those exact
+      -- codes. The platform's own built-in Ghana SME starter template
+      -- doesn't (Sales Revenue is coded 4000, not 4010, and no account is
+      -- coded 5010 at all) - a real, silent revenue/cash-recognition bug for
+      -- any tenant using that template unmodified. Explicit, tenant-visible
+      -- designation instead of a magic-number coincidence.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS default_role VARCHAR(20);
+
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role') THEN
+          ALTER TABLE accounts ADD CONSTRAINT chk_account_default_role CHECK (default_role IN ('CASH', 'REVENUE', 'EXPENSE'));
+        END IF;
+      END $$;
+
+      -- At most one account can hold a given role at a time.
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_accounts_default_role_unique ON accounts(default_role) WHERE default_role IS NOT NULL;
+
+      -- Retroactive backfill for every tenant that already exists, not just
+      -- new signups - this bug was already live, so the fix must apply
+      -- automatically the next time each tenant's schema is touched, same
+      -- "no manual setup required" approach migration 004 used for
+      -- is_cash_equivalent. Deterministic lowest-code pick per role - fully
+      -- visible and changeable afterward in Chart of Accounts.
+      UPDATE accounts SET default_role = 'CASH'
+      WHERE id = (
+        SELECT id FROM accounts WHERE type = 'ASSET' AND is_cash_equivalent = true ORDER BY code ASC LIMIT 1
+      );
+
+      UPDATE accounts SET default_role = 'REVENUE'
+      WHERE id = (
+        SELECT id FROM accounts WHERE type = 'REVENUE' ORDER BY code ASC LIMIT 1
+      );
+
+      -- Prefer an account that reads like a catch-all ("Miscellaneous...")
+      -- over whatever merely has the lowest code, since this is the target
+      -- for expense postings that have no more specific category.
+      UPDATE accounts SET default_role = 'EXPENSE'
+      WHERE id = (
+        SELECT id FROM accounts WHERE type = 'EXPENSE' ORDER BY (name ILIKE '%miscellaneous%') DESC, code ASC LIMIT 1
+      );
+    `
+  },
+  {
+    version: 10,
+    name: '010_add_fixed_asset_support',
+    sql: `
+      -- migration 009 sized default_role VARCHAR(20), enough for CASH/
+      -- REVENUE/EXPENSE but not 'ACCUMULATED_DEPRECIATION' (25 chars) -
+      -- widen before it's ever written, rather than after a real 500 on the
+      -- designation endpoint teaches us the hard way.
+      ALTER TABLE accounts ALTER COLUMN default_role TYPE VARCHAR(30);
+
+      -- Marks which ASSET accounts represent long-lived fixed assets
+      -- (Vehicles, Equipment, Furniture, etc.) rather than ordinary
+      -- working-capital assets - mirrors is_cash_equivalent's own design
+      -- (multiple accounts can hold the flag, unlike default_role's
+      -- at-most-one-per-role constraint). Drives the Cash Flow Statement's
+      -- new Investing Activities section: a change in one of these accounts'
+      -- balance is capex, not an ordinary operating working-capital swing.
+      ALTER TABLE accounts ADD COLUMN IF NOT EXISTS is_fixed_asset BOOLEAN NOT NULL DEFAULT false;
+
+      -- Two new default-posting roles for the Fixed Asset Management feature
+      -- (see fixedAssetService.ts): DEPRECIATION_EXPENSE (the P&L expense
+      -- side of a period's depreciation) and ACCUMULATED_DEPRECIATION (the
+      -- contra-asset account depreciation credits). Unlike CASH/REVENUE/
+      -- EXPENSE there is no legacy account-code convention to fall back to
+      -- for these - a tenant must explicitly designate both via the same
+      -- Chart of Accounts "Default Posting" mechanism before depreciation
+      -- can post, same "clear error over silent wrong guess" philosophy as
+      -- migration 009. Postgres has no ALTER CONSTRAINT for a CHECK clause,
+      -- so the old constraint is dropped and recreated with the wider list.
+      -- conrelid = 'accounts'::regclass scopes the pg_constraint lookup to
+      -- THIS schema's own accounts table (resolved via search_path) -
+      -- conname alone is not unique database-wide across every tenant
+      -- schema, so a bare "WHERE conname = ..." check (as migration 009's
+      -- own ADD-side check already does) can false-positive against some
+      -- other tenant's identically-named constraint and either skip an add
+      -- that should have happened or, as caught here, attempt to drop a
+      -- constraint that was never actually added to this table.
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role' AND conrelid = 'accounts'::regclass) THEN
+          ALTER TABLE accounts DROP CONSTRAINT chk_account_default_role;
+        END IF;
+        ALTER TABLE accounts ADD CONSTRAINT chk_account_default_role
+          CHECK (default_role IN ('CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION'));
+      END $$;
+    `
   }
 ];
 

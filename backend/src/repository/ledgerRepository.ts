@@ -11,6 +11,7 @@ export interface LedgerRecord {
   balance: number;
   description: string | null;
   createdAt: Date;
+  fundId: string | null;
 }
 
 export interface CreateLedgerData {
@@ -21,6 +22,7 @@ export interface CreateLedgerData {
   credit: number;
   balance?: number;
   description?: string | null;
+  fundId?: string | null;
 }
 
 function mapLedgerRow(row: any): LedgerRecord {
@@ -34,6 +36,7 @@ function mapLedgerRow(row: any): LedgerRecord {
     balance: parseFloat(row.balance),
     description: row.description || null,
     createdAt: new Date(row.created_at),
+    fundId: row.fund_id || null,
   };
 }
 
@@ -46,16 +49,17 @@ export async function createLedgerEntry(
     : new Date().toISOString().split('T')[0];
 
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `INSERT INTO ledgers (account_id, transaction_date, journal_entry_id, debit, credit, balance, description)
-     VALUES ($1::uuid, $2::date, $3::uuid, $4, $5, $6, $7)
-     RETURNING id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at`,
+    `INSERT INTO ledgers (account_id, transaction_date, journal_entry_id, debit, credit, balance, description, fund_id)
+     VALUES ($1::uuid, $2::date, $3::uuid, $4, $5, $6, $7, $8::uuid)
+     RETURNING id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at, fund_id`,
     data.accountId,
     transactionDate,
     data.journalEntryId || null,
     data.debit || 0.00,
     data.credit || 0.00,
     data.balance || 0.00,
-    data.description || null
+    data.description || null,
+    data.fundId || null
   );
 
   return mapLedgerRow(rows[0]);
@@ -66,7 +70,7 @@ export async function getLedgerByAccountId(
   accountId: string
 ): Promise<LedgerRecord[]> {
   const rows: any[] = await prisma.$queryRawUnsafe(
-    `SELECT id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at
+    `SELECT id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at, fund_id
      FROM ledgers
      WHERE account_id = $1::uuid
      ORDER BY transaction_date ASC, created_at ASC`,
@@ -103,14 +107,20 @@ export async function postJournalEntryToLedger(
   // Batch fetch latest balances for all affected accounts in a single query
   // Uses DISTINCT ON to get the most recent ledger entry per account
   // Includes FOR UPDATE to lock rows and prevent race conditions
+  // Postgres rejects FOR UPDATE combined with DISTINCT ON in the same query,
+  // so the row lock is taken in the inner query and the latest-per-account
+  // row is picked in the (lock-free) outer DISTINCT ON.
   const balanceQuery = `
-    SELECT DISTINCT ON (account_id) 
-      account_id, 
+    SELECT DISTINCT ON (account_id)
+      account_id,
       balance
-    FROM ledgers
-    WHERE account_id = ANY($1::uuid[])
+    FROM (
+      SELECT account_id, balance, transaction_date, created_at
+      FROM ledgers
+      WHERE account_id = ANY($1::uuid[])
+      FOR UPDATE
+    ) locked_rows
     ORDER BY account_id, transaction_date DESC, created_at DESC
-    FOR UPDATE
   `;
 
   const balanceRows: any[] = await prisma.$queryRawUnsafe(balanceQuery, accountIds);
@@ -143,12 +153,75 @@ export async function postJournalEntryToLedger(
       credit: line.credit,
       balance: newBalance,
       description: line.description || entry.description,
+      fundId: line.fundId,
     });
 
     createdLedgerEntries.push(ledger);
   }
 
   return createdLedgerEntries;
+}
+
+export async function getLedgerById(
+  prisma: PrismaClient,
+  id: string
+): Promise<LedgerRecord | null> {
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT id, account_id, transaction_date, journal_entry_id, debit, credit, balance, description, created_at, fund_id
+     FROM ledgers
+     WHERE id = $1::uuid`,
+    id
+  );
+
+  return rows.length > 0 ? mapLedgerRow(rows[0]) : null;
+}
+
+export interface CashLedgerMatchCandidate extends LedgerRecord {
+  accountCode: string;
+  accountName: string;
+}
+
+/**
+ * Finds Ledger rows on cash/bank-equivalent accounts (`accounts.is_cash_equivalent`)
+ * whose net movement (debit - credit) exactly equals `amount` - the same
+ * sign convention monoService.ts uses for bank transactions (positive =
+ * deposit/debit-normal increase, negative = withdrawal) - within `dayWindow`
+ * days of `targetDate` either side (bank posting dates commonly lag or lead
+ * the book date by a few days), excluding any ledger row already linked to
+ * a bank transaction. Ranked by date proximity to `targetDate` first (exact
+ * same-day matches surface before a few-days-off one), then oldest first as
+ * a stable tiebreaker.
+ */
+export async function findCashLedgerMatchCandidates(
+  prisma: PrismaClient,
+  params: { amount: number; targetDate: Date; dayWindow: number; excludeLedgerIds: string[]; limit?: number }
+): Promise<CashLedgerMatchCandidate[]> {
+  const targetDateStr = params.targetDate.toISOString().split('T')[0];
+  const limit = params.limit ?? 10;
+
+  const rows: any[] = await prisma.$queryRawUnsafe(
+    `SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at, l.fund_id,
+            a.code as account_code, a.name as account_name
+     FROM ledgers l
+     JOIN accounts a ON l.account_id = a.id
+     WHERE a.is_cash_equivalent = true
+       AND (l.debit - l.credit) = $1
+       AND l.transaction_date BETWEEN ($2::date - ($3 || ' days')::interval) AND ($2::date + ($3 || ' days')::interval)
+       AND NOT (l.id = ANY($4::uuid[]))
+     ORDER BY ABS(l.transaction_date - $2::date) ASC, l.created_at ASC
+     LIMIT $5`,
+    params.amount,
+    targetDateStr,
+    params.dayWindow,
+    params.excludeLedgerIds,
+    limit
+  );
+
+  return rows.map((row) => ({
+    ...mapLedgerRow(row),
+    accountCode: row.account_code,
+    accountName: row.account_name,
+  }));
 }
 
 export interface LedgerTransactionRecord {
@@ -166,10 +239,12 @@ export interface LedgerTransactionRecord {
   runningBalance?: number;
   description: string | null;
   createdAt: Date;
+  fundId: string | null;
 }
 
 export interface ListLedgerFilter {
   accountId?: string;
+  fundId?: string;
   startDate?: string;
   endDate?: string;
   search?: string;
@@ -179,10 +254,12 @@ export interface ListLedgerFilter {
 
 export interface ListLedgerResult {
   transactions: LedgerTransactionRecord[];
-  total: number;
-  page: number;
-  limit: number;
-  totalPages: number;
+  pagination: {
+    total: number;
+    page: number;
+    limit: number;
+    totalPages: number;
+  };
 }
 
 export interface AccountLedgerStatement {
@@ -250,6 +327,11 @@ export async function listLedgerTransactions(
     params.push(filter.accountId);
   }
 
+  if (filter.fundId && isValidUuid(filter.fundId)) {
+    conditions.push(`l.fund_id = $${paramIndex++}::uuid`);
+    params.push(filter.fundId);
+  }
+
   if (filter.startDate) {
     conditions.push(`l.transaction_date >= $${paramIndex++}::date`);
     params.push(filter.startDate);
@@ -284,7 +366,7 @@ export async function listLedgerTransactions(
   const totalPages = Math.ceil(total / limit) || 1;
 
   const dataSql = `
-    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at,
+    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at, l.fund_id,
            a.code as account_code, a.name as account_name, a.type as account_type,
            je.entry_number
     FROM ledgers l
@@ -311,14 +393,17 @@ export async function listLedgerTransactions(
     balance: parseFloat(row.balance),
     description: row.description || null,
     createdAt: new Date(row.created_at),
+    fundId: row.fund_id || null,
   }));
 
   return {
     transactions,
-    total,
-    page,
-    limit,
-    totalPages,
+    pagination: {
+      total,
+      page,
+      limit,
+      totalPages,
+    },
   };
 }
 
@@ -362,7 +447,7 @@ export async function getAccountLedgerStatement(
   const whereClause = `WHERE ${conditions.join(' AND ')}`;
 
   const sql = `
-    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at,
+    SELECT l.id, l.account_id, l.transaction_date, l.journal_entry_id, l.debit, l.credit, l.balance, l.description, l.created_at, l.fund_id,
            je.entry_number
     FROM ledgers l
     LEFT JOIN journal_entries je ON l.journal_entry_id = je.id
@@ -399,6 +484,7 @@ export async function getAccountLedgerStatement(
       runningBalance,
       description: row.description || null,
       createdAt: new Date(row.created_at),
+      fundId: row.fund_id || null,
     };
   });
 

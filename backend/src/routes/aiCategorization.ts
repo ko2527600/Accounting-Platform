@@ -3,6 +3,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
+import * as accountRepository from '../repository/accountRepository';
 
 const router = Router();
 
@@ -25,12 +26,14 @@ router.post('/categorize', async (req: Request, res: Response): Promise<void> =>
       return;
     }
 
-    // Fetch tenant accounts
-    const accounts = await withCurrentTenantDb(prisma, async (client) => {
-      return (client as any).account.findMany({
-        where: { isActive: true },
-      });
-    });
+    // Fetch tenant accounts. Accounts live in the tenant's own Postgres schema, not
+    // `public`, so this must go through accountRepository's raw SQL (which respects
+    // the SET LOCAL search_path set by withCurrentTenantDb) rather than a Prisma-typed
+    // `client.account.findMany()` call, which always schema-qualifies to the
+    // permanently-empty `public.accounts` table and silently returned zero accounts.
+    const accounts = (await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client))).filter(
+      (a) => a.isActive
+    );
 
     const text = description.toLowerCase().trim();
     let bestMatch: any = null;
