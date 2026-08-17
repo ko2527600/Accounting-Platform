@@ -36,6 +36,7 @@ import inventoryRouter from './routes/inventory';
 import cashTillRouter from './routes/cashTill';
 import analyticsRouter from './routes/analytics';
 import notificationsRouter from './routes/notifications';
+import feedbackRouter from './routes/feedback';
 import adminBroadcastRouter from './routes/adminBroadcast';
 import taxRatesRouter from './routes/taxRates';
 import fundsRouter from './routes/funds';
@@ -192,6 +193,9 @@ app.use('/api/v1/fixed-assets', fixedAssetsRouter);
 
 // Real-Time & Persistent Notifications endpoints
 app.use('/api/v1/notifications', notificationsRouter);
+
+// User Feedback endpoints (every role can submit; Admin/Auditor review)
+app.use('/api/v1/feedback', feedbackRouter);
 
 // System-wide Admin Broadcast endpoints (Encrypted Footer Gate)
 app.use('/api/v1/admin/broadcast', adminBroadcastRouter);

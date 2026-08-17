@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
 import { HelpAssistantWidget } from "../HelpAssistantWidget";
+import { FeedbackWidget } from "../FeedbackWidget";
 
 export function MainLayout({ children }: { children: ReactNode }) {
   return (
@@ -16,6 +17,7 @@ export function MainLayout({ children }: { children: ReactNode }) {
         </main>
       </div>
       <HelpAssistantWidget />
+      <FeedbackWidget />
     </div>
   );
 }
