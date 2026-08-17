@@ -1,20 +1,26 @@
-import axios from 'axios';
+import nodemailer, { Transporter } from 'nodemailer';
+import SMTPTransport from 'nodemailer/lib/smtp-transport';
+import dns from 'node:dns';
 import { generateQuickStartGuidePdf, generateInvoicePdf, InvoicePdfItem } from './pdfGenerationService';
 import { recordAuditLog } from './auditLogService';
 import { escapeHtml } from '../utils/htmlEscape';
 
-// Direct SMTP to Gmail (port 465 and 587 both) hit ETIMEDOUT connecting from
-// this host - confirmed via live logs, consistent with the hosting platform
-// blocking outbound SMTP entirely (a common anti-spam-abuse restriction on
-// cloud/PaaS hosts). SendGrid's HTTP API sends over port 443, which isn't
-// subject to that restriction.
-//
-// Using SendGrid's Single Sender Verification (not domain authentication):
-// no domain is required, just one verified individual email address - the
-// tradeoff is weaker deliverability than a verified domain (more likely to
-// land in spam) and a lower sending reputation ceiling. Worth moving to a
-// verified domain once one is available; see EMAIL_FROM in .env.example.
-const SENDGRID_API_URL = 'https://api.sendgrid.com/v3/mail/send';
+// Direct SMTP to Gmail previously hit ETIMEDOUT connecting from Render's free
+// tier (both port 465 and 587), so this moved to SendGrid's HTTP API for a
+// while. Live-retested 2026-08-17 after upgrading to Render's Starter plan -
+// port 465 now connects successfully (confirmed via a real TCP handshake
+// from the Render Shell, not just documentation) - so this is back on direct
+// Gmail SMTP via nodemailer. If a future downgrade re-blocks outbound SMTP,
+// EmailService.isConfigured()/sendMail() are the only two places that would
+// need to change again.
+try {
+  // Prefer IPv4 DNS resolution - smtp.gmail.com previously failed with
+  // ENETUNREACH over IPv6 from this class of host; unrelated to (and
+  // unaffected by) the SMTP-port-blocking issue above, so kept regardless.
+  dns.setDefaultResultOrder('ipv4first');
+} catch {
+  // Older Node versions without this API - falls back to default resolution order.
+}
 
 export interface EmailAttachment {
   filename: string;
@@ -22,51 +28,30 @@ export interface EmailAttachment {
   contentType?: string;
 }
 
-interface SendGridEmailPayload {
-  personalizations: { to: { email: string }[] }[];
-  from: { email: string; name?: string };
-  subject: string;
-  content: { type: string; value: string }[];
-  attachments?: { content: string; filename: string; type: string; disposition: 'attachment' }[];
-}
-
 export class EmailService {
   public static isConfigured(): boolean {
-    // SendGrid's Single Sender Verification requires an exact, individually
-    // verified from-address - unlike Resend's sandbox default, there's no
-    // fallback address that works without explicit setup.
-    return Boolean(process.env.SENDGRID_API_KEY?.trim() && process.env.EMAIL_FROM?.trim());
+    return Boolean(process.env.EMAIL_USER?.trim() && process.env.EMAIL_PASS?.trim());
   }
 
-  /**
-   * Parses "Display Name <email@example.com>" into SendGrid's separate
-   * name/email fields, falling back to treating the whole string as the
-   * email if no display name is present.
-   */
-  private static parseFromAddress(raw: string): { email: string; name?: string } {
-    const match = raw.match(/^(.*?)\s*<(.+)>$/);
-    if (match) {
-      return { name: match[1].trim() || undefined, email: match[2].trim() };
+  private static getTransporter(): Transporter {
+    const user = process.env.EMAIL_USER?.trim();
+    const pass = process.env.EMAIL_PASS?.replace(/["'\s]/g, '');
+    if (!user || !pass) {
+      throw new Error('Email sending is not configured: EMAIL_USER and EMAIL_PASS environment variables are required (EMAIL_PASS must be a Gmail App Password, not the account\'s regular login password).');
     }
-    return { email: raw.trim() };
-  }
 
-  private static buildPayload(to: string, subject: string, html: string, attachments: EmailAttachment[]): SendGridEmailPayload {
-    const from = this.parseFromAddress(process.env.EMAIL_FROM!.trim());
-    return {
-      personalizations: [{ to: [{ email: to }] }],
-      from,
-      subject,
-      content: [{ type: 'text/html', value: html }],
-      attachments: attachments.length > 0
-        ? attachments.map((a) => ({
-            filename: a.filename,
-            content: (Buffer.isBuffer(a.content) ? a.content : Buffer.from(a.content)).toString('base64'),
-            type: a.contentType || 'application/octet-stream',
-            disposition: 'attachment' as const,
-          }))
-        : undefined,
+    // `family` (force IPv4 - see the dns.setDefaultResultOrder note above) is
+    // a genuine nodemailer/Node net.connect option that @types/nodemailer
+    // doesn't declare, hence the cast below.
+    const options: SMTPTransport.Options & { family?: number } = {
+      host: 'smtp.gmail.com',
+      port: 465,
+      secure: true, // implicit TLS - the port confirmed reachable on Starter
+      auth: { user, pass },
+      family: 4,
+      connectionTimeout: 10000,
     };
+    return nodemailer.createTransport(options as SMTPTransport.Options);
   }
 
   /**
@@ -85,39 +70,44 @@ export class EmailService {
       return true;
     }
 
-    const apiKey = process.env.SENDGRID_API_KEY?.trim();
-    const from = process.env.EMAIL_FROM?.trim();
-    if (!apiKey || !from) {
-      console.error('[EmailService] Email sending is not configured: SENDGRID_API_KEY and EMAIL_FROM environment variables are both required (EMAIL_FROM must match a Single Sender verified in SendGrid).');
+    if (!this.isConfigured()) {
+      console.error('[EmailService] Email sending is not configured: EMAIL_USER and EMAIL_PASS environment variables are both required.');
       return false;
     }
 
-    const payload = this.buildPayload(to, subject, html, attachments);
-    const headers = { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' };
+    const from = process.env.EMAIL_USER!.trim();
+    const mailOptions = {
+      from: `"Ledgio ERP" <${from}>`,
+      to,
+      subject,
+      html,
+      attachments: attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })),
+    };
 
     try {
-      const res = await axios.post(SENDGRID_API_URL, payload, { headers, timeout: 10000 });
-      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. Status: ${res.status}, MessageId: ${res.headers?.['x-message-id']}`);
+      const transporter = this.getTransporter();
+      const info = await transporter.sendMail(mailOptions);
+      console.log(`[EmailService] ✅ Email dispatched successfully to ${to}. MessageId: ${info.messageId}`);
 
       // Log successful email dispatch in AuditLog
       await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Email sent to ${to} (${subject}).` });
       return true;
     } catch (firstErr: any) {
-      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr.response?.data || firstErr.message);
+      console.error(`[EmailService] ❌ Email dispatch error to ${to}:`, firstErr.message);
 
       // Retry once after 5 minutes (300,000ms)
       setTimeout(async () => {
         try {
-          const retryRes = await axios.post(SENDGRID_API_URL, payload, { headers, timeout: 10000 });
-          console.log(`[EmailService] ✅ Retry succeeded: Email dispatched to ${to}. Status: ${retryRes.status}`);
+          const transporter = this.getTransporter();
+          const info = await transporter.sendMail(mailOptions);
+          console.log(`[EmailService] ✅ Retry succeeded: Email dispatched to ${to}. MessageId: ${info.messageId}`);
           await recordAuditLog({ action: 'EMAIL_SENT', entity: 'EMAIL_SERVICE', details: `Retry succeeded: Email sent to ${to}.` });
         } catch (retryErr: any) {
-          const message = retryErr.response?.data?.errors?.[0]?.message || retryErr.message;
-          console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, message);
+          console.error(`[EmailService] Critical Failure: Retry dispatch to ${to} failed:`, retryErr.message);
           await recordAuditLog({
             action: 'CRITICAL_FAILURE',
             entity: 'EMAIL_SERVICE',
-            details: `Critical Failure: Automated email report to ${to} failed twice. Error: ${message}`,
+            details: `Critical Failure: Automated email report to ${to} failed twice. Error: ${retryErr.message}`,
           });
         }
       }, 300000);

@@ -37,16 +37,17 @@ services:
     name: ledgio-backend
     runtime: node
     rootDir: backend
-    plan: free # Free tier for now while onboarding early clients - it spins
-    # the service down after 15 min idle, so the next request after a quiet
-    # period has a slow cold-start. Upgrade to `starter` (or higher) once
-    # there's a real paying client base that needs always-on responsiveness.
+    plan: starter # Upgraded 2026-08-17 from free - no more idle spin-down/
+    # cold-start, and it's what unblocked outbound SMTP for direct Gmail
+    # email (see EMAIL_USER/EMAIL_PASS below) - Free tier's SMTP block was
+    # confirmed platform-wide-on-that-tier via ETIMEDOUT on both 465/587,
+    # but port 465 connects on Starter.
     region: oregon
-    # `preDeployCommand` isn't available on the free plan, so migrations run
-    # as the last build step instead (works on every plan). If/when this
-    # upgrades to `starter`+, prefer moving `prisma migrate deploy` back to
-    # `preDeployCommand` - it runs closer to deploy time and won't block a
-    # build from completing if a migration fails.
+    # `preDeployCommand` isn't available on the free plan, so migrations ran
+    # as the last build step there instead. Starter+ can move
+    # `prisma migrate deploy` to `preDeployCommand` (runs closer to deploy
+    # time and won't block a build from completing if a migration fails) -
+    # not yet done, buildCommand below still works fine as-is.
     buildCommand: npm ci && npx prisma generate && npm run build && npx prisma migrate deploy
     startCommand: npm start
     healthCheckPath: /health/live
@@ -90,13 +91,12 @@ services:
         sync: false
       - key: FX_RATE_API_KEY
         sync: false
-      # SendGrid (https://sendgrid.com) HTTP email API - direct SMTP doesn't
-      # work from Render (outbound SMTP ports are blocked to prevent spam
-      # abuse). Uses Single Sender Verification (no domain purchase needed) -
-      # verify a sender at https://app.sendgrid.com/settings/sender_auth.
-      - key: SENDGRID_API_KEY
+      # Direct Gmail SMTP (nodemailer) - works on this Starter+ plan (see the
+      # plan comment above). EMAIL_PASS must be a Gmail App Password
+      # (https://myaccount.google.com/apppasswords), not the real login password.
+      - key: EMAIL_USER
         sync: false
-      - key: EMAIL_FROM # REQUIRED - must exactly match the address verified as a Single Sender in SendGrid
+      - key: EMAIL_PASS
         sync: false
       - key: ARKESEL_API_KEY
         sync: false

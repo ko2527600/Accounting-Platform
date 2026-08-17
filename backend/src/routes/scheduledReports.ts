@@ -125,7 +125,7 @@ router.get('/export/pdf', async (req: Request, res: Response): Promise<void> => 
 /**
  * POST /api/v1/reports/schedule/test-email
  * Triggers an instant test executive email report reflecting the tenant's
- * saved frequency preference (Weekly vs Monthly), via SendGrid.
+ * saved frequency preference (Weekly vs Monthly), via Gmail SMTP.
  */
 router.post('/schedule/test-email', async (req: Request, res: Response): Promise<void> => {
   try {
