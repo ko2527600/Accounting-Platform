@@ -33,9 +33,9 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const platformWide = [
       {
         key: 'email',
-        name: 'Email (SendGrid)',
+        name: 'Email (Gmail SMTP)',
         purpose: 'Invoice emails, dunning reminders, scheduled reports, verification/invite emails.',
-        configured: Boolean(process.env.SENDGRID_API_KEY?.trim() && process.env.EMAIL_FROM?.trim()),
+        configured: Boolean(process.env.EMAIL_USER?.trim() && process.env.EMAIL_PASS?.trim()),
       },
       {
         key: 'sms',

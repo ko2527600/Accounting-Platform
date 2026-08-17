@@ -17,8 +17,8 @@ describe('Invoice emailing (POST /invoices/:id/send)', () => {
   let tenantId: string;
   let customerId: string;
 
-  let originalSendgridKey: string | undefined;
-  let originalEmailFrom: string | undefined;
+  let originalEmailUser: string | undefined;
+  let originalEmailPass: string | undefined;
 
   async function cleanupTestData() {
     if (tenantId) {
@@ -45,10 +45,10 @@ describe('Invoice emailing (POST /invoices/:id/send)', () => {
     await ensureUserTableExists(prisma);
     await cleanupTestData();
 
-    originalSendgridKey = process.env.SENDGRID_API_KEY;
-    originalEmailFrom = process.env.EMAIL_FROM;
-    process.env.SENDGRID_API_KEY = 'test-sendgrid-key';
-    process.env.EMAIL_FROM = 'billing@ledgio.test';
+    originalEmailUser = process.env.EMAIL_USER;
+    originalEmailPass = process.env.EMAIL_PASS;
+    process.env.EMAIL_USER = 'billing@ledgio.test';
+    process.env.EMAIL_PASS = 'test-app-password';
 
     const onboard = await onboardTenant(prisma, {
       companyName: 'Invoice Email Corp',
@@ -69,8 +69,8 @@ describe('Invoice emailing (POST /invoices/:id/send)', () => {
   });
 
   afterAll(async () => {
-    process.env.SENDGRID_API_KEY = originalSendgridKey;
-    process.env.EMAIL_FROM = originalEmailFrom;
+    process.env.EMAIL_USER = originalEmailUser;
+    process.env.EMAIL_PASS = originalEmailPass;
     await cleanupTestData();
     await prisma.$disconnect();
   });
@@ -133,8 +133,8 @@ describe('Invoice emailing (POST /invoices/:id/send)', () => {
 
   it('returns 503 when email sending is not configured', async () => {
     const invoice = await createInvoice();
-    const savedKey = process.env.SENDGRID_API_KEY;
-    delete process.env.SENDGRID_API_KEY;
+    const savedPass = process.env.EMAIL_PASS;
+    delete process.env.EMAIL_PASS;
     try {
       const res = await request(app)
         .post(`/api/v1/invoices/${invoice.id}/send`)
@@ -142,7 +142,7 @@ describe('Invoice emailing (POST /invoices/:id/send)', () => {
         .set('X-Tenant-ID', tenantSlug);
       expect(res.status).toBe(503);
     } finally {
-      process.env.SENDGRID_API_KEY = savedKey;
+      process.env.EMAIL_PASS = savedPass;
     }
   });
 });

@@ -18,8 +18,8 @@ describe('Dunning reminders (DunningReminderCronService.runOverdueInvoicesJob)',
   let tenantId: string;
   let customerId: string;
 
-  let originalSendgridKey: string | undefined;
-  let originalEmailFrom: string | undefined;
+  let originalEmailUser: string | undefined;
+  let originalEmailPass: string | undefined;
 
   async function cleanupTestData() {
     if (tenantId) {
@@ -54,10 +54,10 @@ describe('Dunning reminders (DunningReminderCronService.runOverdueInvoicesJob)',
     await ensureUserTableExists(prisma);
     await cleanupTestData();
 
-    originalSendgridKey = process.env.SENDGRID_API_KEY;
-    originalEmailFrom = process.env.EMAIL_FROM;
-    process.env.SENDGRID_API_KEY = 'test-sendgrid-key';
-    process.env.EMAIL_FROM = 'billing@ledgio.test';
+    originalEmailUser = process.env.EMAIL_USER;
+    originalEmailPass = process.env.EMAIL_PASS;
+    process.env.EMAIL_USER = 'billing@ledgio.test';
+    process.env.EMAIL_PASS = 'test-app-password';
 
     const onboard = await onboardTenant(prisma, {
       companyName: 'Dunning Corp',
@@ -78,8 +78,8 @@ describe('Dunning reminders (DunningReminderCronService.runOverdueInvoicesJob)',
   });
 
   afterAll(async () => {
-    process.env.SENDGRID_API_KEY = originalSendgridKey;
-    process.env.EMAIL_FROM = originalEmailFrom;
+    process.env.EMAIL_USER = originalEmailUser;
+    process.env.EMAIL_PASS = originalEmailPass;
     await cleanupTestData();
     await prisma.$disconnect();
   });
@@ -151,12 +151,12 @@ describe('Dunning reminders (DunningReminderCronService.runOverdueInvoicesJob)',
     const overdueDate = new Date(Date.now() - 4 * 24 * 60 * 60 * 1000).toISOString();
     const invoice = await createInvoice(overdueDate);
 
-    const savedKey = process.env.SENDGRID_API_KEY;
-    delete process.env.SENDGRID_API_KEY;
+    const savedPass = process.env.EMAIL_PASS;
+    delete process.env.EMAIL_PASS;
     try {
       await DunningReminderCronService.runOverdueInvoicesJob();
     } finally {
-      process.env.SENDGRID_API_KEY = savedKey;
+      process.env.EMAIL_PASS = savedPass;
     }
 
     const updated = await fetchInvoice(invoice.id);
