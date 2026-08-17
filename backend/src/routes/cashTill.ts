@@ -6,8 +6,61 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import { assertWarehouseAccess, getAccessibleWarehouseIds, WarehouseAccessError } from '../services/warehouseAccessService';
 import { verifyPassword } from '../utils/password';
-import { recordAuditLog, recordAuditLogTx, actorFromRequest } from '../services/auditLogService';
+import { recordAuditLog, recordAuditLogTx, actorFromRequest, AuditActor } from '../services/auditLogService';
 import { SmsService } from '../services/smsService';
+import * as accountRepository from '../repository/accountRepository';
+import * as journalService from '../services/journalEntryService';
+
+/**
+ * Posts the real Cash/Revenue journal entry for a completed POS cash sale
+ * and stamps its id onto the CashSale row - called as a separate step after
+ * the sale's own atomic stock-deduction transaction commits (same
+ * two-step "domain transaction, then journal posting" pattern used by
+ * reimburseExpenseClaim/recordInvoicePayment), never nested inside it, since
+ * journalEntryService opens its own top-level transaction. A failure here is
+ * deliberately swallowed rather than thrown - the sale, its stock deduction,
+ * and the cash already collected are all real and must not be rolled back or
+ * reported as a failed request just because revenue posting hit a snag; the
+ * missing journalId is picked up on the next clientTxnId replay (see the
+ * `!result.sale.journalId` check at each call site below).
+ */
+async function postCashSaleRevenue(
+  sale: { id: string; amount: any; receiptNo: string; createdByName?: string | null },
+  actor: AuditActor
+): Promise<string | null> {
+  try {
+    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
+    const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
+    const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
+    if (!cashAcc || !revenueAcc) {
+      console.error(`[CashTill] Cannot post revenue for sale ${sale.receiptNo} - no Cash/Revenue account configured.`);
+      return null;
+    }
+
+    const amount = Number(sale.amount);
+    const journal = await journalService.createJournalEntry(
+      {
+        description: `POS Cash Sale ${sale.receiptNo}${sale.createdByName ? ` (${sale.createdByName})` : ''}`,
+        entryDate: new Date().toISOString().split('T')[0],
+        status: 'POSTED',
+        lines: [
+          { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash received - ${sale.receiptNo}` },
+          { accountId: revenueAcc.id, debit: 0, credit: amount, description: `Sales revenue - ${sale.receiptNo}` },
+        ],
+      },
+      actor
+    );
+
+    await withCurrentTenantDb(prisma, (client) =>
+      (client as any).cashSale.update({ where: { id: sale.id }, data: { journalId: journal.id } })
+    );
+
+    return journal.id;
+  } catch (error: any) {
+    console.error(`[CashTill] Failed to post revenue journal for sale ${sale.receiptNo}:`, error);
+    return null;
+  }
+}
 
 // Roles that can authorize a void either by initiating it themselves or by
 // stepping up to approve a Cashier-initiated one.
@@ -317,6 +370,15 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
+    // Post revenue outside the stock-deduction transaction (see
+    // postCashSaleRevenue's own comment) - covers a brand-new sale and, via
+    // the same journalId check, self-heals a prior attempt that recorded
+    // the sale but never got as far as posting its revenue.
+    if (!result.sale.journalId) {
+      const journalId = await postCashSaleRevenue(result.sale, actorFromRequest(req));
+      if (journalId) result.sale.journalId = journalId;
+    }
+
     res.status(result.replayed ? 200 : 201).json({ success: true, message: 'Cash sale recorded successfully', data: result });
   } catch (error: any) {
     console.error('[CashTill] Error recording cash sale:', error);
@@ -368,6 +430,54 @@ router.post('/sales/sync-failures', async (req: Request, res: Response): Promise
     res.status(500).json({ success: false, error: error.message || 'Failed to record sync failure.' });
   }
 });
+
+/**
+ * Posts the reversing journal entry (Debit Revenue / Credit Cash) for a
+ * voided POS sale that had already posted revenue, and stamps its id onto
+ * the CashSale row as voidJournalId. Same "own journal entry for the
+ * reversal" convention as creditDebitNoteService's revenue-reversal handling
+ * (not journalEntryService.voidJournalEntry, which is the generic
+ * journal-entries-page mechanism) and the same "called after the mutating
+ * transaction commits, failure swallowed rather than thrown" shape as
+ * postCashSaleRevenue above, for the same reasons.
+ */
+async function postCashSaleVoidReversal(
+  sale: { id: string; amount: any; receiptNo: string },
+  actor: AuditActor
+): Promise<string | null> {
+  try {
+    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
+    const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
+    const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
+    if (!cashAcc || !revenueAcc) {
+      console.error(`[CashTill] Cannot post void reversal for sale ${sale.receiptNo} - no Cash/Revenue account configured.`);
+      return null;
+    }
+
+    const amount = Number(sale.amount);
+    const journal = await journalService.createJournalEntry(
+      {
+        description: `Void reversal for POS Cash Sale ${sale.receiptNo}`,
+        entryDate: new Date().toISOString().split('T')[0],
+        status: 'POSTED',
+        lines: [
+          { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${sale.receiptNo}` },
+          { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash paid out - ${sale.receiptNo}` },
+        ],
+      },
+      actor
+    );
+
+    await withCurrentTenantDb(prisma, (client) =>
+      (client as any).cashSale.update({ where: { id: sale.id }, data: { voidJournalId: journal.id } })
+    );
+
+    return journal.id;
+  } catch (error: any) {
+    console.error(`[CashTill] Failed to post void reversal journal for sale ${sale.receiptNo}:`, error);
+    return null;
+  }
+}
 
 /**
  * POST /api/v1/tills/sales/:id/void
@@ -466,8 +576,19 @@ router.post('/sales/:id/void', async (req: Request, res: Response): Promise<void
         details: `Sale ${voided.receiptNo} (GH₵ ${Number(sale.amount).toFixed(2)}) voided by ${req.user!.name || req.user!.email}, authorized by ${authorizer.name} (${authorizer.role}). Reason: ${voided.voidReason}`,
       });
 
-      return { voided, authorizer, originalAmount: Number(sale.amount) };
+      return { voided, authorizer, originalAmount: Number(sale.amount), originalJournalId: sale.journalId as string | null };
     });
+
+    // Only a sale that actually posted revenue needs a reversal - a sale
+    // voided before its own journal posting caught up (see
+    // postCashSaleRevenue) has nothing in the ledger to reverse.
+    if (result.originalJournalId) {
+      const voidJournalId = await postCashSaleVoidReversal(
+        { id: result.voided.id, amount: result.originalAmount, receiptNo: result.voided.receiptNo },
+        actorFromRequest(req)
+      );
+      if (voidJournalId) result.voided.voidJournalId = voidJournalId;
+    }
 
     res.status(200).json({ success: true, message: 'Sale voided and stock restored.', data: { sale: result.voided } });
   } catch (error: any) {

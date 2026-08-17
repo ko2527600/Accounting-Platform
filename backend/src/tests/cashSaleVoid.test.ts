@@ -112,6 +112,19 @@ describe('Cash Sale Void - manager-authorized void with stock/till reversal', ()
       .set('X-Tenant-ID', tenantSlug)
       .send({ warehouseId, openingCash: 200 });
     tillId = till.body.data.till.id;
+
+    // POS sales post a real Cash/Revenue journal entry - a Chart of
+    // Accounts is required for that, same as any other posting service.
+    await request(app)
+      .post('/api/v1/accounts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ code: '1010', name: 'Cash on Hand', type: 'ASSET' });
+    await request(app)
+      .post('/api/v1/accounts')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .set('X-Tenant-ID', tenantSlug)
+      .send({ code: '4010', name: 'Sales Revenue', type: 'REVENUE' });
   }, 60000);
 
   afterAll(async () => {
@@ -128,15 +141,27 @@ describe('Cash Sale Void - manager-authorized void with stock/till reversal', ()
     return Number(item.warehouseStocks.find((s: any) => s.warehouseId === warehouseId).quantityOnHand);
   }
 
-  it('lets an Admin self-authorize a void, restoring stock and reversing the till total', async () => {
+  it('lets an Admin self-authorize a void, restoring stock and reversing the till total and the revenue posting', async () => {
     const qtyBeforeSale = await getItemStock();
+
+    const revenueBeforeSale = Number(
+      (await request(app).get('/api/v1/reports/profit-loss').set('Authorization', `Bearer ${adminToken}`).set('X-Tenant-ID', tenantSlug))
+        .body.data.totalRevenue
+    );
 
     const saleRes = await ringUpSale(adminToken, 2);
     expect(saleRes.status).toBe(201);
     const saleId = saleRes.body.data.sale.id;
+    expect(saleRes.body.data.sale.journalId).toBeTruthy();
 
     const qtyAfterSale = await getItemStock();
     expect(qtyAfterSale).toBe(qtyBeforeSale - 2);
+
+    const revenueAfterSale = Number(
+      (await request(app).get('/api/v1/reports/profit-loss').set('Authorization', `Bearer ${adminToken}`).set('X-Tenant-ID', tenantSlug))
+        .body.data.totalRevenue
+    );
+    expect(revenueAfterSale).toBe(revenueBeforeSale + Number(saleRes.body.data.totalAmount));
 
     const tillBeforeVoid = await request(app)
       .get('/api/v1/tills/current')
@@ -154,6 +179,7 @@ describe('Cash Sale Void - manager-authorized void with stock/till reversal', ()
     expect(voidRes.status).toBe(200);
     expect(voidRes.body.data.sale.status).toBe('VOIDED');
     expect(voidRes.body.data.sale.voidedByName).toBeTruthy();
+    expect(voidRes.body.data.sale.voidJournalId).toBeTruthy();
 
     const qtyAfterVoid = await getItemStock();
     expect(qtyAfterVoid).toBe(qtyBeforeSale);
@@ -164,6 +190,12 @@ describe('Cash Sale Void - manager-authorized void with stock/till reversal', ()
       .set('X-Tenant-ID', tenantSlug)
       .query({ warehouseId });
     expect(Number(tillAfterVoid.body.data.till.cashSalesTotal)).toBe(cashTotalBeforeVoid - Number(saleRes.body.data.totalAmount));
+
+    const revenueAfterVoid = Number(
+      (await request(app).get('/api/v1/reports/profit-loss').set('Authorization', `Bearer ${adminToken}`).set('X-Tenant-ID', tenantSlug))
+        .body.data.totalRevenue
+    );
+    expect(revenueAfterVoid).toBe(revenueBeforeSale);
 
     const auditRows = await prisma.auditLog.findMany({
       where: { action: 'CASH_SALE.VOIDED', entityId: saleId },
