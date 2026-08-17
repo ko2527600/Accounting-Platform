@@ -32,6 +32,21 @@ function mockPaystackBanks() {
   return banks;
 }
 
+function mockPaystackMobileMoneyBanks() {
+  const banks = [
+    { name: 'MTN Mobile Money', code: 'MTN' },
+    { name: 'AirtelTigo Money', code: 'ATL' },
+    { name: 'Telecel Cash', code: 'VOD' },
+  ];
+  mockedAxios.get.mockImplementation((url: string) => {
+    if (url.endsWith('/bank')) {
+      return Promise.resolve({ data: { status: true, message: 'Banks retrieved', data: banks } });
+    }
+    return Promise.reject(new Error(`Unexpected GET ${url}`));
+  });
+  return banks;
+}
+
 function mockPaystackResolve(accountName: string) {
   mockedAxios.get.mockImplementation((url: string, config: any) => {
     if (url.includes('/bank/resolve')) {
@@ -208,13 +223,32 @@ describe('Paystack pay-now link on invoices - Subaccounts (platform-wide key + p
       expect(sub.status).toBe(503);
     });
 
-    it('returns the real bank list', async () => {
+    it('returns the real bank list, defaulting to real Ghanaian banks', async () => {
       enablePlatformPaystack();
       const banks = mockPaystackBanks();
 
       const res = await authed(request(app).get('/api/v1/paystack/banks'));
       expect(res.status).toBe(200);
       expect(res.body.data.banks).toEqual(banks);
+
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        expect.stringContaining('/bank'),
+        expect.objectContaining({ params: expect.objectContaining({ type: 'ghipss' }) })
+      );
+    });
+
+    it("returns MTN/AirtelTigo/Telecel Mobile Money as settlement options for a tenant with no bank account", async () => {
+      enablePlatformPaystack();
+      const banks = mockPaystackMobileMoneyBanks();
+
+      const res = await authed(request(app).get('/api/v1/paystack/banks').query({ channel: 'mobile_money' }));
+      expect(res.status).toBe(200);
+      expect(res.body.data.banks).toEqual(banks);
+
+      expect(mockedAxios.get).toHaveBeenCalledWith(
+        expect.stringContaining('/bank'),
+        expect.objectContaining({ params: expect.objectContaining({ type: 'mobile_money' }) })
+      );
     });
 
     it('resolves a real account name for a bank/account number', async () => {

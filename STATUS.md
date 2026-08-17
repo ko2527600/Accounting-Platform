@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-17] - Paystack Subaccounts: Mobile Money as a Settlement Option (Direct Follow-Up)
+
+**What/Why:** Same-day follow-up to the Paystack Subaccounts entry immediately below. User asked whether a shop owner without a bank account could use their Mobile Money number instead. Verified against Paystack's own API before building anything (not assumed): Paystack's `GET /bank` endpoint accepts a `type` param of `mobile_money` for Ghana, listing MTN/AirtelTigo/Telecel Cash as their own settlement destinations with real codes (`MTN`/`ATL`/`VOD`), and Paystack's own documentation confirms a subaccount settles "to a bank or mobile money account" via the exact same `settlement_bank`/`account_number` fields already used for bank accounts - so no new endpoint or data model was needed, just a channel toggle.
+
+**Backend:** `paystackService.listBanks()` now takes a `channel: 'ghipss' | 'mobile_money'` parameter (defaults to `ghipss`/banks), passed straight through as Paystack's own `type` query param. `GET /paystack/banks?channel=mobile_money` exposes it - `resolveAccountNumber()`/`createSubaccount()` needed zero changes, since a MoMo number is just another `account_number`/`bank_code` pair to Paystack.
+
+**Frontend:** New "Bank Account" / "Mobile Money" toggle at the top of the Paystack setup card in Settings - switching it re-fetches the real bank/provider list, relabels the fields ("Bank" → "Mobile Money Provider", "Account Number" → "Mobile Money Number"), and resets any in-progress entry. The verify/create-subaccount flow underneath is unchanged - Paystack's `POST /bank/resolve` and `POST /subaccount` don't care which channel the code came from.
+
+**Verification:** `tsc --noEmit` (backend) and `tsc -b && vite build` (frontend) both clean. 2 new tests in `paystack.test.ts` (12 total, all passing) assert the `channel` query param flows through to Paystack's real `type` param correctly for both values. **Live-verified against Paystack's real, live API**: `GET /banks` (default) returned the real current 31-bank Ghana list; `GET /banks?channel=mobile_money` returned Paystack's real 3 providers (MTN, AirtelTigo, Vodafone) - genuinely different real data per channel, not a stub. Live-verified the frontend toggle via Playwright: default state shows the bank dropdown, clicking "Mobile Money" correctly relabels both fields and populates the dropdown with the same real MTN/AirtelTigo/Vodafone list fetched live from Paystack.
+
+**Files:** `backend/src/services/paystackService.ts`, `backend/src/routes/paystack.ts`, `backend/src/tests/paystack.test.ts`; `frontend/src/pages/settings/Settings.tsx`.
+
 ## [Date: 2026-08-17] - Paystack: Switched From Per-Tenant Secret Keys to Real Paystack Subaccounts (Direct Follow-Up)
 
 **What/Why:** Direct same-day follow-up to the per-tenant credentials entry immediately below. User raised a real usability gap in the per-tenant model just shipped: most small shop owners can't complete a Paystack developer signup and generate their own API secret key. Asked what other platforms do for this - the answer is Paystack's own **Subaccounts / Split Payments** feature (verified against Paystack's real API docs via web search, not guessed): a platform holds ONE Paystack account and creates a "subaccount" per merchant under it, referencing only the merchant's bank account details. Paystack itself then auto-splits and settles each payment directly to that merchant's bank account. This means a tenant now needs zero developer knowledge - just their own bank account number, something every business already has.

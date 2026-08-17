@@ -67,6 +67,7 @@ export function Settings() {
   // Paystack uses Subaccounts, not a secret key a tenant would have to go
   // get themselves - they just pick their bank and enter their account
   // number, same as receiving a bank transfer from anyone else.
+  const [paystackChannel, setPaystackChannel] = useState<"ghipss" | "mobile_money">("ghipss");
   const [paystackBanks, setPaystackBanks] = useState<{ name: string; code: string }[]>([]);
   const [paystackBanksError, setPaystackBanksError] = useState<string | null>(null);
   const [paystackSetupData, setPaystackSetupData] = useState({ bankCode: "", accountNumber: "" });
@@ -159,24 +160,27 @@ export function Settings() {
     };
   }, []);
 
-  // Real bank list from Paystack, fetched once - lets a tenant pick their
-  // settlement bank from a dropdown instead of typing a bank code by hand.
+  // Real bank (or MTN/AirtelTigo/Telecel Cash mobile money) list from
+  // Paystack - lets a tenant pick their settlement destination from a
+  // dropdown instead of typing a code by hand. Re-fetches whenever the
+  // Bank Account / Mobile Money toggle changes.
   useEffect(() => {
     let cancelled = false;
+    setPaystackBanksError(null);
     api
-      .get("/paystack/banks")
+      .get("/paystack/banks", { params: { channel: paystackChannel } })
       .then((res) => {
         if (cancelled) return;
         setPaystackBanks(res.data?.data?.banks || []);
       })
       .catch((err) => {
         if (cancelled) return;
-        setPaystackBanksError(err.response?.data?.error || "Failed to load bank list.");
+        setPaystackBanksError(err.response?.data?.error || "Failed to load the list.");
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [paystackChannel]);
 
   const handleVerifyPaystackAccount = async () => {
     setPaystackSaveMsg(null);
@@ -1123,8 +1127,8 @@ export function Settings() {
               </CardTitle>
               <CardDescription>
                 Generates a hosted "Pay Now" checkout link on invoices for card, bank transfer, or Mobile Money.
-                No developer account needed on your end - just enter your own bank details below, same as giving
-                your account number to get paid. Customer payments settle directly to that account.
+                No developer account needed on your end - just enter your own bank or Mobile Money details below,
+                same as giving your number to get paid. Customer payments settle directly to that account.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
@@ -1139,13 +1143,39 @@ export function Settings() {
                 </div>
               ) : (
                 <>
+                  <div className="flex rounded-md border border-secondary-300 dark:border-secondary-700 overflow-hidden w-fit">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaystackChannel("ghipss");
+                        setPaystackSetupData({ bankCode: "", accountNumber: "" });
+                        setPaystackResolvedName(null);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-semibold ${paystackChannel === "ghipss" ? "bg-primary-600 text-white" : "text-secondary-600 dark:text-secondary-400"}`}
+                    >
+                      Bank Account
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPaystackChannel("mobile_money");
+                        setPaystackSetupData({ bankCode: "", accountNumber: "" });
+                        setPaystackResolvedName(null);
+                      }}
+                      className={`px-3 py-1.5 text-xs font-semibold ${paystackChannel === "mobile_money" ? "bg-primary-600 text-white" : "text-secondary-600 dark:text-secondary-400"}`}
+                    >
+                      Mobile Money
+                    </button>
+                  </div>
                   {paystackBanksError && (
                     <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg text-amber-900 dark:text-amber-300 text-sm">
                       {paystackBanksError}
                     </div>
                   )}
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Bank</label>
+                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                      {paystackChannel === "mobile_money" ? "Mobile Money Provider" : "Bank"}
+                    </label>
                     <select
                       value={paystackSetupData.bankCode}
                       onChange={(e) => {
@@ -1154,7 +1184,7 @@ export function Settings() {
                       }}
                       className="w-full rounded-md border border-secondary-300 dark:border-secondary-700 bg-transparent px-3 py-2 text-sm"
                     >
-                      <option value="">Select your bank...</option>
+                      <option value="">{paystackChannel === "mobile_money" ? "Select your Mobile Money provider..." : "Select your bank..."}</option>
                       {paystackBanks.map((bank) => (
                         <option key={bank.code} value={bank.code}>
                           {bank.name}
@@ -1163,20 +1193,23 @@ export function Settings() {
                     </select>
                   </div>
                   <div className="space-y-2">
-                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Account Number</label>
+                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
+                      {paystackChannel === "mobile_money" ? "Mobile Money Number" : "Account Number"}
+                    </label>
                     <Input
                       value={paystackSetupData.accountNumber}
                       onChange={(e) => {
                         setPaystackSetupData({ ...paystackSetupData, accountNumber: e.target.value });
                         setPaystackResolvedName(null);
                       }}
-                      placeholder="Your business bank account number"
+                      placeholder={paystackChannel === "mobile_money" ? "e.g. 0244000000" : "Your business bank account number"}
                     />
                   </div>
                   {paystackResolvedName ? (
                     <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg text-emerald-900 dark:text-emerald-300 text-sm">
-                      Verified: <strong>{paystackResolvedName}</strong>. This is the name on file with the bank - if it's not your
-                      business, double-check the account number before continuing.
+                      Verified: <strong>{paystackResolvedName}</strong>. This is the name on file{" "}
+                      {paystackChannel === "mobile_money" ? "with that Mobile Money number" : "with the bank"} - if it's not your
+                      business, double-check the number before continuing.
                     </div>
                   ) : (
                     <Button type="button" variant="secondary" onClick={handleVerifyPaystackAccount} disabled={paystackVerifying}>

@@ -27,9 +27,10 @@ function platformFeePercent(): number {
 }
 
 /**
- * GET /api/v1/paystack/banks
- * Real list of Ghanaian settlement banks a tenant can pick from when
- * setting up their subaccount.
+ * GET /api/v1/paystack/banks?channel=ghipss|mobile_money
+ * Real list of Ghanaian settlement destinations a tenant can pick from when
+ * setting up their subaccount - real banks (default) or MTN/AirtelTigo/
+ * Telecel Cash mobile money, for a tenant with no bank account.
  */
 router.get('/banks', async (req: Request, res: Response): Promise<void> => {
   try {
@@ -37,7 +38,8 @@ router.get('/banks', async (req: Request, res: Response): Promise<void> => {
       res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
       return;
     }
-    const banks = await paystackService.listBanks();
+    const channel = req.query.channel === 'mobile_money' ? 'mobile_money' : 'ghipss';
+    const banks = await paystackService.listBanks(channel);
     res.status(200).json({ success: true, data: { banks } });
   } catch (error: any) {
     console.error('[Paystack] Error fetching bank list:', error);

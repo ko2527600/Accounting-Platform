@@ -117,15 +117,21 @@ function fromSubunit(amount: number): number {
  * GET /bank?country=ghana&currency=GHS&type=ghipss - the real list of banks
  * a tenant can pick from when entering their settlement bank account, per
  * https://paystack.com/docs/api/miscellaneous/. `type=ghipss` is Paystack's
- * documented value for Ghanaian bank-transfer settlement channels (as
- * opposed to `mobile_money`, which this isn't - a subaccount settles to a
- * real bank account).
+ * documented value for Ghanaian bank-transfer settlement channels. Ghana
+ * also has a `mobile_money` channel type - MTN/AirtelTigo/Telecel Cash each
+ * appear here as their own "bank" entries (real code, real name) - since
+ * Paystack settles a subaccount to a mobile money wallet exactly the same
+ * way it settles to a bank account (same `settlement_bank`/`account_number`
+ * fields on POST /subaccount), letting a tenant without a bank account use
+ * their MoMo number instead.
  */
-export async function listBanks(): Promise<PaystackBank[]> {
+export type PaystackSettlementChannel = 'ghipss' | 'mobile_money';
+
+export async function listBanks(channel: PaystackSettlementChannel = 'ghipss'): Promise<PaystackBank[]> {
   try {
     const response = await axios.get(`${baseUrl()}/bank`, {
       headers: { Authorization: authHeader() },
-      params: { country: 'ghana', currency: 'GHS', type: 'ghipss', perPage: 100 },
+      params: { country: 'ghana', currency: 'GHS', type: channel, perPage: 100 },
     });
     const banks = response.data?.data || [];
     return banks.map((b: any) => ({ name: b.name, code: b.code }));
