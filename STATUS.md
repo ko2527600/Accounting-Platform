@@ -2,6 +2,16 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-17] - Fixed Invoices Page Showing Accountant-Only Action Buttons to Every Role
+
+**What/Why:** User pasted browser console errors showing repeated `403`s on `POST /invoices/:id/send` and `POST /paystack/invoices/:id/initialize` from the Invoices page (plus benign, already-documented 403s on `/ledgers/summary`/`/reports/profit-loss` - the Dashboard's known and intentionally-swallowed pattern for restricted roles, see the "isRestrictedRole" comment in `App.tsx`). Traced to `Invoices.tsx`'s "Actions" dropdown menu, which had **zero role gating**: every role that can reach the Invoices page (Admin, Accountant, Viewer, Shop Manager, Auditor) sees "Email Invoice," "Request GRA Clearance," "Pay Now Link (Paystack)," and "Credit Note," but the backend gates all four to `requireRole('Accountant')` - only Admin/Accountant can actually use them. A Shop Manager or Auditor clicking any of them always 403s with no explanation, which is exactly what the repeated (4x) `paystack/.../initialize` 403s in the pasted log look like - a user retrying an action that can never succeed. Same bug class as the earlier "ExpenseClaims.tsx decider-button gating" fix.
+
+**Fix:** Added `RESTRICTED_ACCOUNTANT_ACTION_ROLES` (mirrors `rbacMiddleware.ts`'s `SCOPED_ROLES`) and `RESTRICTED_PAYMENT_ROLES` (one role narrower - excludes Shop Manager, which the backend's `POST /invoices/:id/pay` explicitly allows) to `Invoices.tsx`, following the exact `RESTRICTED_DECIDER_ROLES`/`canDecide` pattern already established in `ExpenseClaims.tsx`. "Email Invoice," "Request GRA Clearance," "Pay Now Link (Paystack)," and "Credit Note" are now hidden (not just disabled) for Viewer/Auditor/HR/Shop Manager/Cashier; "Record Payment" stays visible for Shop Manager (backend-permitted) and is hidden for the other four scoped roles.
+
+**Verification:** `tsc -b` clean (frontend), `vite build` clean. No backend changes needed - the RBAC rules themselves were already correct, only the frontend was advertising actions the backend would always reject.
+
+**Files:** `frontend/src/pages/invoices/Invoices.tsx`.
+
 ## [Date: 2026-08-17] - Added a Feedback Feature Every Role Can See and Use
 
 **What/Why:** User asked for a feedback feature that every role should see. Modeled directly on the existing in-app Help Assistant widget (`HelpAssistantWidget.tsx`), which is already mounted unconditionally in `MainLayout.tsx` and therefore visible to every authenticated role regardless of RBAC scoping - the same mount point guarantees "every role sees it" without inventing a new exemption from the existing role-gating system.
