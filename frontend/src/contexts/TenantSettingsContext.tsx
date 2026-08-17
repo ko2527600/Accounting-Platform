@@ -15,6 +15,11 @@ const DEFAULT_TENANT: TenantSettings = {
   vatRegistered: false,
   graDeviceNumber: null,
   graSecurityKeyConfigured: false,
+  paystackSubaccountCode: null,
+  paystackBankCode: null,
+  paystackAccountNumber: null,
+  paystackAccountName: null,
+  paystackConfigured: false,
   tier: 1,
   updatedAt: new Date().toISOString()
 };
@@ -59,6 +64,11 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           vatRegistered: Boolean(t.vatRegistered),
           graDeviceNumber: t.graDeviceNumber ?? null,
           graSecurityKeyConfigured: Boolean(t.graSecurityKeyConfigured),
+          paystackSubaccountCode: t.paystackSubaccountCode ?? null,
+          paystackBankCode: t.paystackBankCode ?? null,
+          paystackAccountNumber: t.paystackAccountNumber ?? null,
+          paystackAccountName: t.paystackAccountName ?? null,
+          paystackConfigured: Boolean(t.paystackConfigured),
           tier: t.tier ?? 1,
           updatedAt: t.updatedAt || new Date().toISOString(),
         });
@@ -89,9 +99,14 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           slug: t.slug,
           ...data,
           // Server-computed, not an echo of the request DTO (the request
-          // sends a write-only graSecurityKey, never this field) - must come
-          // from the real response, not the `...data` spread above.
+          // sends write-only secret fields, never these) - must come from
+          // the real response, not the `...data` spread above.
           graSecurityKeyConfigured: Boolean(t.graSecurityKeyConfigured),
+          paystackSubaccountCode: t.paystackSubaccountCode ?? null,
+          paystackBankCode: t.paystackBankCode ?? null,
+          paystackAccountNumber: t.paystackAccountNumber ?? null,
+          paystackAccountName: t.paystackAccountName ?? null,
+          paystackConfigured: Boolean(t.paystackConfigured),
           updatedAt: new Date().toISOString()
         };
         setSettings(updated);

@@ -17,14 +17,21 @@ import { encryptCredential } from '../utils/credentialEncryption';
 const router = Router();
 
 /**
- * Never return the encrypted GRA security_key ciphertext to a client -
- * replace it with a plain boolean so the frontend can show "configured"
- * without ever having a chance to leak or re-display the key.
+ * Never return any encrypted credential ciphertext to a client - replace
+ * each with a plain boolean so the frontend can show "configured" without
+ * ever having a chance to leak or re-display the secret.
  */
 function sanitizeTenantForResponse(tenant: any) {
   if (!tenant) return tenant;
   const { graSecurityKeyEncrypted, ...rest } = tenant;
-  return { ...rest, graSecurityKeyConfigured: Boolean(graSecurityKeyEncrypted) };
+  return {
+    ...rest,
+    graSecurityKeyConfigured: Boolean(graSecurityKeyEncrypted),
+    // Paystack stores no secret at all (Subaccounts model - see
+    // paystackService.ts), so paystackSubaccountCode/paystackAccountNumber/
+    // paystackAccountName are safe to return as-is, not stripped.
+    paystackConfigured: Boolean(rest.paystackSubaccountCode),
+  };
 }
 
 /**
@@ -220,7 +227,17 @@ router.get('/current', authenticateJwt, tenantContextMiddleware, async (req: Req
 router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Admin'), async (req: Request, res: Response) => {
   try {
     const tenantId = (req as any).tenantId || (req as any).user?.tenantId;
-    const { companyName, name, slug, baseCurrency, bossPhone, graTin, vatRegistered, graDeviceNumber, graSecurityKey } = req.body;
+    const {
+      companyName,
+      name,
+      slug,
+      baseCurrency,
+      bossPhone,
+      graTin,
+      vatRegistered,
+      graDeviceNumber,
+      graSecurityKey,
+    } = req.body;
     const newName = (companyName || name || '').trim();
 
     if (!tenantId) {
@@ -294,9 +311,17 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
         entity: 'Tenant',
         entityId: tenantId,
         actor: actorFromRequest(req),
-        // graSecurityKeyEncrypted deliberately excluded - even its ciphertext
-        // shouldn't be persisted into the audit log's diff payload.
-        changes: diffFields(before, updated, ['name', 'slug', 'baseCurrency', 'bossPhone', 'graTin', 'vatRegistered', 'graDeviceNumber']),
+        // Encrypted credential ciphertext deliberately excluded - even the
+        // ciphertext shouldn't be persisted into the audit log's diff payload.
+        changes: diffFields(before, updated, [
+          'name',
+          'slug',
+          'baseCurrency',
+          'bossPhone',
+          'graTin',
+          'vatRegistered',
+          'graDeviceNumber',
+        ]),
       });
 
       return updated;

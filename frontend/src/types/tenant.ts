@@ -30,13 +30,38 @@ export interface TenantSettings {
   // file - the actual key is write-only, never returned by the API once saved.
   graDeviceNumber: string | null;
   graSecurityKeyConfigured: boolean;
+  // Paystack uses Subaccounts for payment collection (card, bank transfer,
+  // and Mobile Money - MTN/AirtelTigo/Telecel Cash - all through the same
+  // hosted checkout): Ledgio holds one Paystack account and creates a
+  // subaccount per tenant (POST /paystack/subaccount), so Paystack itself
+  // auto-splits and settles each payment to the tenant's own bank/MoMo
+  // account. No secret is ever stored or returned here - just the bank/MoMo
+  // details and Paystack's own reference code.
+  paystackSubaccountCode: string | null;
+  paystackBankCode: string | null;
+  paystackAccountNumber: string | null;
+  paystackAccountName: string | null;
+  paystackConfigured: boolean;
   tier: TenantTier;
   updatedAt: string;
 }
 
-export type UpdateTenantSettingsDTO = Partial<Omit<TenantSettings, 'id' | 'updatedAt' | 'tier' | 'graSecurityKeyConfigured'>> & {
-  // Write-only plaintext GRA security_key - encrypted server-side before
-  // storage, never echoed back in any response. Omit to leave the currently
-  // stored key untouched; send '' to clear it.
+export type UpdateTenantSettingsDTO = Partial<
+  Omit<
+    TenantSettings,
+    | 'id'
+    | 'updatedAt'
+    | 'tier'
+    | 'graSecurityKeyConfigured'
+    | 'paystackConfigured'
+    | 'paystackSubaccountCode'
+    | 'paystackBankCode'
+    | 'paystackAccountNumber'
+    | 'paystackAccountName'
+  >
+> & {
+  // Write-only plaintext secret - encrypted server-side before storage,
+  // never echoed back in any response. Omit to leave the currently stored
+  // value untouched; send '' to clear it.
   graSecurityKey?: string;
 };

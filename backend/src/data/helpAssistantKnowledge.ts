@@ -24,7 +24,7 @@ Ledgio is a multi-tenant accounting platform. Revenue and expenses are recognize
 - A full payment history is available per invoice ("Payment History").
 - Credit Notes correct an invoice after the fact (returned goods, overcharge, discount). If the invoice is still unpaid, a credit note just reduces what's owed - no journal entry. If it's already paid, a credit note posts a real reversing entry. If it's partially paid, the credit splits proportionally between the two. A credit note can also return stock to inventory ("Return to Stock"), but ONLY when the credit fully cancels what's left owed on an itemized invoice - a partial credit can't be tied to specific returned units, so that option is only offered when it applies.
 - There is no "void" for an invoice - Credit Notes are the correction mechanism.
-- Mobile Money (MTN MoMo) and TheTeller (Telecel Cash/AirtelTigo Money/Zeepay/G-Money) can collect an invoice payment directly if configured.
+- Paystack can collect an invoice payment directly if configured (card, bank transfer, or Mobile Money - MTN/AirtelTigo/Telecel Cash - all through the same hosted checkout link).
 - Overdue unpaid invoices get an automatic reminder email once a day.
 
 ## Vendor Bills (Accounts Payable)

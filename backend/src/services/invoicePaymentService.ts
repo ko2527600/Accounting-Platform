@@ -21,19 +21,19 @@ export interface RecordInvoicePaymentOptions {
   // Native-currency amount being paid now. Omitted/undefined means "pay off
   // whatever's still outstanding" - the old markInvoicePaid behavior,
   // preserved as the default so every existing caller (the manual /pay
-  // route with no body, MoMo/TheTeller collecting their full requested
-  // amount) keeps working unchanged.
+  // route with no body, Paystack collecting its full requested amount)
+  // keeps working unchanged.
   amount?: number;
-  method?: 'MANUAL' | 'MOMO' | 'TELLER' | 'PAYSTACK';
+  method?: 'MANUAL' | 'PAYSTACK';
   description?: string;
 }
 
 /**
  * Records a payment (full or partial) against an invoice and posts the real
  * Cash/Revenue journal entry for just that payment - shared by the manual
- * "/pay" route and the MTN MoMo / TheTeller payment-confirmation paths, so
- * all three post through the exact same accounting logic instead of
- * duplicating it. Requires tenant context to already be established: either
+ * "/pay" route and the Paystack payment-confirmation path, so both post
+ * through the exact same accounting logic instead of duplicating it.
+ * Requires tenant context to already be established: either
  * by tenantContextMiddleware on an authenticated request, or manually via
  * runWithTenantContext for a background caller.
  *
