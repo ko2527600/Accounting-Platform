@@ -1,7 +1,9 @@
+import { useEffect, useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
-import { ToastProvider } from "./contexts/ToastContext";
+import { ToastProvider, useToast } from "./contexts/ToastContext";
+import { api } from "./lib/api";
 import { TenantSettingsProvider, useTenantSettings } from "./contexts/TenantSettingsContext";
 import { useSyncEngineLifecycle } from "./hooks/useSyncEngineLifecycle";
 import { usePresenceLifecycle } from "./hooks/usePresenceLifecycle";
@@ -62,7 +64,8 @@ import { useAccounts } from "./hooks/useAccounts";
 const Dashboard = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { totalRevenue, totalExpense, netIncome } = useProfitAndLoss();
+  const { showToast } = useToast();
+  const { totalRevenue, totalExpense, netIncome, refetch: refetchPnL } = useProfitAndLoss();
   const { accounts } = useAccounts();
   const { settings } = useTenantSettings();
 
@@ -74,6 +77,38 @@ const Dashboard = () => {
   // showing stale/zeroed figures. Also not shown to these roles: financial
   // data they have no operational need for anyway.
   const isRestrictedRole = getVisibleHrefs((user?.role || "").toLowerCase().trim()) !== null;
+
+  // One-time self-heal for tenants with POS sales recorded before revenue
+  // posting existed (see routes/cashTill.ts POST /tills/sales) - an old
+  // COMPLETED sale's journalId stays null forever unless something actively
+  // backfills it, so a returning Admin/Accountant would otherwise see a
+  // permanently-understated Total Revenue with no way to fix it themselves.
+  // Idempotent on the backend (already-posted sales are skipped), and this
+  // ref guards against firing more than once per mount (StrictMode's double
+  // effect included) - not per every render.
+  const backfillAttempted = useRef(false);
+  useEffect(() => {
+    if (isRestrictedRole || backfillAttempted.current) return;
+    backfillAttempted.current = true;
+    api.post('/tills/backfill-revenue')
+      .then((response) => {
+        const { backfilled } = response.data?.data || {};
+        if (backfilled > 0) {
+          showToast(
+            `Synced ${backfilled} POS sale${backfilled === 1 ? '' : 's'} recorded before revenue tracking was fixed - your totals are now up to date.`,
+            'success'
+          );
+          refetchPnL();
+        }
+      })
+      .catch((error) => {
+        // Non-Admin/Accountant roles 403 here (route is role-gated) - not an
+        // error worth surfacing, same silent-skip as the other company-wide
+        // hooks on this page for restricted roles.
+        console.error('Failed to check for missing POS revenue postings:', error);
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isRestrictedRole]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat("en-US", {
