@@ -64,7 +64,21 @@ model Tenant {
   tellerApiUsername            String? @map("teller_api_username")
   tellerMerchantId             String? @map("teller_merchant_id")
   tellerApiKeyEncrypted        String? @map("teller_api_key_encrypted")
-  paystackSecretKeyEncrypted   String? @map("paystack_secret_key_encrypted")
+  // Paystack uses a different model from MoMo/TheTeller above: Ledgio holds
+  // ONE Paystack account (PAYSTACK_SECRET_KEY, platform-wide) and creates a
+  // "subaccount" per tenant via Paystack's own Subaccounts/Split Payments
+  // feature (https://paystack.com/docs/api/subaccount/) - Paystack itself
+  // then auto-splits and settles each payment directly to the tenant's own
+  // bank account. This means a tenant never needs their own Paystack API
+  // credentials at all, just their bank details - a real usability fix,
+  // since most small shop owners can't complete a developer signup. No
+  // secret is stored here: paystackAccountNumber is the tenant's own bank
+  // account number (identifying, not a credential), and paystackAccountName
+  // is Paystack's own resolved name for it (shown back for confirmation).
+  paystackSubaccountCode String? @map("paystack_subaccount_code")
+  paystackBankCode       String? @map("paystack_bank_code")
+  paystackAccountNumber  String? @map("paystack_account_number")
+  paystackAccountName    String? @map("paystack_account_name")
   isLive               Boolean   @default(false) @map("is_live")
   // Owner/manager phone number that automated SMS alerts (till-close
   // summaries, cash shortage warnings) go to. Optional - alerts are skipped

@@ -41,13 +41,35 @@ export interface TenantSettings {
   tellerApiUsername: string | null;
   tellerMerchantId: string | null;
   tellerConfigured: boolean;
+  // Paystack uses Subaccounts instead of a per-tenant secret key: Ledgio
+  // holds one Paystack account and creates a subaccount per tenant (POST
+  // /paystack/subaccount), so Paystack itself auto-splits and settles each
+  // payment to the tenant's own bank account. No secret is ever stored or
+  // returned here - just the bank details and Paystack's own reference code.
+  paystackSubaccountCode: string | null;
+  paystackBankCode: string | null;
+  paystackAccountNumber: string | null;
+  paystackAccountName: string | null;
   paystackConfigured: boolean;
   tier: TenantTier;
   updatedAt: string;
 }
 
 export type UpdateTenantSettingsDTO = Partial<
-  Omit<TenantSettings, 'id' | 'updatedAt' | 'tier' | 'graSecurityKeyConfigured' | 'momoConfigured' | 'tellerConfigured' | 'paystackConfigured'>
+  Omit<
+    TenantSettings,
+    | 'id'
+    | 'updatedAt'
+    | 'tier'
+    | 'graSecurityKeyConfigured'
+    | 'momoConfigured'
+    | 'tellerConfigured'
+    | 'paystackConfigured'
+    | 'paystackSubaccountCode'
+    | 'paystackBankCode'
+    | 'paystackAccountNumber'
+    | 'paystackAccountName'
+  >
 > & {
   // Write-only plaintext secrets - encrypted server-side before storage,
   // never echoed back in any response. Omit to leave the currently stored
@@ -56,5 +78,4 @@ export type UpdateTenantSettingsDTO = Partial<
   momoSubscriptionKey?: string;
   momoApiKey?: string;
   tellerApiKey?: string;
-  paystackSecretKey?: string;
 };

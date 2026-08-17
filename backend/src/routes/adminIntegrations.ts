@@ -69,7 +69,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       {
         key: 'credentialEncryption',
         name: 'Credential Encryption',
-        purpose: 'Prerequisite for any tenant to save GRA E-VAT/MoMo/TheTeller/Paystack credentials (AES-256-GCM at rest).',
+        purpose: 'Prerequisite for any tenant to save GRA E-VAT/MoMo/TheTeller credentials (AES-256-GCM at rest). Paystack uses Subaccounts instead, so it stores no secret here.',
         configured: Boolean(process.env.CREDENTIAL_ENCRYPTION_KEY?.trim()),
       },
     ];
@@ -86,7 +86,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         prisma.tenant.count({
           where: { tellerApiUsername: { not: null }, tellerMerchantId: { not: null }, tellerApiKeyEncrypted: { not: null } },
         }),
-        prisma.tenant.count({ where: { paystackSecretKeyEncrypted: { not: null } } }),
+        prisma.tenant.count({ where: { paystackSubaccountCode: { not: null } } }),
         prisma.bankAccount.findMany({ where: { monoAccountId: { not: null } }, select: { tenantId: true }, distinct: ['tenantId'] }),
       ]);
 
@@ -115,7 +115,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
       {
         key: 'paystack',
         name: 'Paystack',
-        purpose: 'Hosted pay-now checkout links on invoices - each tenant enters their own Paystack secret key.',
+        purpose: 'Hosted pay-now checkout links on invoices - each tenant just enters their bank details; Ledgio creates a Paystack Subaccount for them automatically.',
         tenantsConfigured: paystackConfiguredTenants,
         totalTenants,
       },

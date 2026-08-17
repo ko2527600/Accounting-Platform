@@ -10,12 +10,149 @@ import * as paystackService from '../services/paystackService';
 import { PaystackServiceError } from '../services/paystackService';
 import * as invoicePaymentService from '../services/invoicePaymentService';
 import { InvoicePaymentServiceError } from '../services/invoicePaymentService';
-import { actorFromRequest, recordAuditLogTx } from '../services/auditLogService';
+import { actorFromRequest, recordAuditLog, recordAuditLogTx } from '../services/auditLogService';
 
 const router = Router();
 
 router.use(authenticateJwt);
 router.use(tenantContextMiddleware);
+
+// Ledgio's own platform cut on every split payment, 0-100. Defaults to 0
+// (tenant keeps everything Paystack itself doesn't take as its processing
+// fee) - a real percentage is a pricing decision, not something to invent
+// here, so it stays 0 until deliberately configured.
+function platformFeePercent(): number {
+  const raw = Number(process.env.PAYSTACK_PLATFORM_FEE_PERCENT);
+  return Number.isFinite(raw) && raw >= 0 && raw <= 100 ? raw : 0;
+}
+
+/**
+ * GET /api/v1/paystack/banks
+ * Real list of Ghanaian settlement banks a tenant can pick from when
+ * setting up their subaccount.
+ */
+router.get('/banks', async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!paystackService.isPaystackConfigured()) {
+      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
+      return;
+    }
+    const banks = await paystackService.listBanks();
+    res.status(200).json({ success: true, data: { banks } });
+  } catch (error: any) {
+    console.error('[Paystack] Error fetching bank list:', error);
+    if (error instanceof PaystackServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(500).json({ success: false, error: 'Failed to fetch bank list.' });
+  }
+});
+
+/**
+ * POST /api/v1/paystack/resolve-account
+ * Confirms the real account name for a bank/account number before the
+ * tenant commits to creating a subaccount with it - catches a typo'd
+ * account number before money would ever be routed to it.
+ */
+router.post('/resolve-account', requireRole('Admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!paystackService.isPaystackConfigured()) {
+      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
+      return;
+    }
+    const { accountNumber, bankCode } = req.body;
+    if (!accountNumber || !bankCode) {
+      res.status(400).json({ success: false, error: 'accountNumber and bankCode are required.' });
+      return;
+    }
+    const resolved = await paystackService.resolveAccountNumber(String(accountNumber).trim(), String(bankCode).trim());
+    res.status(200).json({ success: true, data: { account: resolved } });
+  } catch (error: any) {
+    console.error('[Paystack] Error resolving account number:', error);
+    if (error instanceof PaystackServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(500).json({ success: false, error: 'Failed to resolve account number.' });
+  }
+});
+
+/**
+ * POST /api/v1/paystack/subaccount
+ * Creates a real Paystack subaccount for this tenant so their customers'
+ * payments settle directly to their own bank account - the one-time setup
+ * step that replaces asking a tenant for their own Paystack API keys.
+ */
+router.post('/subaccount', requireRole('Admin'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    if (!paystackService.isPaystackConfigured()) {
+      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
+      return;
+    }
+    const { accountNumber, bankCode } = req.body;
+    if (!accountNumber || !bankCode) {
+      res.status(400).json({ success: false, error: 'accountNumber and bankCode are required.' });
+      return;
+    }
+
+    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
+    if (!tenant) {
+      res.status(404).json({ success: false, error: 'Tenant not found.' });
+      return;
+    }
+    if (paystackService.isSubaccountConfigured(tenant)) {
+      res.status(400).json({ success: false, error: 'A Paystack subaccount is already configured for this business.' });
+      return;
+    }
+
+    const result = await paystackService.createSubaccount({
+      businessName: tenant.name,
+      bankCode: String(bankCode).trim(),
+      accountNumber: String(accountNumber).trim(),
+      percentageCharge: platformFeePercent(),
+    });
+
+    const updated = await prisma.tenant.update({
+      where: { id: tenantId },
+      data: {
+        paystackSubaccountCode: result.subaccountCode,
+        paystackBankCode: String(bankCode).trim(),
+        paystackAccountNumber: String(accountNumber).trim(),
+        paystackAccountName: result.accountName,
+      },
+    });
+
+    await recordAuditLog({
+      action: 'PAYSTACK_SUBACCOUNT.CREATED',
+      entity: 'Tenant',
+      entityId: tenantId,
+      tenantId,
+      actor: actorFromRequest(req),
+      details: `Paystack subaccount ${result.subaccountCode} created for ${tenant.name} (${result.accountName}).`,
+    });
+
+    res.status(201).json({
+      success: true,
+      message: 'Paystack subaccount created. Customer payments will now settle directly to this bank account.',
+      data: {
+        subaccountCode: updated.paystackSubaccountCode,
+        accountName: updated.paystackAccountName,
+        bankCode: updated.paystackBankCode,
+        accountNumber: updated.paystackAccountNumber,
+        isVerified: result.isVerified,
+      },
+    });
+  } catch (error: any) {
+    console.error('[Paystack] Error creating subaccount:', error);
+    if (error instanceof PaystackServiceError) {
+      res.status(error.statusCode).json({ success: false, error: error.message });
+      return;
+    }
+    res.status(500).json({ success: false, error: 'Failed to create Paystack subaccount.' });
+  }
+});
 
 /**
  * GET /api/v1/paystack/invoices/:invoiceId/requests
@@ -52,8 +189,11 @@ router.post('/invoices/:invoiceId/initialize', requireRole('Accountant'), async 
     const { invoiceId } = req.params;
 
     const tenant = await tenantRepository.findTenantById(prisma, tenantId);
-    if (!tenant || !paystackService.isPaystackConfigured(tenant)) {
-      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this business yet.' });
+    if (!tenant || !paystackService.isPaystackConfigured() || !paystackService.isSubaccountConfigured(tenant)) {
+      res.status(503).json({
+        success: false,
+        error: 'Paystack payment collection is not set up for this business yet - add your bank details in Settings > Payment Collection.',
+      });
       return;
     }
 
@@ -83,12 +223,13 @@ router.post('/invoices/:invoiceId/initialize', requireRole('Accountant'), async 
     const amount = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
     const reference = `INV-${invoice.invoiceNumber}-${Date.now()}`;
 
-    const result = await paystackService.initializeTransaction(tenant, {
+    const result = await paystackService.initializeTransaction({
       email: invoice.customer.email,
       amount,
       currency: invoice.currency,
       reference,
       callbackUrl: process.env.PAYSTACK_CALLBACK_URL,
+      subaccountCode: tenant.paystackSubaccountCode as string,
     });
 
     const request = await withCurrentTenantDb(prisma, async (client) => {
@@ -142,9 +283,8 @@ router.post('/requests/:reference/verify', requireRole('Accountant'), async (req
     const { tenantId } = requireTenantContext();
     const { reference } = req.params;
 
-    const tenant = await tenantRepository.findTenantById(prisma, tenantId);
-    if (!tenant || !paystackService.isPaystackConfigured(tenant)) {
-      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this business yet.' });
+    if (!paystackService.isPaystackConfigured()) {
+      res.status(503).json({ success: false, error: 'Paystack integration is not configured for this environment.' });
       return;
     }
 
@@ -162,7 +302,7 @@ router.post('/requests/:reference/verify', requireRole('Accountant'), async (req
       return;
     }
 
-    const result = await paystackService.verifyTransaction(tenant, reference);
+    const result = await paystackService.verifyTransaction(reference);
     const mappedStatus = result.status === 'success' ? 'SUCCESSFUL' : result.status === 'pending' ? 'PENDING' : 'FAILED';
 
     const updated = await withCurrentTenantDb(prisma, async (client) => {

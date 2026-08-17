@@ -30,7 +30,15 @@ export interface TenantRecord {
   tellerApiUsername: string | null;
   tellerMerchantId: string | null;
   tellerApiKeyEncrypted: string | null;
-  paystackSecretKeyEncrypted: string | null;
+  // Paystack uses Subaccounts instead of a per-tenant secret - see
+  // paystackService.ts. No secret is stored: paystackSubaccountCode is
+  // Paystack's own reference id for this tenant's subaccount, and
+  // paystackAccountNumber/paystackAccountName are the tenant's own bank
+  // account details (identifying, not credentials).
+  paystackSubaccountCode: string | null;
+  paystackBankCode: string | null;
+  paystackAccountNumber: string | null;
+  paystackAccountName: string | null;
   isLive: boolean;
   bossPhone: string | null;
   createdAt: Date;

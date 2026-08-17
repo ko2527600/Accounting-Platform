@@ -17,7 +17,7 @@ interface ExportManifestEntry {
 
 export function Settings() {
   const { user, refreshUser } = useAuth();
-  const { settings, isLoading, updateSettings } = useTenantSettings();
+  const { settings, isLoading, updateSettings, fetchSettings } = useTenantSettings();
   
   // Local state for forms to handle edits before saving
   const [profileData, setProfileData] = useState({
@@ -64,7 +64,15 @@ export function Settings() {
   });
   const [tellerSaveMsg, setTellerSaveMsg] = useState<string | null>(null);
 
-  const [paystackData, setPaystackData] = useState({ paystackSecretKey: "" });
+  // Paystack uses Subaccounts, not a secret key a tenant would have to go
+  // get themselves - they just pick their bank and enter their account
+  // number, same as receiving a bank transfer from anyone else.
+  const [paystackBanks, setPaystackBanks] = useState<{ name: string; code: string }[]>([]);
+  const [paystackBanksError, setPaystackBanksError] = useState<string | null>(null);
+  const [paystackSetupData, setPaystackSetupData] = useState({ bankCode: "", accountNumber: "" });
+  const [paystackResolvedName, setPaystackResolvedName] = useState<string | null>(null);
+  const [paystackVerifying, setPaystackVerifying] = useState(false);
+  const [paystackCreating, setPaystackCreating] = useState(false);
   const [paystackSaveMsg, setPaystackSaveMsg] = useState<string | null>(null);
 
   const [scheduleData, setScheduleData] = useState<{
@@ -151,6 +159,63 @@ export function Settings() {
     };
   }, []);
 
+  // Real bank list from Paystack, fetched once - lets a tenant pick their
+  // settlement bank from a dropdown instead of typing a bank code by hand.
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get("/paystack/banks")
+      .then((res) => {
+        if (cancelled) return;
+        setPaystackBanks(res.data?.data?.banks || []);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPaystackBanksError(err.response?.data?.error || "Failed to load bank list.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const handleVerifyPaystackAccount = async () => {
+    setPaystackSaveMsg(null);
+    setPaystackResolvedName(null);
+    if (!paystackSetupData.bankCode || !paystackSetupData.accountNumber.trim()) {
+      setPaystackSaveMsg("❌ Choose a bank and enter an account number first.");
+      return;
+    }
+    setPaystackVerifying(true);
+    try {
+      const res = await api.post("/paystack/resolve-account", {
+        bankCode: paystackSetupData.bankCode,
+        accountNumber: paystackSetupData.accountNumber.trim(),
+      });
+      setPaystackResolvedName(res.data?.data?.account?.accountName || null);
+    } catch (err: any) {
+      setPaystackSaveMsg(`❌ ${err.response?.data?.error || "Could not verify that account number."}`);
+    } finally {
+      setPaystackVerifying(false);
+    }
+  };
+
+  const handleCreatePaystackSubaccount = async () => {
+    setPaystackSaveMsg(null);
+    setPaystackCreating(true);
+    try {
+      await api.post("/paystack/subaccount", {
+        bankCode: paystackSetupData.bankCode,
+        accountNumber: paystackSetupData.accountNumber.trim(),
+      });
+      await fetchSettings();
+      setPaystackSaveMsg("✅ Paystack payment collection set up - customer payments now settle straight to this bank account.");
+    } catch (err: any) {
+      setPaystackSaveMsg(`❌ Error setting up Paystack: ${err.response?.data?.error || err.message}`);
+    } finally {
+      setPaystackCreating(false);
+    }
+  };
+
   const handleProfileSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaveSuccessMsg(null);
@@ -234,19 +299,6 @@ export function Settings() {
       setTellerSaveMsg("✅ TheTeller credentials saved.");
     } catch (err: any) {
       setTellerSaveMsg(`❌ Error saving TheTeller credentials: ${err.response?.data?.error || err.message}`);
-    }
-  };
-
-  const handleSavePaystackCredentials = async () => {
-    setPaystackSaveMsg(null);
-    try {
-      await updateSettings({
-        ...(paystackData.paystackSecretKey && { paystackSecretKey: paystackData.paystackSecretKey }),
-      });
-      setPaystackData({ paystackSecretKey: "" });
-      setPaystackSaveMsg("✅ Paystack credentials saved.");
-    } catch (err: any) {
-      setPaystackSaveMsg(`❌ Error saving Paystack credentials: ${err.response?.data?.error || err.message}`);
     }
   };
 
@@ -1070,32 +1122,83 @@ export function Settings() {
                 {settings.paystackConfigured && <CheckCircle2 className="h-4 w-4 text-emerald-500" />}
               </CardTitle>
               <CardDescription>
-                Generates a hosted "Pay Now" checkout link on invoices for card or bank transfer payment. Requires the
-                secret key from your own Paystack account (Settings → API Keys & Webhooks on paystack.com).
+                Generates a hosted "Pay Now" checkout link on invoices for card, bank transfer, or Mobile Money.
+                No developer account needed on your end - just enter your own bank details below, same as giving
+                your account number to get paid. Customer payments settle directly to that account.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">
-                  Secret Key {settings.paystackConfigured && (
-                    <span className="ml-1 font-normal text-emerald-600 dark:text-emerald-400">(already on file - re-enter only to replace it)</span>
+              {settings.paystackConfigured ? (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg text-emerald-900 dark:text-emerald-300 text-sm space-y-1">
+                  <div className="font-semibold">Payment collection is set up.</div>
+                  <div>Account holder: {settings.paystackAccountName || "—"}</div>
+                  <div>Account number: ••••{(settings.paystackAccountNumber || "").slice(-4)}</div>
+                  <div className="text-xs text-emerald-700 dark:text-emerald-400">
+                    Reference: {settings.paystackSubaccountCode}
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {paystackBanksError && (
+                    <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-lg text-amber-900 dark:text-amber-300 text-sm">
+                      {paystackBanksError}
+                    </div>
                   )}
-                </label>
-                <Input
-                  type="password"
-                  value={paystackData.paystackSecretKey}
-                  onChange={(e) => setPaystackData({ paystackSecretKey: e.target.value })}
-                  placeholder={settings.paystackConfigured ? "••••••••••••••••" : "sk_live_... or sk_test_..."}
-                />
-                <p className="text-xs text-secondary-500 dark:text-secondary-400">
-                  Stored encrypted - never shown again once saved, including to Ledgio staff.
-                </p>
-              </div>
-              {paystackSaveMsg && <p className="text-sm">{paystackSaveMsg}</p>}
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Bank</label>
+                    <select
+                      value={paystackSetupData.bankCode}
+                      onChange={(e) => {
+                        setPaystackSetupData({ ...paystackSetupData, bankCode: e.target.value });
+                        setPaystackResolvedName(null);
+                      }}
+                      className="w-full rounded-md border border-secondary-300 dark:border-secondary-700 bg-transparent px-3 py-2 text-sm"
+                    >
+                      <option value="">Select your bank...</option>
+                      {paystackBanks.map((bank) => (
+                        <option key={bank.code} value={bank.code}>
+                          {bank.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-secondary-700 dark:text-secondary-300">Account Number</label>
+                    <Input
+                      value={paystackSetupData.accountNumber}
+                      onChange={(e) => {
+                        setPaystackSetupData({ ...paystackSetupData, accountNumber: e.target.value });
+                        setPaystackResolvedName(null);
+                      }}
+                      placeholder="Your business bank account number"
+                    />
+                  </div>
+                  {paystackResolvedName ? (
+                    <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-lg text-emerald-900 dark:text-emerald-300 text-sm">
+                      Verified: <strong>{paystackResolvedName}</strong>. This is the name on file with the bank - if it's not your
+                      business, double-check the account number before continuing.
+                    </div>
+                  ) : (
+                    <Button type="button" variant="secondary" onClick={handleVerifyPaystackAccount} disabled={paystackVerifying}>
+                      {paystackVerifying ? "Verifying..." : "Verify Account"}
+                    </Button>
+                  )}
+                  {paystackSaveMsg && <p className="text-sm">{paystackSaveMsg}</p>}
+                </>
+              )}
             </CardContent>
-            <CardFooter>
-              <Button type="button" variant="primary" onClick={handleSavePaystackCredentials}>Save Paystack Credentials</Button>
-            </CardFooter>
+            {!settings.paystackConfigured && (
+              <CardFooter>
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={handleCreatePaystackSubaccount}
+                  disabled={!paystackResolvedName || paystackCreating}
+                >
+                  {paystackCreating ? "Setting up..." : "Set Up Payment Collection"}
+                </Button>
+              </CardFooter>
+            )}
           </Card>
         </div>
       )}

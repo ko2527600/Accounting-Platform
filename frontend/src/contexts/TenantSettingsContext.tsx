@@ -20,6 +20,10 @@ const DEFAULT_TENANT: TenantSettings = {
   tellerApiUsername: null,
   tellerMerchantId: null,
   tellerConfigured: false,
+  paystackSubaccountCode: null,
+  paystackBankCode: null,
+  paystackAccountNumber: null,
+  paystackAccountName: null,
   paystackConfigured: false,
   tier: 1,
   updatedAt: new Date().toISOString()
@@ -70,6 +74,10 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           tellerApiUsername: t.tellerApiUsername ?? null,
           tellerMerchantId: t.tellerMerchantId ?? null,
           tellerConfigured: Boolean(t.tellerConfigured),
+          paystackSubaccountCode: t.paystackSubaccountCode ?? null,
+          paystackBankCode: t.paystackBankCode ?? null,
+          paystackAccountNumber: t.paystackAccountNumber ?? null,
+          paystackAccountName: t.paystackAccountName ?? null,
           paystackConfigured: Boolean(t.paystackConfigured),
           tier: t.tier ?? 1,
           updatedAt: t.updatedAt || new Date().toISOString(),
@@ -109,6 +117,10 @@ export function TenantSettingsProvider({ children }: { children: React.ReactNode
           tellerApiUsername: t.tellerApiUsername ?? null,
           tellerMerchantId: t.tellerMerchantId ?? null,
           tellerConfigured: Boolean(t.tellerConfigured),
+          paystackSubaccountCode: t.paystackSubaccountCode ?? null,
+          paystackBankCode: t.paystackBankCode ?? null,
+          paystackAccountNumber: t.paystackAccountNumber ?? null,
+          paystackAccountName: t.paystackAccountName ?? null,
           paystackConfigured: Boolean(t.paystackConfigured),
           updatedAt: new Date().toISOString()
         };

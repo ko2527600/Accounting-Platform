@@ -28,7 +28,6 @@ function sanitizeTenantForResponse(tenant: any) {
     momoSubscriptionKeyEncrypted,
     momoApiKeyEncrypted,
     tellerApiKeyEncrypted,
-    paystackSecretKeyEncrypted,
     ...rest
   } = tenant;
   return {
@@ -36,7 +35,10 @@ function sanitizeTenantForResponse(tenant: any) {
     graSecurityKeyConfigured: Boolean(graSecurityKeyEncrypted),
     momoConfigured: Boolean(rest.momoApiUser && momoSubscriptionKeyEncrypted && momoApiKeyEncrypted),
     tellerConfigured: Boolean(rest.tellerApiUsername && rest.tellerMerchantId && tellerApiKeyEncrypted),
-    paystackConfigured: Boolean(paystackSecretKeyEncrypted),
+    // Paystack stores no secret at all (Subaccounts model - see
+    // paystackService.ts), so paystackSubaccountCode/paystackAccountNumber/
+    // paystackAccountName are safe to return as-is, not stripped.
+    paystackConfigured: Boolean(rest.paystackSubaccountCode),
   };
 }
 
@@ -249,7 +251,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       tellerApiUsername,
       tellerMerchantId,
       tellerApiKey,
-      paystackSecretKey,
     } = req.body;
     const newName = (companyName || name || '').trim();
 
@@ -337,12 +338,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
       const trimmed = String(tellerApiKey).trim();
       normalizedTellerApiKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
     }
-    let normalizedPaystackSecretKeyEncrypted: string | null | undefined;
-    if (paystackSecretKey !== undefined) {
-      const trimmed = String(paystackSecretKey).trim();
-      normalizedPaystackSecretKeyEncrypted = trimmed === '' ? null : encryptCredential(trimmed);
-    }
-
     const before = await tenantRepository.findTenantById(prisma, tenantId);
 
     const updated = await prisma.$transaction(async (tx) => {
@@ -363,7 +358,6 @@ router.put('/current', authenticateJwt, tenantContextMiddleware, requireRole('Ad
           ...(normalizedTellerApiUsername !== undefined && { tellerApiUsername: normalizedTellerApiUsername }),
           ...(normalizedTellerMerchantId !== undefined && { tellerMerchantId: normalizedTellerMerchantId }),
           ...(normalizedTellerApiKeyEncrypted !== undefined && { tellerApiKeyEncrypted: normalizedTellerApiKeyEncrypted }),
-          ...(normalizedPaystackSecretKeyEncrypted !== undefined && { paystackSecretKeyEncrypted: normalizedPaystackSecretKeyEncrypted }),
         },
       });
 
