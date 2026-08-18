@@ -432,7 +432,7 @@ router.get('/sales-channel', requireRole('Viewer'), async (req: Request, res: Re
       }
     }
 
-    const sales = await withCurrentTenantDb(prisma, (client) =>
+    const sales = (await withCurrentTenantDb(prisma, (client) =>
       (client as any).cashSale.findMany({
         where,
         select: {
@@ -452,7 +452,7 @@ router.get('/sales-channel', requireRole('Viewer'), async (req: Request, res: Re
         },
         orderBy: { createdAt: 'desc' },
       })
-    );
+    )) as any[];
 
     const summary = { RETAIL: 0, WHOLESALE: 0, TOTAL: 0 };
     for (const sale of sales) {
