@@ -2,6 +2,36 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-18] - Branch Comparison Report (Business Tier)
+
+**What/Why:** Multi-branch businesses (supermarkets, pharmacies, boutiques) need to compare performance across locations. Added a Branch Comparison report gated at Business tier (tier 2) showing per-branch cash revenue, current stock value at cost, and inter-branch transfer counts for a configurable date range.
+
+**Changes:**
+
+1. **Backend** (`backend/src/routes/reports.ts`):
+   - Added `GET /reports/branch-comparison` endpoint.
+   - Gated with `requireTier(2, 'Branch Comparison Report')` and `requireRole('Viewer')`.
+   - Returns per-warehouse: `name`, `location`, `revenue`, `saleCount`, `stockValue`, `transfersIn`, `transfersOut`.
+   - Single query via `Promise.all` — warehouses, grouped cash sales, transfer counts, warehouse stock values.
+   - Added `requireTier` import.
+
+2. **Frontend - Report Page** (`frontend/src/pages/reports/BranchComparisonReport.tsx`):
+   - New page with date range filter (defaults last 30 days).
+   - Summary tiles: total revenue, top branch, total stock value.
+   - Proportional revenue split bar (color-coded per branch).
+   - Branch detail table: revenue, sales count, stock value, transfers in/out.
+
+3. **Frontend - Navigation** (`frontend/src/lib/navigation.ts`):
+   - Added `GitBranch` icon import.
+   - Added `Branch Comparison` nav item under REPORTS & ANALYTICS.
+   - Added `/reports/branch-comparison` to auditor allowed paths.
+
+4. **Frontend - Routing** (`frontend/src/App.tsx`):
+   - Imported `BranchComparisonReport`.
+   - Added route `/reports/branch-comparison`.
+
+---
+
 ## [Date: 2026-08-18] - Wholesale / Retail Dual-Pricing Support
 
 **What/Why:** Businesses that serve both retail walk-in customers and bulk wholesale buyers needed a way to manage two price tiers without duplicating inventory or managing separate item catalogs. Implemented a minimal-change, maximum-impact approach: one optional wholesale price field per item, customer type flag, sale-type tagging, and a dedicated sales channel report.

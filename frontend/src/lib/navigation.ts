@@ -29,6 +29,7 @@ import {
   Building2,
   MessageSquare,
   Store,
+  GitBranch,
 } from "lucide-react";
 
 export interface NavItem {
@@ -95,6 +96,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "KPI Dashboard", href: "/reports/kpis", icon: Gauge },
       { name: "AP/AR Aging", href: "/reports/aging", icon: Clock },
       { name: "Sales Channel Report", href: "/reports/sales-channel", icon: Store },
+      { name: "Branch Comparison", href: "/reports/branch-comparison", icon: GitBranch },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
@@ -144,6 +146,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/kpis",
     "/reports/aging",
     "/reports/sales-channel",
+    "/reports/branch-comparison",
     "/reports/budgets",
     "/audit-logs",
     "/help-assistant/activity",
