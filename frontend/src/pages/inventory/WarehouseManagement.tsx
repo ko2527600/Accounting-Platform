@@ -74,6 +74,7 @@ interface InventoryItem {
   unitOfMeasure: string;
   costPrice: number;
   sellingPrice: number;
+  wholesalePrice?: number | null;
   reorderLevel: number;
   warehouseStocks: WarehouseStock[];
 }
