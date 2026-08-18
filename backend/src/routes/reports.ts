@@ -410,4 +410,80 @@ router.get('/cash-flow-forecast', requireRole('Viewer'), async (req: Request, re
   }
 });
 
+/**
+ * GET /api/v1/reports/sales-channel
+ * Revenue breakdown by sales channel (RETAIL vs WHOLESALE) for a date range,
+ * based on POS cash sales. Includes per-channel totals and item-level detail.
+ * Access: Viewer role or higher.
+ */
+router.get('/sales-channel', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { startDate, endDate } = req.query;
+
+    const where: any = { tenantId, status: 'COMPLETED' };
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate as string);
+      if (endDate) {
+        const end = new Date(endDate as string);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    const sales = await withCurrentTenantDb(prisma, (client) =>
+      (client as any).cashSale.findMany({
+        where,
+        select: {
+          id: true,
+          saleType: true,
+          amount: true,
+          createdAt: true,
+          lines: {
+            select: {
+              itemName: true,
+              itemSku: true,
+              quantity: true,
+              unitPrice: true,
+              lineTotal: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    );
+
+    const summary = { RETAIL: 0, WHOLESALE: 0, TOTAL: 0 };
+    for (const sale of sales) {
+      const type = sale.saleType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
+      summary[type] += Number(sale.amount);
+      summary.TOTAL += Number(sale.amount);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        sales: sales.map((s: any) => ({
+          id: s.id,
+          saleType: s.saleType,
+          amount: Number(s.amount),
+          createdAt: s.createdAt,
+          lines: s.lines.map((l: any) => ({
+            itemName: l.itemName,
+            itemSku: l.itemSku,
+            quantity: l.quantity,
+            unitPrice: Number(l.unitPrice),
+            lineTotal: Number(l.lineTotal),
+          })),
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error('[Reports] Sales Channel error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate sales channel report.' });
+  }
+});
+
 export default router;

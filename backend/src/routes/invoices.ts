@@ -81,7 +81,7 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
 router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, email, phone, address, creditLimit, tin } = req.body;
+    const { name, email, phone, address, creditLimit, tin, customerType } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Customer name and email are required.' });
       return;
@@ -90,6 +90,7 @@ router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req:
       res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
       return;
     }
+    const resolvedType = customerType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.create({
@@ -101,6 +102,7 @@ router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req:
           address,
           creditLimit: creditLimit ?? null,
           tin: tin ? String(tin).trim() || null : null,
+          customerType: resolvedType,
         },
       });
     });
@@ -120,7 +122,7 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
   try {
     const { tenantId } = requireTenantContext();
     const { id } = req.params;
-    const { name, email, phone, address, creditLimit, tin } = req.body;
+    const { name, email, phone, address, creditLimit, tin, customerType } = req.body;
 
     if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
       res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
@@ -139,6 +141,7 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
           ...(address !== undefined && { address }),
           ...(creditLimit !== undefined && { creditLimit }),
           ...(tin !== undefined && { tin: tin ? String(tin).trim() || null : null }),
+          ...(customerType !== undefined && { customerType: customerType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL' }),
         },
       });
     });

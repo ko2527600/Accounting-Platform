@@ -13,6 +13,7 @@ export interface OfflineCatalogItem {
   sku: string;
   name: string;
   sellingPrice: number;
+  wholesalePrice: number | null;
   unitOfMeasure: string;
   stockQty: number;
 }
@@ -38,6 +39,7 @@ export interface OfflinePendingSale {
   warehouseId: string;
   lines: OfflinePendingSaleLine[];
   cashGiven: number;
+  saleType?: "RETAIL" | "WHOLESALE";
   clientOccurredAt: string; // ISO timestamp - when the cashier actually rang this up
   queuedAt: number; // Date.now() - local queue order, distinct from clientOccurredAt
   status: PendingSaleStatus;

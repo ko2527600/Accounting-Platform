@@ -28,6 +28,7 @@ import {
   Wallet2,
   Building2,
   MessageSquare,
+  Store,
 } from "lucide-react";
 
 export interface NavItem {
@@ -93,6 +94,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Cash Flow Forecast", href: "/reports/cash-flow-forecast", icon: TrendingUp },
       { name: "KPI Dashboard", href: "/reports/kpis", icon: Gauge },
       { name: "AP/AR Aging", href: "/reports/aging", icon: Clock },
+      { name: "Sales Channel Report", href: "/reports/sales-channel", icon: Store },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
@@ -141,6 +143,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/cash-flow-forecast",
     "/reports/kpis",
     "/reports/aging",
+    "/reports/sales-channel",
     "/reports/budgets",
     "/audit-logs",
     "/help-assistant/activity",

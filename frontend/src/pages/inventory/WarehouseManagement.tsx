@@ -158,6 +158,7 @@ export function WarehouseManagement() {
   const [unitOfMeasure, setUnitOfMeasure] = useState("pcs");
   const [costPrice, setCostPrice] = useState("150");
   const [sellingPrice, setSellingPrice] = useState("250");
+  const [wholesalePrice, setWholesalePrice] = useState("");
   const [initialWarehouseId, setInitialWarehouseId] = useState("");
   const [initialQty, setInitialQty] = useState("50");
   const [preferredVendorId, setPreferredVendorId] = useState("");
@@ -229,6 +230,7 @@ export function WarehouseManagement() {
         unitOfMeasure,
         costPrice: Number(costPrice),
         sellingPrice: Number(sellingPrice),
+        wholesalePrice: wholesalePrice !== "" ? Number(wholesalePrice) : undefined,
         initialWarehouseId,
         initialQty: Number(initialQty),
         preferredVendorId: preferredVendorId || undefined,
@@ -788,7 +790,10 @@ export function WarehouseManagement() {
                       <TableCell className="text-xs">{it.category}</TableCell>
                       <TableCell className="text-xs">
                         <div className="font-medium text-secondary-500">{formatMoney(Number(it.costPrice))} (Cost)</div>
-                        <div className="font-bold text-secondary-900 dark:text-secondary-100">{formatMoney(Number(it.sellingPrice))} (Sell)</div>
+                        <div className="font-bold text-secondary-900 dark:text-secondary-100">{formatMoney(Number(it.sellingPrice))} (Retail)</div>
+                        {it.wholesalePrice != null && (
+                          <div className="text-xs text-primary-600 dark:text-primary-400">{formatMoney(Number(it.wholesalePrice))} (Wholesale)</div>
+                        )}
                       </TableCell>
 
                       {/* Shop Availability Badges */}
@@ -898,14 +903,18 @@ export function WarehouseManagement() {
               <Input placeholder="pcs, kg, boxes" value={unitOfMeasure} onChange={(e) => setUnitOfMeasure(e.target.value)} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium mb-1">Cost Price (GH₵)</label>
               <Input type="number" required value={costPrice} onChange={(e) => setCostPrice(e.target.value)} />
             </div>
             <div>
-              <label className="block text-sm font-medium mb-1">Selling Price (GH₵)</label>
+              <label className="block text-sm font-medium mb-1">Retail Price (GH₵)</label>
               <Input type="number" required value={sellingPrice} onChange={(e) => setSellingPrice(e.target.value)} />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Wholesale Price (GH₵) <span className="text-secondary-400 font-normal">optional</span></label>
+              <Input type="number" placeholder="Leave blank if same as retail" value={wholesalePrice} onChange={(e) => setWholesalePrice(e.target.value)} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">

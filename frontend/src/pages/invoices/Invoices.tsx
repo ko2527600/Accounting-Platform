@@ -33,6 +33,7 @@ interface Customer {
   // GRA TIN, required for real E-VAT clearance (see graEvatService.ts) -
   // null for a customer with no TIN on file (e.g. walk-in/cash customer).
   tin?: string | null;
+  customerType?: string;
 }
 
 interface TaxRate {
@@ -58,6 +59,7 @@ interface InventoryItemOption {
   sku: string;
   name: string;
   sellingPrice: number;
+  wholesalePrice?: number | null;
 }
 
 interface InvoiceItem {
@@ -161,6 +163,7 @@ export function Invoices() {
   const [custEmail, setCustEmail] = useState("");
   const [custCreditLimit, setCustCreditLimit] = useState("");
   const [custTin, setCustTin] = useState("");
+  const [custType, setCustType] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
 
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -240,6 +243,7 @@ export function Invoices() {
             sku: it.sku,
             name: it.name,
             sellingPrice: Number(it.sellingPrice),
+            wholesalePrice: it.wholesalePrice != null ? Number(it.wholesalePrice) : null,
           }))
         );
       }
@@ -262,12 +266,14 @@ export function Invoices() {
         email: custEmail,
         creditLimit: custCreditLimit.trim() ? Number(custCreditLimit) : null,
         tin: custTin.trim() || null,
+        customerType: custType,
       });
       if (res.data.success) {
         setCustName("");
         setCustEmail("");
         setCustCreditLimit("");
         setCustTin("");
+        setCustType("RETAIL");
         setIsCustomerOpen(false);
         fetchData();
       }
@@ -820,6 +826,20 @@ export function Invoices() {
               Required for GRA E-VAT clearance to identify this customer correctly - leave blank for a walk-in/cash customer.
             </p>
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Customer Type</label>
+            <select
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+              value={custType}
+              onChange={(e) => setCustType(e.target.value as "RETAIL" | "WHOLESALE")}
+            >
+              <option value="RETAIL">Retail</option>
+              <option value="WHOLESALE">Wholesale</option>
+            </select>
+            <p className="text-xs text-secondary-500 mt-1">
+              Wholesale customers automatically get wholesale prices on invoices and POS sales when available.
+            </p>
+          </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsCustomerOpen(false)}>Cancel</Button>
             <Button type="submit" variant="primary">Add Customer</Button>
@@ -840,9 +860,16 @@ export function Invoices() {
             >
               <option value="">-- Choose Customer --</option>
               {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.email}){c.customerType === "WHOLESALE" ? " — Wholesale" : ""}
+                </option>
               ))}
             </select>
+            {customers.find((c) => c.id === selectedCustomer)?.customerType === "WHOLESALE" && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                Wholesale customer — line items will default to wholesale prices where available.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -942,9 +969,14 @@ export function Invoices() {
                       const newIt = [...items];
                       newIt[idx].inventoryItemId = e.target.value || undefined;
                       if (selected) {
+                        const isWholesale = customers.find((c) => c.id === selectedCustomer)?.customerType === "WHOLESALE";
+                        const effectivePrice =
+                          isWholesale && selected.wholesalePrice != null
+                            ? selected.wholesalePrice
+                            : selected.sellingPrice;
                         newIt[idx].description = selected.name;
-                        newIt[idx].unitPrice = selected.sellingPrice;
-                        newIt[idx].amount = newIt[idx].quantity * selected.sellingPrice;
+                        newIt[idx].unitPrice = effectivePrice;
+                        newIt[idx].amount = newIt[idx].quantity * effectivePrice;
                       }
                       setItems(newIt);
                     }}
