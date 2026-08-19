@@ -60,6 +60,7 @@ export function useSaleSyncQueue(tillId: string | null, onSynced: () => void) {
             tillId: sale.tillId,
             items: sale.lines.map((l) => ({ itemId: l.itemId, quantity: l.quantity })),
             cashGiven: sale.cashGiven,
+            saleType: sale.saleType ?? "RETAIL",
             clientTxnId: sale.clientTxnId,
             clientOccurredAt: sale.clientOccurredAt,
           });

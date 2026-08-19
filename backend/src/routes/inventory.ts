@@ -180,7 +180,7 @@ router.get('/items', async (req: Request, res: Response): Promise<void> => {
 router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, initialWarehouseId, initialQty = 0, reorderLevel, preferredVendorId } = req.body;
+    const { name, sku, category = 'General', unitOfMeasure = 'pcs', costPrice, sellingPrice, wholesalePrice, initialWarehouseId, initialQty = 0, reorderLevel, preferredVendorId } = req.body;
 
     if (!name || !costPrice || !sellingPrice) {
       res.status(400).json({ success: false, error: 'Item name, cost price, and selling price are required.' });
@@ -213,6 +213,7 @@ router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), asyn
           unitOfMeasure,
           costPrice: Number(costPrice),
           sellingPrice: Number(sellingPrice),
+          wholesalePrice: wholesalePrice !== undefined && wholesalePrice !== null && wholesalePrice !== '' ? Number(wholesalePrice) : null,
           ...(reorderLevel !== undefined && { reorderLevel: Number(reorderLevel) }),
           preferredVendorId: preferredVendorId || null,
         },
@@ -258,15 +259,13 @@ router.post('/items', requireRole('Accountant', 'Shop Manager', 'Cashier'), asyn
 
 /**
  * PUT /api/v1/inventory/items/:id
- * Updates an item's reorder threshold and/or preferred vendor (the fields
- * this feature needs editable after creation) - not a general-purpose item
- * editor, since no other field currently needs post-creation editing.
+ * Updates an item's prices, reorder threshold, and/or preferred vendor.
  */
 router.put('/items/:id', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
     const { id } = req.params;
-    const { reorderLevel, preferredVendorId } = req.body;
+    const { name, costPrice, sellingPrice, wholesalePrice, reorderLevel, preferredVendorId } = req.body;
 
     const updated = await withCurrentTenantDb(prisma, async (client) => {
       const existing = await (client as any).inventoryItem.findFirst({ where: { id, tenantId } });
@@ -282,6 +281,10 @@ router.put('/items/:id', requireRole('Accountant', 'Shop Manager'), async (req: 
       return (client as any).inventoryItem.update({
         where: { id },
         data: {
+          ...(name !== undefined && { name: String(name).trim() }),
+          ...(costPrice !== undefined && { costPrice: Number(costPrice) }),
+          ...(sellingPrice !== undefined && { sellingPrice: Number(sellingPrice) }),
+          ...(wholesalePrice !== undefined && { wholesalePrice: wholesalePrice !== null && wholesalePrice !== '' ? Number(wholesalePrice) : null }),
           ...(reorderLevel !== undefined && { reorderLevel: Number(reorderLevel) }),
           ...(preferredVendorId !== undefined && { preferredVendorId: preferredVendorId || null }),
         },

@@ -2,6 +2,85 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-18] - Branch Comparison Report (Business Tier)
+
+**What/Why:** Multi-branch businesses (supermarkets, pharmacies, boutiques) need to compare performance across locations. Added a Branch Comparison report gated at Business tier (tier 2) showing per-branch cash revenue, current stock value at cost, and inter-branch transfer counts for a configurable date range.
+
+**Changes:**
+
+1. **Backend** (`backend/src/routes/reports.ts`):
+   - Added `GET /reports/branch-comparison` endpoint.
+   - Gated with `requireTier(2, 'Branch Comparison Report')` and `requireRole('Viewer')`.
+   - Returns per-warehouse: `name`, `location`, `revenue`, `saleCount`, `stockValue`, `transfersIn`, `transfersOut`.
+   - Single query via `Promise.all` — warehouses, grouped cash sales, transfer counts, warehouse stock values.
+   - Added `requireTier` import.
+
+2. **Frontend - Report Page** (`frontend/src/pages/reports/BranchComparisonReport.tsx`):
+   - New page with date range filter (defaults last 30 days).
+   - Summary tiles: total revenue, top branch, total stock value.
+   - Proportional revenue split bar (color-coded per branch).
+   - Branch detail table: revenue, sales count, stock value, transfers in/out.
+
+3. **Frontend - Navigation** (`frontend/src/lib/navigation.ts`):
+   - Added `GitBranch` icon import.
+   - Added `Branch Comparison` nav item under REPORTS & ANALYTICS.
+   - Added `/reports/branch-comparison` to auditor allowed paths.
+
+4. **Frontend - Routing** (`frontend/src/App.tsx`):
+   - Imported `BranchComparisonReport`.
+   - Added route `/reports/branch-comparison`.
+
+---
+
+## [Date: 2026-08-18] - Wholesale / Retail Dual-Pricing Support
+
+**What/Why:** Businesses that serve both retail walk-in customers and bulk wholesale buyers needed a way to manage two price tiers without duplicating inventory or managing separate item catalogs. Implemented a minimal-change, maximum-impact approach: one optional wholesale price field per item, customer type flag, sale-type tagging, and a dedicated sales channel report.
+
+**Changes:**
+
+1. **Database schema** (`backend/prisma/schema.prisma`, migration `20260818000000_wholesale_retail_pricing`):
+   - `InventoryItem`: added `wholesalePrice Decimal?`
+   - `Customer`: added `customerType String @default("RETAIL")`
+   - `CashSale`: added `saleType String @default("RETAIL")`
+
+2. **Backend - Inventory** (`backend/src/routes/inventory.ts`):
+   - POST/PUT `/inventory/items` now accept and persist `wholesalePrice` (optional, nullable).
+
+3. **Backend - Customers** (`backend/src/routes/invoices.ts`):
+   - POST `/invoices/customers` and PUT `/invoices/customers/:id` accept and persist `customerType` (RETAIL/WHOLESALE).
+
+4. **Backend - POS Sales** (`backend/src/routes/cashTill.ts`):
+   - POST `/tills/sales` accepts `saleType`; `effectivePriceFor()` helper selects wholesale price when applicable; `saleType` stamped on `CashSale` record.
+
+5. **Backend - Reports** (`backend/src/routes/reports.ts`):
+   - New `GET /api/v1/reports/sales-channel` endpoint groups `CashSale` records by `saleType` and returns RETAIL/WHOLESALE/TOTAL revenue summaries plus the full sales list.
+
+6. **Frontend - Inventory** (`frontend/src/pages/inventory/WarehouseManagement.tsx`):
+   - Item form: 3-column price grid (Cost / Retail / Wholesale optional). Item card shows wholesale price when set.
+
+7. **Frontend - Invoices/Customers** (`frontend/src/pages/invoices/Invoices.tsx`):
+   - Add Customer modal: new Customer Type dropdown (RETAIL/WHOLESALE).
+   - Create Invoice modal: customer dropdown shows "— Wholesale" label; blue hint appears for wholesale customers; item picker auto-selects `wholesalePrice` on itemized invoice lines when customer is WHOLESALE.
+
+8. **Frontend - POS** (`frontend/src/pages/pos/PointOfSale.tsx`):
+   - Retail / Wholesale Sale toggle above the product search. Product list and cart display effective price (wholesale when selected + available). `saleType` passed in POST `/tills/sales` and offline queue.
+
+9. **Frontend - Offline** (`frontend/src/lib/offlineDb.ts`, `frontend/src/lib/saleSyncQueue.ts`):
+   - `OfflineCatalogItem` and `OfflinePendingSale` types extended with `wholesalePrice` / `saleType`. Sync queue replays include `saleType`.
+
+10. **Frontend - Sales Channel Report** (`frontend/src/pages/reports/SalesChannelReport.tsx`):
+    - New page at `/reports/sales-channel`: date-range filter, retail/wholesale/total summary tiles, visual split bar, and full sales ledger with channel tags.
+
+11. **Navigation** (`frontend/src/lib/navigation.ts`):
+    - "Sales Channel Report" added to REPORTS & ANALYTICS group and to auditor's allowed nav list.
+
+12. **Routing** (`frontend/src/App.tsx`):
+    - Route `/reports/sales-channel` wired to `SalesChannelReport`.
+
+**Verification:** TypeScript compilation clean across all changed files. No existing API contracts changed — all new fields are additive with safe defaults (`RETAIL` for `customerType`/`saleType`, `null` for `wholesalePrice`).
+
+**Files:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260818000000_wholesale_retail_pricing/migration.sql`, `backend/src/routes/inventory.ts`, `backend/src/routes/invoices.ts`, `backend/src/routes/cashTill.ts`, `backend/src/routes/reports.ts`, `frontend/src/pages/inventory/WarehouseManagement.tsx`, `frontend/src/pages/invoices/Invoices.tsx`, `frontend/src/pages/pos/PointOfSale.tsx`, `frontend/src/lib/offlineDb.ts`, `frontend/src/lib/saleSyncQueue.ts`, `frontend/src/pages/reports/SalesChannelReport.tsx`, `frontend/src/lib/navigation.ts`, `frontend/src/App.tsx`.
+
 ## [Date: 2026-08-17] - Fixed Invoices Page Showing Accountant-Only Action Buttons to Every Role
 
 **What/Why:** User pasted browser console errors showing repeated `403`s on `POST /invoices/:id/send` and `POST /paystack/invoices/:id/initialize` from the Invoices page (plus benign, already-documented 403s on `/ledgers/summary`/`/reports/profit-loss` - the Dashboard's known and intentionally-swallowed pattern for restricted roles, see the "isRestrictedRole" comment in `App.tsx`). Traced to `Invoices.tsx`'s "Actions" dropdown menu, which had **zero role gating**: every role that can reach the Invoices page (Admin, Accountant, Viewer, Shop Manager, Auditor) sees "Email Invoice," "Request GRA Clearance," "Pay Now Link (Paystack)," and "Credit Note," but the backend gates all four to `requireRole('Accountant')` - only Admin/Accountant can actually use them. A Shop Manager or Auditor clicking any of them always 403s with no explanation, which is exactly what the repeated (4x) `paystack/.../initialize` 403s in the pasted log look like - a user retrying an action that can never succeed. Same bug class as the earlier "ExpenseClaims.tsx decider-button gating" fix.

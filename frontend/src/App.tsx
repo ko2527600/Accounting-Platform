@@ -54,6 +54,8 @@ import { CashFlowStatement } from "./pages/reports/CashFlowStatement";
 import { CashFlowForecast } from "./pages/reports/CashFlowForecast";
 import { KpiDashboard } from "./pages/reports/KpiDashboard";
 import { AgingReport } from "./pages/reports/AgingReport";
+import { SalesChannelReport } from "./pages/reports/SalesChannelReport";
+import { BranchComparisonReport } from "./pages/reports/BranchComparisonReport";
 import { PettyCash } from "./pages/pettycash/PettyCash";
 import { PurchaseOrders } from "./pages/purchaseorders/PurchaseOrders";
 import { RecurringInvoices } from "./pages/recurringinvoices/RecurringInvoices";
@@ -288,6 +290,8 @@ function App() {
             <Route path="/reports/cash-flow-forecast" element={<ProtectedRoute><MainLayout><CashFlowForecast /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/kpis" element={<ProtectedRoute><MainLayout><KpiDashboard /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/aging" element={<ProtectedRoute><MainLayout><AgingReport /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/sales-channel" element={<ProtectedRoute><MainLayout><SalesChannelReport /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/branch-comparison" element={<ProtectedRoute><MainLayout><BranchComparisonReport /></MainLayout></ProtectedRoute>} />
             <Route path="/petty-cash" element={<ProtectedRoute><MainLayout><PettyCash /></MainLayout></ProtectedRoute>} />
             <Route path="/purchase-orders" element={<ProtectedRoute><MainLayout><PurchaseOrders /></MainLayout></ProtectedRoute>} />
             <Route path="/recurring-invoices" element={<ProtectedRoute><MainLayout><RecurringInvoices /></MainLayout></ProtectedRoute>} />

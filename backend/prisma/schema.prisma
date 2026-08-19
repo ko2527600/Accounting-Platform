@@ -364,14 +364,18 @@ model Customer {
   // routes/invoices.ts, not a soft warning - matches this app's existing
   // pattern of hard-gating real business rules in code (e.g. insufficient
   // stock, the trial-balance onboarding gate).
-  creditLimit Decimal? @map("credit_limit") @db.Decimal(15, 2)
+  creditLimit  Decimal? @map("credit_limit") @db.Decimal(15, 2)
   // Customer's own GRA TIN - required by GRA E-VAT clearance as
   // "businessPartnerTin" (see graEvatService.ts). Null for a customer with
   // no TIN on file (e.g. a walk-in/cash customer) - GRA's own official
   // sample requests use "C0000000000" as the standard placeholder for this
   // case, which graEvatService falls back to rather than blocking clearance.
-  tin         String?  @map("tin")
-  createdAt   DateTime @default(now()) @map("created_at")
+  tin          String?  @map("tin")
+  // RETAIL (default) or WHOLESALE - drives which price tier auto-fills on
+  // invoices and POS sales for this customer. The cashier/accountant can
+  // still override the unit price manually on any individual line.
+  customerType String   @default("RETAIL") @map("customer_type")
+  createdAt    DateTime @default(now()) @map("created_at")
 
   invoices          Invoice[]
   recurringInvoices RecurringInvoice[]
@@ -828,6 +832,11 @@ model InventoryItem {
   unitOfMeasure     String   @default("pcs") @map("unit_of_measure")
   costPrice         Decimal  @map("cost_price") @db.Decimal(15, 2)
   sellingPrice      Decimal  @map("selling_price") @db.Decimal(15, 2)
+  // Optional lower price for bulk/trade buyers - null means this item has
+  // no separate wholesale tier (both channels use sellingPrice). When a
+  // WHOLESALE customer is selected on an invoice or POS sale the unit price
+  // auto-fills from this field; the user can still override per-line.
+  wholesalePrice    Decimal? @map("wholesale_price") @db.Decimal(15, 2)
   reorderLevel      Int      @default(10) @map("reorder_level")
   // Which vendor to auto-draft a reorder PO to when this item's stock falls
   // below reorderLevel (see POST /purchase-orders/generate-for-reorder) -
@@ -978,6 +987,9 @@ model CashSale {
   // (true row-insert time) - populated for offline-queued sales synced after
   // the fact, so void-stats time-bucketing reflects the real shift.
   clientOccurredAt DateTime?      @map("client_occurred_at")
+  // RETAIL (default) or WHOLESALE - stamped at sale time so revenue reports
+  // can split by sales channel without re-deriving from customer records.
+  saleType         String         @default("RETAIL") @map("sale_type")
 
   till  CashTill       @relation(fields: [tillId], references: [id], onDelete: Cascade)
   lines CashSaleLine[]

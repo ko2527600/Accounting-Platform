@@ -2,6 +2,7 @@ import { Router, Request, Response } from 'express';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
+import { requireTier } from '../middleware/tierEnforcementMiddleware';
 import * as reportingService from '../services/reportingService';
 import { ReportingServiceError } from '../services/reportingService';
 import { requireTenantContext } from '../context/tenantContext';
@@ -409,5 +410,180 @@ router.get('/cash-flow-forecast', requireRole('Viewer'), async (req: Request, re
     });
   }
 });
+
+/**
+ * GET /api/v1/reports/sales-channel
+ * Revenue breakdown by sales channel (RETAIL vs WHOLESALE) for a date range,
+ * based on POS cash sales. Includes per-channel totals and item-level detail.
+ * Access: Viewer role or higher.
+ */
+router.get('/sales-channel', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { startDate, endDate } = req.query;
+
+    const where: any = { tenantId, status: 'COMPLETED' };
+    if (startDate || endDate) {
+      where.createdAt = {};
+      if (startDate) where.createdAt.gte = new Date(startDate as string);
+      if (endDate) {
+        const end = new Date(endDate as string);
+        end.setHours(23, 59, 59, 999);
+        where.createdAt.lte = end;
+      }
+    }
+
+    const sales = (await withCurrentTenantDb(prisma, (client) =>
+      (client as any).cashSale.findMany({
+        where,
+        select: {
+          id: true,
+          saleType: true,
+          amount: true,
+          createdAt: true,
+          lines: {
+            select: {
+              itemName: true,
+              itemSku: true,
+              quantity: true,
+              unitPrice: true,
+              lineTotal: true,
+            },
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+      })
+    )) as any[];
+
+    const summary = { RETAIL: 0, WHOLESALE: 0, TOTAL: 0 };
+    for (const sale of sales) {
+      const type = sale.saleType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
+      summary[type] += Number(sale.amount);
+      summary.TOTAL += Number(sale.amount);
+    }
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary,
+        sales: sales.map((s: any) => ({
+          id: s.id,
+          saleType: s.saleType,
+          amount: Number(s.amount),
+          createdAt: s.createdAt,
+          lines: s.lines.map((l: any) => ({
+            itemName: l.itemName,
+            itemSku: l.itemSku,
+            quantity: l.quantity,
+            unitPrice: Number(l.unitPrice),
+            lineTotal: Number(l.lineTotal),
+          })),
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error('[Reports] Sales Channel error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate sales channel report.' });
+  }
+});
+
+/**
+ * GET /api/v1/reports/branch-comparison
+ * Per-warehouse summary: cash revenue, stock value, transfers in/out.
+ * Gated at Business tier (tier 2). Access: Viewer role or higher.
+ */
+router.get(
+  '/branch-comparison',
+  requireRole('Viewer'),
+  requireTier(2, 'Branch Comparison Report'),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { tenantId } = requireTenantContext();
+      const { startDate, endDate } = req.query;
+
+      const dateFilter: any = {};
+      if (startDate) dateFilter.gte = new Date(startDate as string);
+      if (endDate) {
+        const end = new Date(endDate as string);
+        end.setHours(23, 59, 59, 999);
+        dateFilter.lte = end;
+      }
+
+      const [warehouses, sales, transfersRaw, stocksRaw] = (await withCurrentTenantDb(prisma, (client) =>
+        Promise.all([
+          (client as any).warehouse.findMany({
+            where: { tenantId },
+            select: { id: true, name: true, location: true },
+            orderBy: { name: 'asc' },
+          }),
+          (client as any).cashSale.groupBy({
+            by: ['warehouseId'],
+            where: {
+              tenantId,
+              status: 'COMPLETED',
+              ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
+            },
+            _sum: { amount: true },
+            _count: { id: true },
+          }),
+          (client as any).stockTransfer.findMany({
+            where: {
+              tenantId,
+              ...(Object.keys(dateFilter).length ? { transferDate: dateFilter } : {}),
+            },
+            select: { fromWarehouseId: true, toWarehouseId: true },
+          }),
+          (client as any).warehouseStock.findMany({
+            where: { tenantId },
+            select: {
+              warehouseId: true,
+              quantity: true,
+              item: { select: { costPrice: true } },
+            },
+          }),
+        ])
+      )) as any[];
+
+      // Index sales by warehouseId
+      const salesByWarehouse: Record<string, { revenue: number; saleCount: number }> = {};
+      for (const row of sales) {
+        salesByWarehouse[row.warehouseId ?? ''] = {
+          revenue: Number(row._sum.amount ?? 0),
+          saleCount: row._count.id,
+        };
+      }
+
+      // Count transfers in/out per warehouse
+      const transfersIn: Record<string, number> = {};
+      const transfersOut: Record<string, number> = {};
+      for (const t of transfersRaw) {
+        transfersIn[t.toWarehouseId] = (transfersIn[t.toWarehouseId] ?? 0) + 1;
+        transfersOut[t.fromWarehouseId] = (transfersOut[t.fromWarehouseId] ?? 0) + 1;
+      }
+
+      // Sum stock value per warehouse
+      const stockValue: Record<string, number> = {};
+      for (const s of stocksRaw) {
+        stockValue[s.warehouseId] = (stockValue[s.warehouseId] ?? 0) + s.quantity * Number(s.item.costPrice ?? 0);
+      }
+
+      const branches = warehouses.map((w: any) => ({
+        id: w.id,
+        name: w.name,
+        location: w.location ?? null,
+        revenue: salesByWarehouse[w.id]?.revenue ?? 0,
+        saleCount: salesByWarehouse[w.id]?.saleCount ?? 0,
+        stockValue: stockValue[w.id] ?? 0,
+        transfersIn: transfersIn[w.id] ?? 0,
+        transfersOut: transfersOut[w.id] ?? 0,
+      }));
+
+      res.status(200).json({ success: true, data: { branches } });
+    } catch (error: any) {
+      console.error('[Reports] Branch Comparison error:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to generate branch comparison report.' });
+    }
+  }
+);
 
 export default router;

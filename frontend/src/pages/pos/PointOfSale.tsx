@@ -33,6 +33,7 @@ interface InventoryItemOption {
   sku: string;
   name: string;
   sellingPrice: number;
+  wholesalePrice: number | null;
   unitOfMeasure: string;
   stockQty: number;
 }
@@ -43,6 +44,7 @@ interface CartLine {
   name: string;
   unitOfMeasure: string;
   sellingPrice: number;
+  wholesalePrice: number | null;
   stockQty: number;
   quantity: number;
 }
@@ -110,6 +112,7 @@ export function PointOfSale() {
   const [itemSearch, setItemSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cashGiven, setCashGiven] = useState("");
+  const [saleType, setSaleType] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
   const [isRecordingSale, setIsRecordingSale] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
   const [lastReceipt, setLastReceipt] = useState<LastReceipt | null>(null);
@@ -195,6 +198,7 @@ export function PointOfSale() {
               sku: it.sku,
               name: it.name,
               sellingPrice: Number(it.sellingPrice),
+              wholesalePrice: it.wholesalePrice != null ? Number(it.wholesalePrice) : null,
               unitOfMeasure: it.unitOfMeasure,
               stockQty: stock ? stock.quantityOnHand : 0,
             };
@@ -345,12 +349,17 @@ export function PointOfSale() {
           name: item.name,
           unitOfMeasure: item.unitOfMeasure,
           sellingPrice: item.sellingPrice,
+          wholesalePrice: item.wholesalePrice,
           stockQty: item.stockQty,
           quantity: 1,
         },
       ];
     });
   };
+
+  // Effective price for a cart line based on current saleType
+  const effectivePriceFor = (l: CartLine) =>
+    saleType === "WHOLESALE" && l.wholesalePrice != null ? l.wholesalePrice : l.sellingPrice;
 
   const adjustCartQty = (itemId: string, delta: number) => {
     setCart((prev) =>
@@ -366,7 +375,7 @@ export function PointOfSale() {
 
   const removeFromCart = (itemId: string) => setCart((prev) => prev.filter((l) => l.itemId !== itemId));
 
-  const cartTotal = cart.reduce((sum, l) => sum + l.sellingPrice * l.quantity, 0);
+  const cartTotal = cart.reduce((sum, l) => sum + effectivePriceFor(l) * l.quantity, 0);
   const changeDue = cashGiven ? Number(cashGiven) - cartTotal : 0;
 
   const handleRecordSale = async (e: React.FormEvent) => {
@@ -391,6 +400,7 @@ export function PointOfSale() {
         tillId: till.id,
         items: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity })),
         cashGiven: Number(cashGiven),
+        saleType,
         clientTxnId,
         clientOccurredAt,
       });
@@ -418,8 +428,9 @@ export function PointOfSale() {
           clientTxnId,
           tillId: till.id,
           warehouseId: till.warehouseId,
-          lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, itemName: l.name, itemSku: l.sku, unitPrice: l.sellingPrice })),
+          lines: cart.map((l) => ({ itemId: l.itemId, quantity: l.quantity, itemName: l.name, itemSku: l.sku, unitPrice: effectivePriceFor(l) })),
           cashGiven: Number(cashGiven),
+          saleType,
           clientOccurredAt,
           queuedAt: Date.now(),
           status: "pending",
@@ -670,6 +681,24 @@ export function PointOfSale() {
                   </div>
                 )}
 
+                {/* Sale Type Toggle */}
+                <div className="flex rounded-md border border-secondary-200 dark:border-secondary-800 p-1 text-sm mb-4">
+                  <button
+                    type="button"
+                    onClick={() => setSaleType("RETAIL")}
+                    className={`flex-1 py-1.5 rounded text-xs font-medium ${saleType === "RETAIL" ? "bg-primary-600 text-white" : "text-secondary-500"}`}
+                  >
+                    Retail Sale
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSaleType("WHOLESALE")}
+                    className={`flex-1 py-1.5 rounded text-xs font-medium ${saleType === "WHOLESALE" ? "bg-blue-600 text-white" : "text-secondary-500"}`}
+                  >
+                    Wholesale Sale
+                  </button>
+                </div>
+
                 {/* Product Search */}
                 <div className="relative mb-3">
                   <Search className="absolute left-3 top-2.5 h-4 w-4 text-secondary-400" />
@@ -703,7 +732,11 @@ export function PointOfSale() {
                             <div>
                               <div className="text-sm font-medium text-secondary-900 dark:text-secondary-50">{it.name}</div>
                               <div className="text-xs text-secondary-500">
-                                {it.sku} — {formatMoney(it.sellingPrice)} — {remaining} {it.unitOfMeasure} left
+                                {it.sku} — {formatMoney(saleType === "WHOLESALE" && it.wholesalePrice != null ? it.wholesalePrice : it.sellingPrice)}
+                                {saleType === "WHOLESALE" && it.wholesalePrice != null && (
+                                  <span className="text-blue-600 dark:text-blue-400"> (wholesale)</span>
+                                )}
+                                {" "}— {remaining} {it.unitOfMeasure} left
                                 {reserved > 0 && (
                                   <span className="text-amber-600 dark:text-amber-400"> ({reserved} held by pending offline sale{reserved === 1 ? "" : "s"})</span>
                                 )}
@@ -730,7 +763,12 @@ export function PointOfSale() {
                           <tr key={l.itemId} className="border-t border-secondary-100 dark:border-secondary-800 first:border-t-0">
                             <td className="p-2">
                               <div className="font-medium text-secondary-900 dark:text-secondary-50">{l.name}</div>
-                              <div className="text-xs text-secondary-500">{formatMoney(l.sellingPrice)} / {l.unitOfMeasure}</div>
+                              <div className="text-xs text-secondary-500">
+                                {formatMoney(effectivePriceFor(l))} / {l.unitOfMeasure}
+                                {saleType === "WHOLESALE" && l.wholesalePrice != null && (
+                                  <span className="text-blue-600 dark:text-blue-400 ml-1">(wholesale)</span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-2">
                               <div className="flex items-center gap-1.5">
@@ -748,7 +786,7 @@ export function PointOfSale() {
                                 </button>
                               </div>
                             </td>
-                            <td className="p-2 text-right font-semibold whitespace-nowrap">{formatMoney(l.sellingPrice * l.quantity)}</td>
+                            <td className="p-2 text-right font-semibold whitespace-nowrap">{formatMoney(effectivePriceFor(l) * l.quantity)}</td>
                             <td className="p-2">
                               <button type="button" onClick={() => removeFromCart(l.itemId)} className="text-secondary-400 hover:text-red-500 p-1">
                                 <Trash2 className="h-3.5 w-3.5" />

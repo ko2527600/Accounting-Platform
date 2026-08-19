@@ -191,7 +191,8 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt } = req.body;
+    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt, saleType } = req.body;
+    const resolvedSaleType = saleType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
 
     if (!tillId || !Array.isArray(items) || items.length === 0 || cashGiven === undefined || cashGiven === null || cashGiven === '') {
       res.status(400).json({ success: false, error: 'Till ID, at least one cart item, and cash given are required.' });
@@ -270,9 +271,16 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
           }
         }
 
+        const effectivePriceFor = (item: any): number => {
+          if (resolvedSaleType === 'WHOLESALE' && item.wholesalePrice !== null && item.wholesalePrice !== undefined) {
+            return Number(item.wholesalePrice);
+          }
+          return Number(item.sellingPrice);
+        };
+
         const totalAmount = items.reduce((sum: number, line: any) => {
           const item = itemsById.get(line.itemId) as any;
-          return sum + Number(item.sellingPrice) * line.quantity;
+          return sum + effectivePriceFor(item) * line.quantity;
         }, 0);
 
         const changeGiven = Number(cashGiven) - totalAmount;
@@ -311,6 +319,7 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
               createdByName: req.user!.name || req.user!.email,
               clientTxnId: clientTxnId || null,
               clientOccurredAt: clientOccurredAt ? new Date(clientOccurredAt) : null,
+              saleType: resolvedSaleType,
             },
           });
         } catch (createError: any) {
@@ -331,13 +340,14 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
 
         const lines = items.map((line: any) => {
           const item = itemsById.get(line.itemId) as any;
+          const price = effectivePriceFor(item);
           return {
             itemId: line.itemId,
             itemName: item.name as string,
             itemSku: item.sku as string,
             quantity: line.quantity as number,
-            unitPrice: Number(item.sellingPrice),
-            lineTotal: Number(item.sellingPrice) * line.quantity,
+            unitPrice: price,
+            lineTotal: price * line.quantity,
           };
         });
 

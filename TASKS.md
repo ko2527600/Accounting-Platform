@@ -123,7 +123,13 @@ This file lists the development tasks for the Multi-Tenant Web-Based Accounting 
 - [x] Guided onboarding wizard: business profile -> Ghana SME default chart of accounts (editable) -> opening balances with a hard trial-balance gate (reuses `journalEntryService.createJournalEntry`'s own double-entry validation) -> completion checklist. Live-verified via Playwright. See STATUS.md.
 - [x] Extend transactional audit-log writes (`recordAuditLogTx`) to the remaining lower-stakes call sites (2026-08-10) - migrated 40 of the ~55 (tax rates, fiscal periods, budgets, recurring transactions, approval workflows, expense claims, credit/debit notes, vendor bills, banking, mobile money, cash till voids, tenant settings/members, accept-invitation, inventory). The other 16 confirmed to have no data mutation to desync from (pure event logs: login/logout, SMS/email dispatch outcomes, broadcasts) or are deliberately deferred (tenant provisioning's multi-step DDL). Found and fixed a real pre-existing bug along the way: `POST /inventory/items/bulk` could silently discard already-"succeeded" rows whenever a later row in the same batch failed (Postgres silently no-ops a COMMIT on an aborted transaction) - fixed by giving each row its own transaction. See STATUS.md.
 
-## Phase 3: Further Enhancements
+## Phase 3: Further Enhancements (2026-08-18)
+
+- [x] **Wholesale / Retail dual-pricing support** (2026-08-18) - businesses serving both walk-in retail customers and bulk wholesale buyers can now manage two price tiers without duplicating inventory. Five minimal schema changes: optional `wholesalePrice` on `InventoryItem`, `customerType` (RETAIL/WHOLESALE) on `Customer`, `saleType` on `CashSale`. POS auto-selects the wholesale price when a "Wholesale" sale type is toggled. Invoice item picker auto-selects the wholesale price when the selected customer is tagged WHOLESALE. Offline POS and sync queue both honor the sale type. New Sales Channel Report (`GET /reports/sales-channel`) shows RETAIL vs WHOLESALE revenue split with summary tiles, a proportional bar, and a per-sale ledger. Navigation and App.tsx routing wired. CI green (backend + frontend). See STATUS.md.
+
+- [x] **Branch Comparison Report — Business tier** (2026-08-18) - multi-branch businesses (supermarkets, pharmacies, boutiques) can now compare performance across all warehouses/locations. New `GET /reports/branch-comparison` endpoint gated at Business tier (tier 2 via `requireTier`). Returns per-branch: cash revenue, sale count, stock value at cost, transfers in/out, for a configurable date range. Frontend page shows summary tiles (total revenue, top branch, total stock value), a color-coded proportional revenue bar, and a full branch detail table. Added to sidebar navigation and App.tsx routing. CI green. See STATUS.md.
+
+
 
 - [ ] Integrate CRM functionalities (w:10)
 - [ ] Develop Payroll management module (w:15)
