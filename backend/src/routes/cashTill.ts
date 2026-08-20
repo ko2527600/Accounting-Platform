@@ -35,10 +35,22 @@ async function postCashSaleRevenue(
       withCurrentTenantDb(prisma, (client) =>
         (client as any).cashSaleLine.findMany({
           where: { saleId: sale.id },
-          include: { item: true },
         })
       ),
     ]);
+
+    const itemIds: string[] = (saleLines as any[]).map((l: any) => l.itemId).filter(Boolean);
+    const inventoryItems: any[] = itemIds.length > 0
+      ? (await withCurrentTenantDb(prisma, (client) =>
+          (client as any).inventoryItem.findMany({
+            where: { id: { in: itemIds } },
+            select: { id: true, costPrice: true },
+          })
+        ) as any[])
+      : [];
+    const costByItemId = new Map<string, number>(
+      inventoryItems.map((item: any) => [item.id, Number(item.costPrice)])
+    );
 
     const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
@@ -61,7 +73,7 @@ async function postCashSaleRevenue(
     const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
     if (cogsAcc && invAcc && Array.isArray(saleLines) && saleLines.length > 0) {
       const totalCost = (saleLines as any[]).reduce((sum: number, l: any) => {
-        const cost = l.item?.costPrice != null ? Number(l.item.costPrice) : 0;
+        const cost = costByItemId.get(l.itemId) ?? 0;
         return sum + cost * Number(l.quantity);
       }, 0);
       const cogs = Math.round(totalCost * 100) / 100;
@@ -491,10 +503,22 @@ async function postCashSaleVoidReversal(
       withCurrentTenantDb(prisma, (client) =>
         (client as any).cashSaleLine.findMany({
           where: { saleId: sale.id },
-          include: { item: true },
         })
       ),
     ]);
+
+    const itemIds: string[] = (saleLines as any[]).map((l: any) => l.itemId).filter(Boolean);
+    const inventoryItems: any[] = itemIds.length > 0
+      ? (await withCurrentTenantDb(prisma, (client) =>
+          (client as any).inventoryItem.findMany({
+            where: { id: { in: itemIds } },
+            select: { id: true, costPrice: true },
+          })
+        ) as any[])
+      : [];
+    const costByItemId = new Map<string, number>(
+      inventoryItems.map((item: any) => [item.id, Number(item.costPrice)])
+    );
 
     const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
@@ -514,7 +538,7 @@ async function postCashSaleVoidReversal(
     const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
     if (cogsAcc && invAcc && Array.isArray(saleLines) && saleLines.length > 0) {
       const totalCost = (saleLines as any[]).reduce((sum: number, l: any) => {
-        const cost = l.item?.costPrice != null ? Number(l.item.costPrice) : 0;
+        const cost = costByItemId.get(l.itemId) ?? 0;
         return sum + cost * Number(l.quantity);
       }, 0);
       const cogs = Math.round(totalCost * 100) / 100;
