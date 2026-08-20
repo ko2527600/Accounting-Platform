@@ -426,6 +426,84 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         END IF;
       END $$;
     `
+  },
+  {
+    version: 12,
+    name: '012_add_payroll_tables',
+    sql: `
+      -- Widen the default_role CHECK to include Ghana Payroll posting roles.
+      -- (conrelid guard avoids a cross-tenant false-positive where another
+      -- tenant schema already dropped the old constraint during its own run.)
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role' AND conrelid = 'accounts'::regclass) THEN
+          ALTER TABLE accounts DROP CONSTRAINT chk_account_default_role;
+        END IF;
+        ALTER TABLE accounts ADD CONSTRAINT chk_account_default_role
+          CHECK (default_role IN (
+            'CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION',
+            'COGS', 'INVENTORY_ASSET',
+            'SALARY_EXPENSE', 'EMPLOYER_SSNIT_EXPENSE', 'PAYE_PAYABLE', 'SSNIT_PAYABLE', 'NET_PAY_PAYABLE'
+          ));
+      END $$;
+
+      -- Employees roster for payroll processing.
+      CREATE TABLE IF NOT EXISTS employees (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        employee_number VARCHAR(50) NOT NULL UNIQUE,
+        first_name VARCHAR(100) NOT NULL,
+        last_name VARCHAR(100) NOT NULL,
+        email VARCHAR(255),
+        phone VARCHAR(50),
+        position VARCHAR(100),
+        department VARCHAR(100),
+        gross_salary NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        date_of_joining DATE,
+        date_of_leaving DATE,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- One payroll processing run per month.
+      CREATE TABLE IF NOT EXISTS payroll_runs (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        run_number VARCHAR(100) NOT NULL UNIQUE,
+        period_month INTEGER NOT NULL,
+        period_year INTEGER NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'DRAFT',
+        total_gross NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        total_paye NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        total_ssnit_employee NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        total_ssnit_employer NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        total_net_pay NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        journal_entry_id UUID REFERENCES journal_entries(id) ON DELETE SET NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT chk_payroll_run_status CHECK (status IN ('DRAFT', 'POSTED', 'VOID')),
+        CONSTRAINT chk_payroll_run_month CHECK (period_month BETWEEN 1 AND 12)
+      );
+
+      -- Per-employee payslip within a payroll run.
+      CREATE TABLE IF NOT EXISTS payslips (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        payroll_run_id UUID NOT NULL REFERENCES payroll_runs(id) ON DELETE CASCADE,
+        employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
+        gross_salary NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        paye NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        ssnit_employee NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        ssnit_employer NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        net_pay NUMERIC(15, 2) NOT NULL DEFAULT 0.00,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uq_payslip_run_employee UNIQUE (payroll_run_id, employee_id)
+      );
+
+      CREATE INDEX IF NOT EXISTS idx_employees_is_active ON employees(is_active);
+      CREATE INDEX IF NOT EXISTS idx_payroll_runs_period ON payroll_runs(period_year, period_month);
+      CREATE INDEX IF NOT EXISTS idx_payslips_run ON payslips(payroll_run_id);
+      CREATE INDEX IF NOT EXISTS idx_payslips_employee ON payslips(employee_id);
+    `
   }
 ];
 

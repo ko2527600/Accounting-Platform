@@ -31,6 +31,7 @@ import {
   Store,
   GitBranch,
   Anchor,
+  BadgeDollarSign,
 } from "lucide-react";
 
 export interface NavItem {
@@ -103,6 +104,13 @@ export const navigationGroups: NavGroup[] = [
     ],
   },
   {
+    sectionTitle: "PAYROLL",
+    items: [
+      { name: "Employees", href: "/payroll/employees", icon: Users },
+      { name: "Payroll Runs", href: "/payroll/runs", icon: BadgeDollarSign },
+    ],
+  },
+  {
     sectionTitle: "ADMINISTRATION",
     items: [
       { name: "Approvals", href: "/approvals", icon: ShieldCheck },
@@ -128,7 +136,7 @@ export const navigationGroups: NavGroup[] = [
 export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
   "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/invoices", "/bills", "/expenses"],
   cashier: ["/dashboard", "/inventory", "/pos", "/expenses"],
-  hr: ["/dashboard", "/team", "/expenses"],
+  hr: ["/dashboard", "/team", "/expenses", "/payroll/employees", "/payroll/runs"],
   auditor: [
     "/dashboard",
     "/accounts",
