@@ -30,6 +30,7 @@ import {
   MessageSquare,
   Store,
   GitBranch,
+  Anchor,
 } from "lucide-react";
 
 export interface NavItem {
@@ -97,6 +98,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "AP/AR Aging", href: "/reports/aging", icon: Clock },
       { name: "Sales Channel Report", href: "/reports/sales-channel", icon: Store },
       { name: "Branch Comparison", href: "/reports/branch-comparison", icon: GitBranch },
+      { name: "Landed Cost", href: "/reports/landed-costs", icon: Anchor },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
     ],
   },
@@ -147,6 +149,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/aging",
     "/reports/sales-channel",
     "/reports/branch-comparison",
+    "/reports/landed-costs",
     "/reports/budgets",
     "/audit-logs",
     "/help-assistant/activity",

@@ -2,6 +2,42 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-20] - Wholesalers/Importers: FX Gain/Loss, Multi-Currency Aging, Landed Cost Report
+
+**What/Why:** Three gaps identified for Wholesalers, Distributors & Importers operating in multiple currencies: (1) FX gain/loss was never posted when payments settled at a different rate than originally booked, (2) the AR/AP aging report showed all amounts in native currency with no base-currency conversion, and (3) there was no way to see the all-in landed cost (freight + duty + customs) and how it affects per-unit inventory cost.
+
+**Changes:**
+
+1. **FX Gain/Loss on Invoice Payments** (`backend/src/services/invoicePaymentService.ts`):
+   - At payment time, if the invoice is in a foreign currency and `FX_RATE_API_KEY` is set, the service fetches the current exchange rate via `fxRateService.convertAmount`.
+   - If the current-rate amount differs from the locked rate (stored as `baseCurrencyAmount`), the difference is posted as a separate journal line: FX gain → credit REVENUE; FX loss → debit EXPENSE.
+   - The cash debit uses the current-rate amount; the revenue credit uses the original locked rate. Falls back to locked rate silently if live rate is unavailable.
+
+2. **FX Gain/Loss on Vendor Bill Payments** (`backend/src/services/vendorBillPaymentService.ts`):
+   - Same pattern: expense debit at locked rate, cash credit at current rate, FX gain/loss reconciliation line.
+   - Favorable rate move (less cash than accrued) → FX gain (credit REVENUE); unfavorable → FX loss (debit EXPENSE).
+
+3. **Multi-Currency AR/AP Aging** (`backend/src/services/agingReportService.ts`):
+   - Added `currency` and `nativeBalanceDue` fields to `ArAgingRow` and `ApAgingRow` interfaces.
+   - AR aging: outstanding balance converted to base currency using locked FX rate (`baseCurrencyAmount / total`) for bucket totals; native amount preserved for display.
+   - AP aging: uses `baseCurrencyAmount` for bucket totals if available; excludes `LANDED_COST` bills (freight/customs are not payables to vendors in the same way).
+   - **Frontend** (`frontend/src/pages/reports/AgingReport.tsx`): Added "Currency" and "Native Amount" columns; bucket totals remain in base currency; native amount column shows "-" for same-currency rows.
+
+4. **Landed Cost Report** (`backend/src/routes/reports.ts` + `frontend/src/pages/reports/LandedCostReport.tsx`):
+   - New `GET /reports/landed-costs` endpoint, gated at Business tier (tier 2). Queries primary purchase bills that have at least one `LANDED_COST` bill linked via `landedCostForBillId`. Returns per-shipment: goods cost, all landed cost bills, grand total, and per-item allocation (proportional by line total), including effective unit cost.
+   - New frontend page with date range filter, summary tiles (goods / landed / all-in totals), and an expandable shipment list showing the landed cost breakdown and per-item effective cost.
+   - Navigation entry added to Reports section (`Anchor` icon, route `/reports/landed-costs`).
+
+**Files Affected:**
+- `backend/src/services/invoicePaymentService.ts`
+- `backend/src/services/vendorBillPaymentService.ts`
+- `backend/src/services/agingReportService.ts`
+- `backend/src/routes/reports.ts`
+- `frontend/src/pages/reports/AgingReport.tsx`
+- `frontend/src/pages/reports/LandedCostReport.tsx` (new)
+- `frontend/src/lib/navigation.ts`
+- `frontend/src/App.tsx`
+
 ## [Date: 2026-08-18] - Branch Comparison Report (Business Tier)
 
 **What/Why:** Multi-branch businesses (supermarkets, pharmacies, boutiques) need to compare performance across locations. Added a Branch Comparison report gated at Business tier (tier 2) showing per-branch cash revenue, current stock value at cost, and inter-branch transfer counts for a configurable date range.
