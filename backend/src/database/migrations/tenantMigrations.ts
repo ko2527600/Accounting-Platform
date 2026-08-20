@@ -379,7 +379,7 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
           CHECK (default_role IN ('CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION'));
       END $$;
     `
-  }
+  },
   {
     version: 11,
     name: '011_add_cogs_inventory_asset_roles',
