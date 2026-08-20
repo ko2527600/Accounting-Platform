@@ -2,6 +2,36 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-20] - Auto COGS Posting on POS Sales and Invoice Payments
+
+**What/Why:** The platform never posted a Cost of Goods Sold journal entry when inventory items were sold. This was a known accounting-correctness gap (flagged in the competitive benchmark as the highest accounting-correctness priority). Without COGS posting, the P&L showed revenue without the corresponding cost of sales, and the Inventory Asset account never decreased as goods were sold.
+
+**Changes:**
+
+1. **New GL roles: COGS and INVENTORY_ASSET** (`backend/src/repository/accountRepository.ts`):
+   - Extended `AccountDefaultRole` type to include `'COGS'` and `'INVENTORY_ASSET'`.
+   - Extended `PLAUSIBLE_TYPES_FOR_ROLE` and `pickAutoDefaultCandidate` for the two new roles.
+
+2. **Tenant migration 011** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - Drops and recreates the `default_role` CHECK constraint to include `'COGS'` and `'INVENTORY_ASSET'`.
+   - Auto-designates: lowest-code `COST_OF_SALES` account → COGS; best-match non-cash, non-fixed ASSET → INVENTORY_ASSET.
+
+3. **POS Cash Till COGS posting** (`backend/src/routes/cashTill.ts`):
+   - `postCashSaleRevenue`: fetches sale lines with inventory item cost prices; if COGS and Inventory Asset accounts are configured and totalCost > 0, appends Debit COGS / Credit Inventory lines to the cash-sale journal entry.
+   - `postCashSaleVoidReversal`: same pattern in reverse (Debit Inventory / Credit COGS).
+
+4. **Invoice Payment COGS posting** (`backend/src/services/invoicePaymentService.ts`):
+   - Resolves `cogsAcc` and `invAcc` alongside the other GL accounts.
+   - Invoice fetch includes `items: { include: { inventoryItem: true } }` to get cost prices.
+   - COGS lines are scaled by `paymentShare` (proportional for partial payments) and `fxScale` (base-currency conversion). Only items with `inventoryItemId` and a known `costPrice` contribute.
+
+5. **Onboarding wizard** (`backend/src/services/onboardingWizardService.ts`):
+   - `seedChartOfAccounts` now auto-designates `COGS` and `INVENTORY_ASSET` roles alongside `CASH`/`REVENUE`/`EXPENSE` for new tenants during setup.
+
+**Files affected:** `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/repository/accountRepository.ts`, `backend/src/routes/cashTill.ts`, `backend/src/services/invoicePaymentService.ts`, `backend/src/services/onboardingWizardService.ts`
+
+---
+
 ## [Date: 2026-08-20] - Wholesalers/Importers: FX Gain/Loss, Multi-Currency Aging, Landed Cost Report
 
 **What/Why:** Three gaps identified for Wholesalers, Distributors & Importers operating in multiple currencies: (1) FX gain/loss was never posted when payments settled at a different rate than originally booked, (2) the AR/AP aging report showed all amounts in native currency with no base-currency conversion, and (3) there was no way to see the all-in landed cost (freight + duty + customs) and how it affects per-unit inventory cost.
