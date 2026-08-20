@@ -389,8 +389,8 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       --   COGS            - the P&L debit side (Cost of Goods Sold / Cost of Sales)
       --   INVENTORY_ASSET - the balance-sheet credit side (Inventory asset account)
       -- Same "at-most-one-per-role" unique constraint as the existing roles.
-      -- Widens the CHECK constraint; conrelid guard avoids the cross-tenant
-      -- false-positive documented in migration 010.
+      -- Widens the CHECK constraint (conrelid guard avoids the cross-tenant
+      -- false-positive documented in migration 010).
       DO $$
       BEGIN
         IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role' AND conrelid = 'accounts'::regclass) THEN
