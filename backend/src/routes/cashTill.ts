@@ -30,7 +30,16 @@ async function postCashSaleRevenue(
   actor: AuditActor
 ): Promise<string | null> {
   try {
-    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
+    const [accounts, saleLines] = await Promise.all([
+      withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client)),
+      withCurrentTenantDb(prisma, (client) =>
+        (client as any).cashSaleLine.findMany({
+          where: { saleId: sale.id },
+          include: { item: true },
+        })
+      ),
+    ]);
+
     const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
     if (!cashAcc || !revenueAcc) {
@@ -39,15 +48,35 @@ async function postCashSaleRevenue(
     }
 
     const amount = Number(sale.amount);
+    const lines: { accountId: string; debit: number; credit: number; description: string }[] = [
+      { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash received - ${sale.receiptNo}` },
+      { accountId: revenueAcc.id, debit: 0, credit: amount, description: `Sales revenue - ${sale.receiptNo}` },
+    ];
+
+    // COGS: Debit Cost of Goods Sold / Credit Inventory Asset for every line
+    // that has a recorded cost price. Only posted when both accounts are
+    // designated — silently omitted otherwise so existing tenants without the
+    // designation don't break.
+    const cogsAcc = accountRepository.resolveDefaultAccount(accounts, 'COGS');
+    const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
+    if (cogsAcc && invAcc && Array.isArray(saleLines) && saleLines.length > 0) {
+      const totalCost = (saleLines as any[]).reduce((sum: number, l: any) => {
+        const cost = l.item?.costPrice != null ? Number(l.item.costPrice) : 0;
+        return sum + cost * Number(l.quantity);
+      }, 0);
+      const cogs = Math.round(totalCost * 100) / 100;
+      if (cogs > 0) {
+        lines.push({ accountId: cogsAcc.id, debit: cogs, credit: 0, description: `COGS - ${sale.receiptNo}` });
+        lines.push({ accountId: invAcc.id, debit: 0, credit: cogs, description: `Inventory - ${sale.receiptNo}` });
+      }
+    }
+
     const journal = await journalService.createJournalEntry(
       {
         description: `POS Cash Sale ${sale.receiptNo}${sale.createdByName ? ` (${sale.createdByName})` : ''}`,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
-        lines: [
-          { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash received - ${sale.receiptNo}` },
-          { accountId: revenueAcc.id, debit: 0, credit: amount, description: `Sales revenue - ${sale.receiptNo}` },
-        ],
+        lines,
       },
       actor
     );
@@ -457,7 +486,16 @@ async function postCashSaleVoidReversal(
   actor: AuditActor
 ): Promise<string | null> {
   try {
-    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
+    const [accounts, saleLines] = await Promise.all([
+      withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client)),
+      withCurrentTenantDb(prisma, (client) =>
+        (client as any).cashSaleLine.findMany({
+          where: { saleId: sale.id },
+          include: { item: true },
+        })
+      ),
+    ]);
+
     const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
     if (!cashAcc || !revenueAcc) {
@@ -466,15 +504,32 @@ async function postCashSaleVoidReversal(
     }
 
     const amount = Number(sale.amount);
+    const lines: { accountId: string; debit: number; credit: number; description: string }[] = [
+      { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${sale.receiptNo}` },
+      { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash paid out - ${sale.receiptNo}` },
+    ];
+
+    // Reverse COGS: Credit COGS / Debit Inventory (goods returned to stock)
+    const cogsAcc = accountRepository.resolveDefaultAccount(accounts, 'COGS');
+    const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
+    if (cogsAcc && invAcc && Array.isArray(saleLines) && saleLines.length > 0) {
+      const totalCost = (saleLines as any[]).reduce((sum: number, l: any) => {
+        const cost = l.item?.costPrice != null ? Number(l.item.costPrice) : 0;
+        return sum + cost * Number(l.quantity);
+      }, 0);
+      const cogs = Math.round(totalCost * 100) / 100;
+      if (cogs > 0) {
+        lines.push({ accountId: invAcc.id, debit: cogs, credit: 0, description: `Inventory restored - ${sale.receiptNo}` });
+        lines.push({ accountId: cogsAcc.id, debit: 0, credit: cogs, description: `COGS reversal - ${sale.receiptNo}` });
+      }
+    }
+
     const journal = await journalService.createJournalEntry(
       {
         description: `Void reversal for POS Cash Sale ${sale.receiptNo}`,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
-        lines: [
-          { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${sale.receiptNo}` },
-          { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash paid out - ${sale.receiptNo}` },
-        ],
+        lines,
       },
       actor
     );

@@ -7,7 +7,7 @@ export type AccountType = 'ASSET' | 'LIABILITY' | 'EQUITY' | 'REVENUE' | 'EXPENS
 // 009_add_account_default_role. At most one account per role per tenant.
 // DEPRECIATION_EXPENSE/ACCUMULATED_DEPRECIATION added by migration
 // 010_add_fixed_asset_support for fixedAssetService.ts's monthly postings.
-export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION';
+export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION' | 'COGS' | 'INVENTORY_ASSET';
 
 export interface AccountRecord {
   id: string;
@@ -105,6 +105,8 @@ const PLAUSIBLE_TYPES_FOR_ROLE: Record<AccountDefaultRole, AccountType[]> = {
   EXPENSE: ['EXPENSE', 'COST_OF_SALES'],
   DEPRECIATION_EXPENSE: ['EXPENSE'],
   ACCUMULATED_DEPRECIATION: ['ASSET'],
+  COGS: ['COST_OF_SALES', 'EXPENSE'],
+  INVENTORY_ASSET: ['ASSET'],
 };
 
 export function resolveDefaultAccount(
@@ -141,6 +143,14 @@ export function pickAutoDefaultCandidate(
   }
   if (role === 'REVENUE') {
     return accounts.filter((a) => a.type === 'REVENUE').sort(byCodeAsc)[0];
+  }
+  if (role === 'COGS') {
+    const cogsAccounts = accounts.filter((a) => a.type === 'COST_OF_SALES');
+    return cogsAccounts.sort(byCodeAsc)[0];
+  }
+  if (role === 'INVENTORY_ASSET') {
+    const inv = accounts.filter((a) => a.type === 'ASSET' && !a.isCashEquivalent && !a.isFixedAsset);
+    return inv.find((a) => /inventor|stock|goods/i.test(a.name)) || inv.sort(byCodeAsc)[0];
   }
   const expenseAccounts = accounts.filter((a) => a.type === 'EXPENSE' || a.type === 'COST_OF_SALES');
   return expenseAccounts.find((a) => /miscellaneous/i.test(a.name)) || expenseAccounts.sort(byCodeAsc)[0];

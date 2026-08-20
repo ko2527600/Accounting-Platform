@@ -380,6 +380,53 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       END $$;
     `
   }
+  {
+    version: 11,
+    name: '011_add_cogs_inventory_asset_roles',
+    sql: `
+      -- Two new default-posting roles for automatic COGS posting when goods
+      -- are sold via POS or invoice:
+      --   COGS            - the P&L debit side (Cost of Goods Sold / Cost of Sales)
+      --   INVENTORY_ASSET - the balance-sheet credit side (Inventory asset account)
+      -- Same "at-most-one-per-role" unique constraint as the existing roles.
+      -- Widens the CHECK constraint; conrelid guard avoids the cross-tenant
+      -- false-positive documented in migration 010.
+      DO $$
+      BEGIN
+        IF EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'chk_account_default_role' AND conrelid = 'accounts'::regclass) THEN
+          ALTER TABLE accounts DROP CONSTRAINT chk_account_default_role;
+        END IF;
+        ALTER TABLE accounts ADD CONSTRAINT chk_account_default_role
+          CHECK (default_role IN ('CASH', 'REVENUE', 'EXPENSE', 'DEPRECIATION_EXPENSE', 'ACCUMULATED_DEPRECIATION', 'COGS', 'INVENTORY_ASSET'));
+      END $$;
+
+      -- Retroactive auto-designation for existing tenants: pick the lowest-code
+      -- COST_OF_SALES account as COGS (if one exists and none is already
+      -- designated), and the lowest-code ASSET account that is neither a cash
+      -- equivalent nor a fixed asset as INVENTORY_ASSET.
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'COGS') THEN
+          UPDATE accounts SET default_role = 'COGS'
+          WHERE id = (
+            SELECT id FROM accounts WHERE type = 'COST_OF_SALES' ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'INVENTORY_ASSET') THEN
+          UPDATE accounts SET default_role = 'INVENTORY_ASSET'
+          WHERE id = (
+            SELECT id FROM accounts
+            WHERE type = 'ASSET'
+              AND is_cash_equivalent = false
+              AND is_fixed_asset = false
+              AND (name ILIKE '%inventor%' OR name ILIKE '%stock%' OR name ILIKE '%goods%')
+            ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+      END $$;
+    `
+  }
 ];
 
 

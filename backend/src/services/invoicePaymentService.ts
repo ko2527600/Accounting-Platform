@@ -54,7 +54,7 @@ export async function recordInvoicePayment(
   const invoice = await withCurrentTenantDb(prisma, async (client) => {
     return (client as any).invoice.findFirst({
       where: { id: invoiceId, tenantId },
-      include: { customer: true, taxRate: true },
+      include: { customer: true, taxRate: true, items: { include: { inventoryItem: true } } },
     });
   });
 
@@ -92,6 +92,8 @@ export async function recordInvoicePayment(
   const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
   const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
   const expenseAcc = accountRepository.resolveDefaultAccount(accounts, 'EXPENSE') || accounts[0];
+  const cogsAcc = accountRepository.resolveDefaultAccount(accounts, 'COGS');
+  const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
   const accountsById = new Map(accounts.map((a: any) => [a.id, a]));
 
   // Same base-currency conversion ratio for the whole invoice, applied to
@@ -183,6 +185,20 @@ export async function recordInvoicePayment(
         lines.push({ accountId: revenueAcc.id, debit: 0, credit: fxGainLoss, description: `FX Gain - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
       } else if (expenseAcc) {
         lines.push({ accountId: expenseAcc.id, debit: -fxGainLoss, credit: 0, description: `FX Loss - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+      }
+    }
+
+    // COGS: recognize cost proportional to this payment's share of the invoice.
+    // Scaled by fxScale to convert native cost prices into base currency.
+    if (cogsAcc && invAcc && Array.isArray(invoice.items) && invoice.items.length > 0) {
+      const totalNativeCost = (invoice.items as any[]).reduce((sum: number, item: any) => {
+        if (!item.inventoryItemId || item.inventoryItem?.costPrice == null) return sum;
+        return sum + Number(item.inventoryItem.costPrice) * Number(item.quantity);
+      }, 0);
+      const cogsCost = Math.round(totalNativeCost * paymentShare * fxScale * 100) / 100;
+      if (cogsCost > 0.001) {
+        lines.push({ accountId: cogsAcc.id, debit: cogsCost, credit: 0, description: `COGS - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+        lines.push({ accountId: invAcc.id, debit: 0, credit: cogsCost, description: `Inventory - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
       }
     }
 
