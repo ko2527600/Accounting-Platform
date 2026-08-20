@@ -2,6 +2,43 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-20] - Ghana Payroll Module (PAYE, SSNIT, Payslips, Journal Posting)
+
+**What/Why:** Greenfield Ghana payroll module covering employee roster management, Ghana PAYE tax computation (2024 GRA income tax bands), SSNIT social security contributions (employee 5.5% + employer 13%), payroll run processing, and automatic double-entry journal posting.
+
+**Changes:**
+
+1. **Tenant migration 012** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - Widens `default_role` CHECK constraint to include 5 new payroll roles: `SALARY_EXPENSE`, `EMPLOYER_SSNIT_EXPENSE`, `PAYE_PAYABLE`, `SSNIT_PAYABLE`, `NET_PAY_PAYABLE`.
+   - New `employees` table: employee roster with gross monthly salary, contact info, department, and joining/leaving dates.
+   - New `payroll_runs` table: one run per month/year with status (DRAFT/POSTED/VOID) and aggregated totals.
+   - New `payslips` table: per-employee breakdowns linked to each payroll run.
+
+2. **Account roles** (`backend/src/repository/accountRepository.ts`, `backend/src/services/accountService.ts`):
+   - Added 5 new `AccountDefaultRole` values with plausible type mappings and `pickAutoDefaultCandidate` logic for auto-designation.
+
+3. **Payroll service** (`backend/src/services/payrollService.ts`):
+   - `computeMonthlyPAYE`: Ghana GRA 2024 six-band progressive tax schedule.
+   - `createPayrollRun`: iterates active employees, computes PAYE + SSNIT for each, inserts payroll run + payslips in one transaction.
+   - `postPayrollJournalEntry`: posts Dr Salary Expense + Dr Employer SSNIT Expense / Cr PAYE Payable + Cr SSNIT Payable + Cr Net Pay Payable; marks run POSTED.
+   - `voidPayrollRun`, `listEmployees`, `createEmployee`, `updateEmployee`, `getEmployee`.
+
+4. **Payroll routes** (`backend/src/routes/payroll.ts`):
+   - `GET/POST /payroll/employees`, `GET/PUT /payroll/employees/:id`
+   - `GET/POST /payroll/runs`, `GET /payroll/runs/:id`, `POST /payroll/runs/:id/post`, `POST /payroll/runs/:id/void`
+   - `POST /payroll/calculate-paye` (utility endpoint)
+   - Gated at Tier 2 (Business). RBAC: Admin/Accountant/HR for writes, Auditor for reads.
+
+5. **Frontend** (`frontend/src/pages/payroll/`):
+   - `Employees.tsx`: employee roster table with add/edit modal.
+   - `PayrollRuns.tsx`: run payroll by month/year, expandable payslip detail view, post-to-GL button.
+   - Navigation (`frontend/src/lib/navigation.ts`): new PAYROLL section with Employees and Payroll Runs links; HR role nav updated.
+   - Routes (`frontend/src/App.tsx`): `/payroll/employees` and `/payroll/runs`.
+
+**Files affected:** `tenantMigrations.ts`, `accountRepository.ts`, `accountService.ts`, `payrollService.ts` (new), `routes/payroll.ts` (new), `app.ts`, `navigation.ts`, `App.tsx`, `pages/payroll/Employees.tsx` (new), `pages/payroll/PayrollRuns.tsx` (new).
+
+---
+
 ## [Date: 2026-08-20] - Auto COGS Posting on POS Sales and Invoice Payments
 
 **What/Why:** The platform never posted a Cost of Goods Sold journal entry when inventory items were sold. This was a known accounting-correctness gap (flagged in the competitive benchmark as the highest accounting-correctness priority). Without COGS posting, the P&L showed revenue without the corresponding cost of sales, and the Inventory Asset account never decreased as goods were sold.
