@@ -27,7 +27,6 @@ const ROLE_OPTIONS: { value: string; label: string; description: string }[] = [
   { value: "External Accountant", label: "External Accountant", description: "Time-limited read-only accounting access — no user management or payments" },
 ];
 
-const CLOSED_ROLES = ROLE_OPTIONS.map((r) => r.value);
 const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier", "warehouse manager"]);
 
 function isLocationScopedRole(role: string): boolean {
