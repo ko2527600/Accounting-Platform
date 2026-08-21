@@ -155,7 +155,7 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
             orderBy: { createdAt: 'desc' },
             include: {
               lines: {
-                select: { id: true, quantity: true, itemName: true, itemId: true },
+                select: { id: true, quantity: true, itemName: true, itemId: true, lineTotal: true, unitPrice: true },
               },
             },
           },
