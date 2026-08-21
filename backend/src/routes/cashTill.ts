@@ -148,7 +148,18 @@ router.get('/current', async (req: Request, res: Response): Promise<void> => {
           ...(accessibleIds !== null && { warehouseId: { in: accessibleIds } }),
           status: 'OPEN',
         },
-        include: { warehouse: true, sales: { include: { lines: true }, orderBy: { createdAt: 'desc' } } },
+        include: {
+          warehouse: true,
+          sales: {
+            take: 100,
+            orderBy: { createdAt: 'desc' },
+            include: {
+              lines: {
+                select: { id: true, quantity: true, itemName: true },
+              },
+            },
+          },
+        },
         orderBy: { openedAt: 'desc' },
       });
     });

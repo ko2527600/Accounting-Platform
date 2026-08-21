@@ -952,7 +952,7 @@ model CashTill {
   sales          CashSale[]
   closeoutReport DailyCloseoutReport?
 
-  @@index([tenantId])
+  @@index([tenantId, status])
   @@map("cash_tills")
 }
 

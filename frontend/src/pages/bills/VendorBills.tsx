@@ -111,6 +111,8 @@ export function VendorBills() {
   const [landedCurrency, setLandedCurrency] = useState("USD");
   const [landedDescription, setLandedDescription] = useState("");
   const [isSubmittingLanded, setIsSubmittingLanded] = useState(false);
+  const [isAddingVendor, setIsAddingVendor] = useState(false);
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false);
   const [landedResult, setLandedResult] = useState<any | null>(null);
 
   // Debit Note modal
@@ -151,6 +153,7 @@ export function VendorBills() {
 
   const handleAddVendor = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsAddingVendor(true);
     try {
       const res = await api.post("/bills/vendors", { name: vendorName, email: vendorEmail });
       if (res.data.success) {
@@ -161,6 +164,8 @@ export function VendorBills() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to add vendor.", "error");
+    } finally {
+      setIsAddingVendor(false);
     }
   };
 
@@ -252,6 +257,7 @@ export function VendorBills() {
   const handleSaveSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!scheduleModalBill) return;
+    setIsSavingSchedule(true);
     try {
       await api.put(`/bills/${scheduleModalBill.id}/schedule-payment`, { scheduledPaymentDate: scheduleDate || null });
       showToast(scheduleDate ? "Payment scheduled." : "Schedule cleared.", "success");
@@ -259,6 +265,8 @@ export function VendorBills() {
       fetchData();
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to set schedule.", "error");
+    } finally {
+      setIsSavingSchedule(false);
     }
   };
 
@@ -523,7 +531,7 @@ export function VendorBills() {
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsVendorOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="primary">Add Vendor</Button>
+            <Button type="submit" variant="primary" disabled={isAddingVendor}>{isAddingVendor ? "Adding..." : "Add Vendor"}</Button>
           </div>
         </form>
       </Modal>
@@ -844,7 +852,7 @@ export function VendorBills() {
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setScheduleModalBill(null)}>Cancel</Button>
-            <Button type="submit" variant="primary">Save</Button>
+            <Button type="submit" variant="primary" disabled={isSavingSchedule}>{isSavingSchedule ? "Saving..." : "Save"}</Button>
           </div>
         </form>
       </Modal>

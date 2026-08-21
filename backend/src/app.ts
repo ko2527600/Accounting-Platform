@@ -1,6 +1,7 @@
 import express, { Express } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import dns from 'dns';
 
@@ -115,6 +116,7 @@ app.use(
     },
   })
 );
+app.use(compression());
 app.use(express.json());
 
 // ── Observability ──────────────────────────────────────────────────────────────

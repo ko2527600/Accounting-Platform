@@ -86,7 +86,18 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const bills = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).vendorBill.findMany({
         where: { tenantId },
-        include: { vendor: true, lines: { include: { item: true } }, warehouse: true },
+        select: {
+          id: true, billNumber: true, amount: true, currency: true,
+          status: true, dueDate: true, createdAt: true, billType: true,
+          scheduledPaymentDate: true, landedCostForBillId: true,
+          vendor: { select: { id: true, name: true, email: true } },
+          lines: {
+            select: {
+              id: true, quantity: true,
+              item: { select: { id: true, name: true } },
+            },
+          },
+        },
         orderBy: { createdAt: 'desc' },
       });
     });
