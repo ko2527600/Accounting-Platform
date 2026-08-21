@@ -309,7 +309,7 @@ router.patch('/leave/requests/:id/status', requireRole('Admin', 'HR'), async (re
       return;
     }
     const leaveRequest = await leaveService.updateLeaveRequestStatus(
-      req.params.id, status, actor?.userId, actor
+      req.params.id, status, actor?.userId ?? undefined, actor
     );
     res.json({ success: true, data: { leaveRequest } });
   } catch (error) {
