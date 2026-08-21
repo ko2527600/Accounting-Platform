@@ -544,6 +544,28 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_loan_deductions_loan ON loan_deductions(loan_id);
       CREATE INDEX IF NOT EXISTS idx_loan_deductions_payslip ON loan_deductions(payslip_id);
     `
+  },
+  {
+    version: 14,
+    name: '014_multi_currency_payroll',
+    sql: `
+      -- Add foreign-currency fields to employees.
+      -- salary_currency: ISO-4217 code of the currency in which gross_salary is denominated.
+      -- salary_exchange_rate: rate to convert one unit of salary_currency to GHS (base currency).
+      -- For GHS employees both columns stay at their defaults; no existing data is altered.
+      ALTER TABLE employees
+        ADD COLUMN IF NOT EXISTS salary_currency VARCHAR(10) NOT NULL DEFAULT 'GHS',
+        ADD COLUMN IF NOT EXISTS salary_exchange_rate NUMERIC(18, 6) NOT NULL DEFAULT 1.000000;
+
+      -- Add per-payslip FX columns so payslip PDFs can show the foreign amount
+      -- alongside the GHS equivalent without recalculating at render time.
+      -- gross_salary on the payslip is always the GHS-equivalent amount used for
+      -- PAYE/SSNIT; gross_salary_foreign is the original foreign-currency figure.
+      ALTER TABLE payslips
+        ADD COLUMN IF NOT EXISTS salary_currency VARCHAR(10) NOT NULL DEFAULT 'GHS',
+        ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(18, 6) NOT NULL DEFAULT 1.000000,
+        ADD COLUMN IF NOT EXISTS gross_salary_foreign NUMERIC(15, 2) NOT NULL DEFAULT 0.00;
+    `
   }
 ];
 

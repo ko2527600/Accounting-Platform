@@ -81,9 +81,17 @@ function renderPayslip(
     doc.text(`GHS ${fmt(amount)}`, col, y, { align: 'right', width: contentWidth / 2 - 10 });
   }
 
-  tableRow('Basic Salary', slip.grossSalary, col1);
+  const isMultiCurrency = slip.salaryCurrency && slip.salaryCurrency !== 'GHS';
+  const basicLabel = isMultiCurrency
+    ? `Basic Salary (${slip.salaryCurrency} ${fmt(slip.grossSalaryForeign)} @ ${slip.exchangeRate})`
+    : 'Basic Salary';
+  tableRow(basicLabel, slip.grossSalary, col1);
   tableRow('PAYE Income Tax', slip.paye, col2);
   y += rowH;
+  if (slip.loanDeduction > 0) {
+    tableRow('Loan / Salary Advance', slip.loanDeduction, col2);
+    y += rowH;
+  }
   tableRow('Employee SSNIT (5.5%)', slip.ssnitEmployee, col2);
   y += rowH;
   y += 4;
@@ -96,7 +104,7 @@ function renderPayslip(
      .text(`GHS ${fmt(slip.grossSalary)}`, col1, y + 1, { align: 'right', width: contentWidth / 2 - 10 });
 
   doc.fillColor('#444444').fontSize(8).font('Helvetica').text('Total Deductions', col2, y);
-  const totalDed = slip.paye + slip.ssnitEmployee;
+  const totalDed = slip.paye + slip.ssnitEmployee + slip.loanDeduction;
   doc.fillColor('#111111').fontSize(10).font('Helvetica-Bold')
      .text(`GHS ${fmt(totalDed)}`, col2, y + 1, { align: 'right', width: contentWidth / 2 - 10 });
 

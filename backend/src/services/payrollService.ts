@@ -56,6 +56,8 @@ export interface EmployeeRecord {
   position: string | null;
   department: string | null;
   grossSalary: number;
+  salaryCurrency: string;
+  salaryExchangeRate: number;
   dateOfJoining: string | null;
   dateOfLeaving: string | null;
   isActive: boolean;
@@ -74,6 +76,8 @@ function mapEmployee(row: any): EmployeeRecord {
     position: row.position || null,
     department: row.department || null,
     grossSalary: Number(row.gross_salary),
+    salaryCurrency: row.salary_currency || 'GHS',
+    salaryExchangeRate: Number(row.salary_exchange_rate ?? 1),
     dateOfJoining: row.date_of_joining ? String(row.date_of_joining).split('T')[0] : null,
     dateOfLeaving: row.date_of_leaving ? String(row.date_of_leaving).split('T')[0] : null,
     isActive: Boolean(row.is_active),
@@ -88,6 +92,9 @@ export interface PayslipRecord {
   employeeId: string;
   employee?: EmployeeRecord;
   grossSalary: number;
+  grossSalaryForeign: number;
+  salaryCurrency: string;
+  exchangeRate: number;
   paye: number;
   ssnitEmployee: number;
   ssnitEmployer: number;
@@ -103,6 +110,9 @@ function mapPayslip(row: any): PayslipRecord {
     employeeId: row.employee_id,
     employee: row.employee ? mapEmployee(row.employee) : undefined,
     grossSalary: Number(row.gross_salary),
+    grossSalaryForeign: Number(row.gross_salary_foreign ?? row.gross_salary),
+    salaryCurrency: row.salary_currency || 'GHS',
+    exchangeRate: Number(row.exchange_rate ?? 1),
     paye: Number(row.paye),
     ssnitEmployee: Number(row.ssnit_employee),
     ssnitEmployer: Number(row.ssnit_employer),
@@ -177,6 +187,8 @@ export interface CreateEmployeeInput {
   position?: string | null;
   department?: string | null;
   grossSalary: number;
+  salaryCurrency?: string;
+  salaryExchangeRate?: number;
   dateOfJoining?: string | null;
 }
 
@@ -189,9 +201,11 @@ export async function createEmployee(data: CreateEmployeeInput, _actor?: AuditAc
     const countRows: any[] = await (client as any).$queryRawUnsafe(`SELECT COUNT(*)::int AS cnt FROM employees`);
     const seq = (Number(countRows[0]?.cnt) || 0) + 1;
     const empNo = `EMP-${String(seq).padStart(4, '0')}`;
+    const currency = (data.salaryCurrency?.trim().toUpperCase() || 'GHS');
+    const rate = currency === 'GHS' ? 1 : (Number(data.salaryExchangeRate) || 1);
     return (client as any).$queryRawUnsafe(
-      `INSERT INTO employees (employee_number, first_name, last_name, email, phone, position, department, gross_salary, date_of_joining)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::date)
+      `INSERT INTO employees (employee_number, first_name, last_name, email, phone, position, department, gross_salary, salary_currency, salary_exchange_rate, date_of_joining)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::date)
        RETURNING *`,
       empNo,
       data.firstName.trim(),
@@ -201,6 +215,8 @@ export async function createEmployee(data: CreateEmployeeInput, _actor?: AuditAc
       data.position?.trim() || null,
       data.department?.trim() || null,
       Number(data.grossSalary),
+      currency,
+      rate,
       data.dateOfJoining || null
     );
   }) as any[];
@@ -215,6 +231,8 @@ export interface UpdateEmployeeInput {
   position?: string | null;
   department?: string | null;
   grossSalary?: number;
+  salaryCurrency?: string;
+  salaryExchangeRate?: number;
   dateOfJoining?: string | null;
   dateOfLeaving?: string | null;
   isActive?: boolean;
@@ -222,6 +240,9 @@ export interface UpdateEmployeeInput {
 
 export async function updateEmployee(id: string, data: UpdateEmployeeInput, _actor?: AuditActor): Promise<EmployeeRecord> {
   const existing = await getEmployee(id);
+
+  const newCurrency = data.salaryCurrency ? data.salaryCurrency.trim().toUpperCase() : existing.salaryCurrency;
+  const newRate = data.salaryExchangeRate != null ? Number(data.salaryExchangeRate) : (newCurrency === 'GHS' ? 1 : existing.salaryExchangeRate);
 
   const updated: any = {
     first_name: data.firstName?.trim() ?? existing.firstName,
@@ -231,6 +252,8 @@ export async function updateEmployee(id: string, data: UpdateEmployeeInput, _act
     position: 'position' in data ? (data.position?.trim() || null) : existing.position,
     department: 'department' in data ? (data.department?.trim() || null) : existing.department,
     gross_salary: data.grossSalary != null ? Number(data.grossSalary) : existing.grossSalary,
+    salary_currency: newCurrency,
+    salary_exchange_rate: newRate,
     date_of_joining: 'dateOfJoining' in data ? (data.dateOfJoining || null) : existing.dateOfJoining,
     date_of_leaving: 'dateOfLeaving' in data ? (data.dateOfLeaving || null) : existing.dateOfLeaving,
     is_active: data.isActive != null ? Boolean(data.isActive) : existing.isActive,
@@ -241,12 +264,14 @@ export async function updateEmployee(id: string, data: UpdateEmployeeInput, _act
       `UPDATE employees SET
         first_name = $2, last_name = $3, email = $4, phone = $5,
         position = $6, department = $7, gross_salary = $8,
-        date_of_joining = $9::date, date_of_leaving = $10::date,
-        is_active = $11, updated_at = NOW()
+        salary_currency = $9, salary_exchange_rate = $10,
+        date_of_joining = $11::date, date_of_leaving = $12::date,
+        is_active = $13, updated_at = NOW()
        WHERE id = $1::uuid RETURNING *`,
       id,
       updated.first_name, updated.last_name, updated.email, updated.phone,
       updated.position, updated.department, updated.gross_salary,
+      updated.salary_currency, updated.salary_exchange_rate,
       updated.date_of_joining, updated.date_of_leaving, updated.is_active
     )
   ) as any[];
@@ -269,7 +294,8 @@ export async function getPayrollRun(id: string): Promise<PayrollRunRecord> {
     const runs = await (client as any).$queryRawUnsafe(`SELECT * FROM payroll_runs WHERE id = $1::uuid`, id);
     const payslips = await (client as any).$queryRawUnsafe(
       `SELECT p.*, e.id as "e_id", e.employee_number, e.first_name, e.last_name, e.email, e.phone,
-              e.position, e.department, e.gross_salary as "e_gross", e.date_of_joining, e.date_of_leaving,
+              e.position, e.department, e.gross_salary as "e_gross", e.salary_currency as "e_salary_currency",
+              e.salary_exchange_rate as "e_salary_exchange_rate", e.date_of_joining, e.date_of_leaving,
               e.is_active, e.created_at as "e_created_at", e.updated_at as "e_updated_at"
        FROM payslips p
        JOIN employees e ON e.id = p.employee_id
@@ -295,6 +321,8 @@ export async function getPayrollRun(id: string): Promise<PayrollRunRecord> {
       position: row.position || null,
       department: row.department || null,
       grossSalary: Number(row.e_gross),
+      salaryCurrency: row.e_salary_currency || 'GHS',
+      salaryExchangeRate: Number(row.e_salary_exchange_rate ?? 1),
       dateOfJoining: row.date_of_joining ? String(row.date_of_joining).split('T')[0] : null,
       dateOfLeaving: row.date_of_leaving ? String(row.date_of_leaving).split('T')[0] : null,
       isActive: Boolean(row.is_active),
@@ -342,7 +370,10 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
   let totalNetPay = 0;
 
   const payslipData = employees.map((emp) => {
-    const gross = emp.grossSalary;
+    const foreignGross = emp.grossSalary;
+    const rate = emp.salaryExchangeRate || 1;
+    const currency = emp.salaryCurrency || 'GHS';
+    const gross = Math.round(foreignGross * rate * 100) / 100;
     const paye = computeMonthlyPAYE(gross);
     const ssnitEmp = Math.round(gross * SSNIT_EMPLOYEE_RATE * 100) / 100;
     const ssnitEr = Math.round(gross * SSNIT_EMPLOYER_RATE * 100) / 100;
@@ -354,7 +385,7 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
     totalSsnitEmployer += ssnitEr;
     totalNetPay += net;
 
-    return { employeeId: emp.id, gross, paye, ssnitEmp, ssnitEr, net };
+    return { employeeId: emp.id, gross, foreignGross, currency, rate, paye, ssnitEmp, ssnitEr, net };
   });
 
   totalGross = Math.round(totalGross * 100) / 100;
@@ -374,9 +405,9 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
     const runId = runs[0].id;
     for (const s of payslipData) {
       const slipRows: any[] = await (client as any).$queryRawUnsafe(
-        `INSERT INTO payslips (payroll_run_id, employee_id, gross_salary, paye, ssnit_employee, ssnit_employer, net_pay)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7) RETURNING id`,
-        runId, s.employeeId, s.gross, s.paye, s.ssnitEmp, s.ssnitEr, s.net
+        `INSERT INTO payslips (payroll_run_id, employee_id, gross_salary, gross_salary_foreign, salary_currency, exchange_rate, paye, ssnit_employee, ssnit_employer, net_pay)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+        runId, s.employeeId, s.gross, s.foreignGross, s.currency, s.rate, s.paye, s.ssnitEmp, s.ssnitEr, s.net
       );
       // Apply any active loan deductions for this employee
       await applyLoanDeductions(s.employeeId, slipRows[0].id);

@@ -17,10 +17,14 @@ interface Employee {
   position: string | null;
   department: string | null;
   grossSalary: number;
+  salaryCurrency: string;
+  salaryExchangeRate: number;
   dateOfJoining: string | null;
   dateOfLeaving: string | null;
   isActive: boolean;
 }
+
+const COMMON_CURRENCIES = ["GHS", "USD", "EUR", "GBP", "NGN", "XOF", "XAF", "ZAR"];
 
 const emptyForm = {
   firstName: "",
@@ -30,6 +34,8 @@ const emptyForm = {
   position: "",
   department: "",
   grossSalary: "",
+  salaryCurrency: "GHS",
+  salaryExchangeRate: "",
   dateOfJoining: new Date().toISOString().split("T")[0],
 };
 
@@ -76,6 +82,8 @@ export function Employees() {
       position: emp.position || "",
       department: emp.department || "",
       grossSalary: String(emp.grossSalary),
+      salaryCurrency: emp.salaryCurrency || "GHS",
+      salaryExchangeRate: emp.salaryCurrency && emp.salaryCurrency !== "GHS" ? String(emp.salaryExchangeRate) : "",
       dateOfJoining: emp.dateOfJoining || new Date().toISOString().split("T")[0],
     });
     setEditEmployee(emp);
@@ -86,9 +94,12 @@ export function Employees() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
+      const isFx = form.salaryCurrency !== "GHS";
       const payload = {
         ...form,
         grossSalary: Number(form.grossSalary),
+        salaryCurrency: form.salaryCurrency,
+        salaryExchangeRate: isFx ? Number(form.salaryExchangeRate) : 1,
         email: form.email || null,
         phone: form.phone || null,
         position: form.position || null,
@@ -151,7 +162,7 @@ export function Employees() {
                     <th className="px-4 py-3 text-left font-semibold text-secondary-600 dark:text-secondary-400">#</th>
                     <th className="px-4 py-3 text-left font-semibold text-secondary-600 dark:text-secondary-400">Name</th>
                     <th className="px-4 py-3 text-left font-semibold text-secondary-600 dark:text-secondary-400">Position / Dept</th>
-                    <th className="px-4 py-3 text-right font-semibold text-secondary-600 dark:text-secondary-400">Gross Salary (GHS)</th>
+                    <th className="px-4 py-3 text-right font-semibold text-secondary-600 dark:text-secondary-400">Gross Salary</th>
                     <th className="px-4 py-3 text-left font-semibold text-secondary-600 dark:text-secondary-400">Status</th>
                     <th className="px-4 py-3" />
                   </tr>
@@ -170,6 +181,9 @@ export function Employees() {
                       </td>
                       <td className="px-4 py-3 text-right font-mono text-secondary-900 dark:text-secondary-100">
                         {fmt(emp.grossSalary)}
+                        {emp.salaryCurrency && emp.salaryCurrency !== "GHS" && (
+                          <span className="ml-1 text-xs font-sans text-secondary-400">{emp.salaryCurrency}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
@@ -228,13 +242,41 @@ export function Employees() {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-secondary-700 dark:text-secondary-300 mb-1">Monthly Gross Salary (GHS) *</label>
-              <Input type="number" min="0" step="0.01" value={form.grossSalary} onChange={(e) => setForm({ ...form, grossSalary: e.target.value })} required />
+              <label className="block text-xs font-medium text-secondary-700 dark:text-secondary-300 mb-1">Salary Currency *</label>
+              <select
+                className="w-full rounded-lg border border-secondary-300 dark:border-secondary-600 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-100 px-3 py-2 text-sm"
+                value={form.salaryCurrency}
+                onChange={(e) => setForm({ ...form, salaryCurrency: e.target.value, salaryExchangeRate: e.target.value === "GHS" ? "" : form.salaryExchangeRate })}
+              >
+                {COMMON_CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}
+              </select>
             </div>
             <div>
-              <label className="block text-xs font-medium text-secondary-700 dark:text-secondary-300 mb-1">Date of Joining</label>
-              <Input type="date" value={form.dateOfJoining} onChange={(e) => setForm({ ...form, dateOfJoining: e.target.value })} />
+              <label className="block text-xs font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                Monthly Gross Salary ({form.salaryCurrency}) *
+              </label>
+              <Input type="number" min="0" step="0.01" value={form.grossSalary} onChange={(e) => setForm({ ...form, grossSalary: e.target.value })} required />
             </div>
+          </div>
+          {form.salaryCurrency !== "GHS" && (
+            <div>
+              <label className="block text-xs font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                Exchange Rate (1 {form.salaryCurrency} = ? GHS) *
+              </label>
+              <Input
+                type="number"
+                min="0.000001"
+                step="0.000001"
+                placeholder="e.g. 15.5 for 1 USD = 15.5 GHS"
+                value={form.salaryExchangeRate}
+                onChange={(e) => setForm({ ...form, salaryExchangeRate: e.target.value })}
+                required
+              />
+            </div>
+          )}
+          <div>
+            <label className="block text-xs font-medium text-secondary-700 dark:text-secondary-300 mb-1">Date of Joining</label>
+            <Input type="date" value={form.dateOfJoining} onChange={(e) => setForm({ ...form, dateOfJoining: e.target.value })} />
           </div>
           {editEmployee && (
             <label className="flex items-center gap-2 text-sm text-secondary-700 dark:text-secondary-300 cursor-pointer">
