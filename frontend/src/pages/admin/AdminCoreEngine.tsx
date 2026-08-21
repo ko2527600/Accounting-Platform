@@ -1560,7 +1560,7 @@ export function AdminCoreEngine() {
                           value: `${analyticsData.bounceRate.toFixed(1)}%`,
                           icon: BarChart2,
                         },
-                      ].map(({ label, value, icon: Icon }) => (
+                      ].map(({ label, value }) => (
                         <Card key={label} className="bg-secondary-900 border-secondary-800 text-white">
                           <CardContent className="p-4">
                             <div className="text-[11px] text-secondary-400 mb-1">{label}</div>
