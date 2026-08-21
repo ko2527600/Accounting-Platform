@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAuth } from "../../contexts/AuthContext";
-import { Sun, Moon, Bell, Search, User, LogOut, Settings as SettingsIcon, CheckCheck, AlertTriangle, ArrowRightLeft, FileText, Landmark } from "lucide-react";
+import { Sun, Moon, Bell, Search, User, LogOut, Settings as SettingsIcon, CheckCheck, AlertTriangle, ArrowRightLeft, FileText, Landmark, TrendingUp } from "lucide-react";
 import { Input } from "../ui/Input";
 import { Button } from "../ui/Button";
 import { useNavigate } from "react-router-dom";
@@ -102,6 +102,8 @@ export function Header() {
         return <ArrowRightLeft className="h-4 w-4 text-amber-500 flex-shrink-0" />;
       case "INVOICE_PAID":
         return <FileText className="h-4 w-4 text-blue-500 flex-shrink-0" />;
+      case "BUDGET_ALERT":
+        return <TrendingUp className="h-4 w-4 text-orange-500 flex-shrink-0" />;
       default:
         return <Bell className="h-4 w-4 text-primary-500 flex-shrink-0" />;
     }

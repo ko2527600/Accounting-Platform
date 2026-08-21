@@ -616,6 +616,30 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_leave_requests_status ON leave_requests(status);
       CREATE INDEX IF NOT EXISTS idx_leave_requests_dates ON leave_requests(start_date, end_date);
     `
+  },
+  {
+    version: 16,
+    name: '016_budget_alerts_and_pos_customer',
+    sql: `
+      -- Tracks which budget threshold alerts have already been fired so the
+      -- budget alert checker never re-fires the same notification for the same
+      -- budget and threshold within the same fiscal period.
+      CREATE TABLE IF NOT EXISTS budget_alert_log (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        budget_id UUID NOT NULL,
+        fiscal_period_id UUID NOT NULL,
+        threshold_pct INTEGER NOT NULL,
+        alerted_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS budget_alert_log_dedup_uidx
+        ON budget_alert_log(budget_id, fiscal_period_id, threshold_pct);
+
+      -- Optional customer name and phone captured at point of sale so a
+      -- WhatsApp receipt can be sent to the customer after a cash sale.
+      ALTER TABLE cash_sales
+        ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255),
+        ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(30);
+    `
   }
 ];
 

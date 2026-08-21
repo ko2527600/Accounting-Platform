@@ -112,6 +112,8 @@ export function PointOfSale() {
   const [itemSearch, setItemSearch] = useState("");
   const [cart, setCart] = useState<CartLine[]>([]);
   const [cashGiven, setCashGiven] = useState("");
+  const [customerPhone, setCustomerPhone] = useState("");
+  const [customerName, setCustomerName] = useState("");
   const [saleType, setSaleType] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
   const [isRecordingSale, setIsRecordingSale] = useState(false);
   const [saleError, setSaleError] = useState<string | null>(null);
@@ -403,6 +405,8 @@ export function PointOfSale() {
         saleType,
         clientTxnId,
         clientOccurredAt,
+        customerPhone: customerPhone.trim() || undefined,
+        customerName: customerName.trim() || undefined,
       });
 
       if (res.data.success) {
@@ -415,6 +419,8 @@ export function PointOfSale() {
         setCart([]);
         setItemSearch("");
         setCashGiven("");
+        setCustomerPhone("");
+        setCustomerName("");
         fetchTillAndItems();
       }
     } catch (err: any) {
@@ -817,6 +823,22 @@ export function PointOfSale() {
                       {formatMoney(Math.max(0, changeDue))}
                     </div>
                   </div>
+
+                  <details className="group">
+                    <summary className="text-xs text-secondary-500 cursor-pointer hover:text-secondary-700 dark:hover:text-secondary-300 select-none">
+                      Customer details (optional — for WhatsApp receipt)
+                    </summary>
+                    <div className="mt-2 grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium mb-1">Customer Name</label>
+                        <Input type="text" placeholder="e.g. Kofi Adu" value={customerName} onChange={(e) => setCustomerName(e.target.value)} />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium mb-1">WhatsApp Phone</label>
+                        <Input type="tel" placeholder="+233501234567" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} />
+                      </div>
+                    </div>
+                  </details>
 
                   <Button type="submit" variant="primary" className="w-full" disabled={isRecordingSale || cart.length === 0 || !cashGiven}>
                     {isRecordingSale ? "Recording..." : `Record Sale${cart.length > 0 ? ` (${cart.length} item${cart.length === 1 ? "" : "s"})` : ""}`}

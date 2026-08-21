@@ -11,6 +11,7 @@ import { recordAuditLog, recordAuditLogTx, actorFromRequest, AuditActor } from '
 import { SmsService } from '../services/smsService';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalService from '../services/journalEntryService';
+import { sendWhatsAppReceipt } from '../services/whatsAppReceiptService';
 
 /**
  * Posts the real Cash/Revenue journal entry for a completed POS cash sale
@@ -232,7 +233,7 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt, saleType } = req.body;
+    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt, saleType, customerPhone, customerName } = req.body;
     const resolvedSaleType = saleType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
 
     if (!tillId || !Array.isArray(items) || items.length === 0 || cashGiven === undefined || cashGiven === null || cashGiven === '') {
@@ -363,6 +364,18 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
               saleType: resolvedSaleType,
             },
           });
+
+          // customer_name / customer_phone were added via raw SQL migration (016)
+          // and are not in schema.prisma, so we save them in a follow-up UPDATE
+          // to avoid Prisma's "Unknown field" runtime error.
+          if (customerName || customerPhone) {
+            await (client as any).$executeRawUnsafe(
+              `UPDATE cash_sales SET customer_name = $1, customer_phone = $2 WHERE id = $3`,
+              customerName ? String(customerName).trim() : null,
+              customerPhone ? String(customerPhone).trim() : null,
+              sale.id
+            );
+          }
         } catch (createError: any) {
           // A concurrent request racing on the SAME clientTxnId can lose this
           // unique-constraint check even after passing the fast-path findFirst
@@ -429,6 +442,26 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
     if (!result.sale.journalId) {
       const journalId = await postCashSaleRevenue(result.sale, actorFromRequest(req));
       if (journalId) result.sale.journalId = journalId;
+    }
+
+    // Fire-and-forget WhatsApp receipt if customer phone was provided
+    const phone = result.sale.customerPhone || customerPhone;
+    if (phone && !result.replayed) {
+      const { tenantName } = requireTenantContext();
+      sendWhatsAppReceipt(String(phone), {
+        receiptNo: result.sale.receiptNo,
+        businessName: tenantName || 'Store',
+        items: result.lines.map((l: any) => ({
+          name: l.itemName,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          lineTotal: Number(l.lineTotal),
+        })),
+        totalAmount: result.totalAmount,
+        cashGiven: Number(cashGiven),
+        changeGiven: result.changeGiven,
+        dateTime: new Date().toLocaleString('en-GH', { timeZone: 'Africa/Accra' }),
+      });
     }
 
     res.status(result.replayed ? 200 : 201).json({ success: true, message: 'Cash sale recorded successfully', data: result });

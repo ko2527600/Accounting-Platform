@@ -2,6 +2,89 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - RBAC Hardening: 14-Role Model, Default-Deny, Segregation of Duties
+
+**What/Why:** Implemented the Permissions & RBAC Benchmark recommendations. The existing system had a critical security gap: unrecognized role strings (e.g. "Intern", "Store Clerk", or a typo) fell through to `return true`, giving them full operational access. Expanded from 5 to 14 typed roles with a default-deny policy and role implication for proper segregation of duties.
+
+**Changes:**
+
+- **`backend/src/middleware/rbacMiddleware.ts`** (rewritten) — Expanded `UserRole` type from 5 to 14 roles: Admin, Finance Controller, Accountant, Accounts Payable Clerk, Accounts Receivable Clerk, Payroll Officer, Payroll Approver, HR, Auditor, Warehouse Manager, Shop Manager, Cashier, Viewer, External Accountant. Added `ALL_KNOWN_ROLES` closed set, `OPERATIONAL_ROLES` (Admin/Owner/Accountant/Finance Controller get blanket non-Admin access), `ROLE_IMPLIES` map (Finance Controller implies Accountant; External Accountant implies Viewer/Auditor; Payroll Approver implies Payroll Officer + HR; Warehouse Manager implies Shop Manager + Viewer; AP/AR Clerks imply Viewer). Fixed default-deny: unrecognized role strings now return `false` instead of `true`. Added `noSelfApproval()` SOD helper (returns 403 if actor === creator).
+
+- **`backend/src/routes/payroll.ts`** — Separated preparation from approval: `POST /runs` now also allows `Payroll Officer`; `POST /runs/:id/post` and `POST /runs/:id/void` now also allow `Payroll Approver`. This enforces the maker-checker control: a Payroll Officer cannot release their own payroll run.
+
+- **`backend/src/routes/inventory.ts`** — Added `Warehouse Manager` to all inventory write routes (create items, edit items, bulk import, transfers, adjustments, stock-take).
+
+- **`frontend/src/pages/team/TeamManagement.tsx`** — Replaced `CLOSED_ROLES` string array with `ROLE_OPTIONS` array of `{value, label, description}` objects covering all 14 roles. Role select dropdowns now show the selected role's description beneath the selector. Warehouse Manager added to location-scoped roles (requires warehouse assignment).
+
+- **`frontend/src/lib/navigation.ts`** — Added sidebar nav allowlists for Warehouse Manager, Payroll Officer, Payroll Approver, Accounts Payable Clerk, Accounts Receivable Clerk, External Accountant, and Viewer restricted roles. Expanded `SETTINGS_RESTRICTED_ROLES` to include all scoped roles (AP/AR Clerk, Payroll Officer/Approver, Warehouse Manager, External Accountant, Viewer) — they cannot reach /settings.
+
+**Security impact:** Any tenant user whose role string is not in the recognized 14-role set (free-text job titles, typos) is now denied access to `requireRole()`-protected routes. Previously they received full operational access.
+
+## [Date: 2026-08-21] - Workspace Mode Selector and Guided Daily Operations Panel
+
+**What/Why:** User provided a Business Fit and Usability Report recommending that Ledgio stop presenting every accounting feature to every customer. A retail shop owner or cashier should feel like they bought a simple shop-management tool — not an ERP — while an accountant still sees the full professional workspace. Implemented the report's core UX recommendations as a frontend-only change (no backend changes required).
+
+**Changes:**
+
+- **`frontend/src/contexts/WorkspaceModeContext.tsx`** (new) — `WorkspaceMode` type (`'operations' | 'business' | 'professional'`), React context with `mode`/`setMode`, stored in `localStorage` as `ledgio-workspace-mode`. Auto-defaults by role: Cashier/Shop Manager → Simple (operations), Accountant/Auditor → Full (professional), everyone else → Business.
+
+- **`frontend/src/lib/navigation.ts`** — Added `OPERATIONS_HIDDEN` (24 hrefs hidden in Simple mode: journals, chart of accounts, bank feeds, tax config, fiscal periods, fixed assets, budgets, audit trail, most reports, payroll), `BUSINESS_HIDDEN` (7 hrefs: fiscal periods, recurring transactions, ledger, fixed assets, audit trail, AI activity, bulk import), `MODE_LABELS` (per-href display name overrides: "Invoices (AR)" → "Credit Sales" in Simple, "Supplier Bills" in Simple/Business, "Restock Orders" for purchase orders, etc.), `MODE_SECTION_TITLES` (section header overrides: "INVENTORY & GODOWNS" → "PRODUCTS & STOCK" in Simple). Extended `getVisibleNavGroups()` with optional `mode` parameter; restricted roles (Cashier etc.) bypass mode filtering since their nav is already role-fixed.
+
+- **`frontend/src/components/layout/Sidebar.tsx`** — Consumes `useWorkspaceMode()`; passes mode to `getVisibleNavGroups()`; adds a 3-pill "View" toggle (Simple / Business / Full) above the Settings link in the sidebar footer. Hidden for restricted roles.
+
+- **`frontend/src/components/layout/MainLayout.tsx`** — Wraps layout tree with `WorkspaceModeProvider` (inside `MainLayout` so it has access to `AuthContext` through `ProtectedRoute`).
+
+- **`frontend/src/components/ui/CommandMenu.tsx`** — Passes mode to `getVisibleNavGroups()` so Cmd+K only surfaces pages visible in the current workspace mode, keeping keyboard nav consistent with the sidebar.
+
+- **`frontend/src/App.tsx`** — Added `GuidedOperationsPanel` (the "What happened today?" quick-action grid from the report): 8 colour-coded tiles in Simple mode (Made a sale → /pos, Received stock → /purchase-orders, Paid a supplier → /bills, Customer paid me → /invoices, Paid an expense → /expenses, Moved stock → /inventory, Counted stock → /inventory, View today's sales → /reports/executive), 9 in Business mode (adds Create invoice). Shown on Dashboard for non-restricted roles in Simple and Business modes; hidden in Full mode. Dashboard header subtitle adapts to current mode. "New Voucher" button only appears in Full mode (accounting-centric shortcut irrelevant to retail operators).
+
+**Files affected:** `frontend/src/contexts/WorkspaceModeContext.tsx` (new), `frontend/src/lib/navigation.ts`, `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/components/layout/MainLayout.tsx`, `frontend/src/components/ui/CommandMenu.tsx`, `frontend/src/App.tsx`
+
+---
+
+## [Date: 2026-08-21] - Budget Alerts, GRA E-invoicing PDF, WhatsApp POS Receipt
+
+**What/Why:** Three platform upgrades requested as part of the payroll feature roadmap: (6) in-app budget variance alerts when spend crosses 80%/100% of budget; (7) downloadable GRA-cleared invoice PDFs with embedded QR code and clearance badge; (8) WhatsApp receipt delivery to customers after POS cash sales via Twilio.
+
+**Changes:**
+
+1. **Tenant migration 016** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - New `budget_alert_log` table: records which `(budget_id, fiscal_period_id, threshold_pct)` combos have already fired an alert, preventing duplicate notifications. Unique index enforces at-most-once semantics per period and threshold.
+   - `cash_sales` table gains `customer_name` and `customer_phone` columns (both nullable) to capture optional walk-in customer details at POS for WhatsApp receipt delivery.
+
+2. **Budget alert checker** (`backend/src/services/budgetService.ts`):
+   - New `checkBudgetAlerts()`: after `listBudgets` recomputes actuals, checks each budget against 80% and 100% thresholds. For any new crossing, inserts a row into `budget_alert_log` (unique constraint prevents duplicates in races) then creates a `BUDGET_ALERT` notification in the public `notification` table so the in-app bell displays it immediately.
+   - Fire-and-forget (no `await`) to keep the `/budgets` list response latency unchanged.
+
+3. **Invoice PDF with GRA clearance** (`backend/src/services/pdfGenerationService.ts`, `backend/src/routes/invoices.ts`):
+   - `generateInvoicePdf` now accepts optional `graClearanceStatus`, `graQrCodeDataUrl`, `graVerificationEngineId`, and `graClearedAt` fields. When `graClearanceStatus === 'CLEARED'`, the PDF gains a green banner, the Verification Engine ID, a human-readable cleared timestamp (Africa/Accra timezone), and the GRA QR code image (embedded from the stored base64 data URL).
+   - New `GET /api/v1/invoices/:id/pdf` endpoint streams the PDF directly — attaches the cleared QR block when the invoice is cleared.
+   - Frontend `Invoices.tsx` gains a "Download PDF" action in every invoice's action menu (labeled "Download PDF (GRA Cleared)" when cleared).
+
+4. **WhatsApp receipt service** (`backend/src/services/whatsAppReceiptService.ts`):
+   - New service that POSTs to the Twilio REST API (via existing `axios`) with a formatted WhatsApp message listing all items, totals, cash given, and change. Silently no-ops when `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_WHATSAPP_FROM` are not set.
+   - `backend/.env.example` gains the three Twilio env vars with usage comments.
+
+5. **POS WhatsApp integration** (`backend/src/routes/cashTill.ts`):
+   - `POST /tills/sales` now accepts optional `customerPhone` and `customerName` in the request body, stores them on the `cashSale` row, and fires `sendWhatsAppReceipt()` fire-and-forget after the sale commits.
+
+6. **Frontend** (`frontend/src/pages/pos/PointOfSale.tsx`, `frontend/src/components/layout/Header.tsx`, `frontend/src/pages/invoices/Invoices.tsx`):
+   - POS checkout form: collapsible "Customer details" section for name and WhatsApp phone, sent with the sale but clearing on success.
+   - Header notification bell: `BUDGET_ALERT` type renders a TrendingUp (orange) icon.
+   - Invoices actions menu: "Download PDF" link for every invoice; shows "(GRA Cleared)" suffix and updated tooltip when cleared.
+
+**Files affected:**
+- `backend/src/database/migrations/tenantMigrations.ts`
+- `backend/src/services/budgetService.ts`
+- `backend/src/services/pdfGenerationService.ts`
+- `backend/src/services/whatsAppReceiptService.ts` (new)
+- `backend/src/routes/invoices.ts`
+- `backend/src/routes/cashTill.ts`
+- `backend/.env.example`
+- `frontend/src/pages/pos/PointOfSale.tsx`
+- `frontend/src/pages/invoices/Invoices.tsx`
+- `frontend/src/components/layout/Header.tsx`
+
 ## [Date: 2026-08-20] - Ghana Payroll Module (PAYE, SSNIT, Payslips, Journal Posting)
 
 **What/Why:** Greenfield Ghana payroll module covering employee roster management, Ghana PAYE tax computation (2024 GRA income tax bands), SSNIT social security contributions (employee 5.5% + employer 13%), payroll run processing, and automatic double-entry journal posting.

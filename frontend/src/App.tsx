@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
+import { useWorkspaceMode } from "./contexts/WorkspaceModeContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { ToastProvider, useToast } from "./contexts/ToastContext";
 import { api } from "./lib/api";
@@ -67,6 +68,70 @@ import { Loans } from "./pages/payroll/Loans";
 import { Leave } from "./pages/payroll/Leave";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
+import {
+  ShoppingCart, Package, FileText as FileTextIcon, DollarSign,
+  Wallet as WalletIcon, ArrowLeftRight, ClipboardList, BarChart2,
+  Receipt as ReceiptIcon,
+} from "lucide-react";
+
+// "What happened today?" quick-action grid shown in Operations and Business modes.
+const GUIDED_ACTIONS_OPS = [
+  { label: "Made a sale",           icon: ShoppingCart,  href: "/pos",              color: "emerald" },
+  { label: "Received stock",        icon: Package,       href: "/purchase-orders",  color: "blue"    },
+  { label: "Paid a supplier",       icon: ReceiptIcon,   href: "/bills",            color: "orange"  },
+  { label: "Customer paid me",      icon: DollarSign,    href: "/invoices",         color: "green"   },
+  { label: "Paid an expense",       icon: WalletIcon,    href: "/expenses",         color: "red"     },
+  { label: "Moved stock",           icon: ArrowLeftRight,href: "/inventory",        color: "purple"  },
+  { label: "Counted stock",         icon: ClipboardList, href: "/inventory",        color: "indigo"  },
+  { label: "View today's sales",    icon: BarChart2,     href: "/reports/executive",color: "teal"    },
+];
+
+const GUIDED_ACTIONS_BIZ = [
+  ...GUIDED_ACTIONS_OPS,
+  { label: "Create invoice",        icon: FileTextIcon,  href: "/invoices",         color: "sky"     },
+];
+
+const ACTION_COLOR_CLASSES: Record<string, string> = {
+  emerald: "bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-900/30 dark:text-emerald-300 dark:hover:bg-emerald-900/50",
+  blue:    "bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-300 dark:hover:bg-blue-900/50",
+  orange:  "bg-orange-50 text-orange-700 hover:bg-orange-100 dark:bg-orange-900/30 dark:text-orange-300 dark:hover:bg-orange-900/50",
+  green:   "bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/30 dark:text-green-300 dark:hover:bg-green-900/50",
+  red:     "bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-900/30 dark:text-red-300 dark:hover:bg-red-900/50",
+  purple:  "bg-purple-50 text-purple-700 hover:bg-purple-100 dark:bg-purple-900/30 dark:text-purple-300 dark:hover:bg-purple-900/50",
+  indigo:  "bg-indigo-50 text-indigo-700 hover:bg-indigo-100 dark:bg-indigo-900/30 dark:text-indigo-300 dark:hover:bg-indigo-900/50",
+  teal:    "bg-teal-50 text-teal-700 hover:bg-teal-100 dark:bg-teal-900/30 dark:text-teal-300 dark:hover:bg-teal-900/50",
+  sky:     "bg-sky-50 text-sky-700 hover:bg-sky-100 dark:bg-sky-900/30 dark:text-sky-300 dark:hover:bg-sky-900/50",
+};
+
+function GuidedOperationsPanel({ mode }: { mode: "operations" | "business" }) {
+  const actions = mode === "business" ? GUIDED_ACTIONS_BIZ : GUIDED_ACTIONS_OPS;
+  return (
+    <Card>
+      <CardHeader className="pb-3">
+        <CardTitle className="text-base font-semibold text-secondary-900 dark:text-secondary-50">
+          What happened today?
+        </CardTitle>
+        <p className="text-xs text-secondary-500 dark:text-secondary-400">
+          Tap an action to record it — the books update automatically.
+        </p>
+      </CardHeader>
+      <CardContent>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {actions.map(({ label, icon: Icon, href, color }) => (
+            <Link
+              key={label + href}
+              to={href}
+              className={`flex flex-col items-center gap-2 rounded-xl p-4 text-center text-xs font-medium transition-all duration-150 ${ACTION_COLOR_CLASSES[color] ?? ACTION_COLOR_CLASSES.blue}`}
+            >
+              <Icon className="h-6 w-6 flex-shrink-0" />
+              {label}
+            </Link>
+          ))}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
 
 // Pages
 const Dashboard = () => {
@@ -76,6 +141,7 @@ const Dashboard = () => {
   const { totalRevenue, totalExpense, netIncome, refetch: refetchPnL } = useProfitAndLoss();
   const { accounts } = useAccounts();
   const { settings } = useTenantSettings();
+  const { mode } = useWorkspaceMode();
 
   // Roles with a reduced nav (Shop Manager, Cashier, HR, Auditor) don't have
   // backend read access to company-wide P&L/ledger data (rbacMiddleware.ts's
@@ -85,6 +151,8 @@ const Dashboard = () => {
   // showing stale/zeroed figures. Also not shown to these roles: financial
   // data they have no operational need for anyway.
   const isRestrictedRole = getVisibleHrefs((user?.role || "").toLowerCase().trim()) !== null;
+
+  const showGuidedPanel = !isRestrictedRole && (mode === "operations" || mode === "business");
 
   // One-time self-heal for tenants with POS sales recorded before revenue
   // posting existed (see routes/cashTill.ts POST /tills/sales) - an old
@@ -125,6 +193,13 @@ const Dashboard = () => {
     }).format(amount);
   };
 
+  const headerSubtitle =
+    mode === "operations"
+      ? "Here's your business at a glance. Tap a quick action below to get started."
+      : mode === "business"
+      ? "Sales, purchases, and finance — all in one place."
+      : "Welcome back. Here's what's happening with your accounts today.";
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       <div className="flex items-center justify-between">
@@ -133,15 +208,19 @@ const Dashboard = () => {
             Dashboard
           </h2>
           <p className="text-secondary-500 dark:text-secondary-400 mt-1">
-            Welcome back. Here's what's happening with your accounts today.
+            {headerSubtitle}
           </p>
         </div>
-        {!isRestrictedRole && (
+        {!isRestrictedRole && mode === "professional" && (
           <Button variant="primary" onClick={() => navigate("/journals/new")}>
             New Voucher
           </Button>
         )}
       </div>
+
+      {showGuidedPanel && (
+        <GuidedOperationsPanel mode={mode as "operations" | "business"} />
+      )}
 
       {!isRestrictedRole && (
         <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">

@@ -12,7 +12,7 @@ import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFr
 import { useToast } from "../../contexts/ToastContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, RefreshCw, History, Mail, ChevronDown, ShieldCheck } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, RefreshCw, History, Mail, ChevronDown, ShieldCheck, Download } from "lucide-react";
 
 // Mirrors rbacMiddleware.ts's SCOPED_ROLES - these actions all backend-gate
 // to requireRole('Accountant') (Email Invoice, Request GRA Clearance, Pay
@@ -745,6 +745,17 @@ export function Invoices() {
                                 {requestingGraClearanceId === inv.id ? "Requesting..." : "Request GRA Clearance"}
                               </button>
                             )}
+                            <a
+                              href={`${import.meta.env.VITE_API_URL || ''}/api/v1/invoices/${inv.id}/pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              onClick={() => setOpenActionsMenuId(null)}
+                              className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                              title={inv.graClearanceStatus === 'CLEARED' ? 'Download PDF with GRA clearance badge and QR code' : 'Download invoice PDF'}
+                            >
+                              <Download className="mr-2 h-3 w-3" />
+                              Download PDF{inv.graClearanceStatus === 'CLEARED' ? ' (GRA Cleared)' : ''}
+                            </a>
                             {inv.status !== "PAID" && canRecordPayment && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openPaymentModal(inv); }}
