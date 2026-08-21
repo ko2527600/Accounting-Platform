@@ -15,8 +15,8 @@ export const api = axios.create({
 // Intercept requests to inject the Auth Token and Tenant ID
 api.interceptors.request.use(
   (config) => {
-    const token = sessionStorage.getItem('accountgo-token');
-    const tenantId = sessionStorage.getItem('accountgo-tenant-id');
+    const token = localStorage.getItem('accountgo-token');
+    const tenantId = localStorage.getItem('accountgo-tenant-id');
 
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -38,8 +38,8 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response && error.response.status === 401) {
-      sessionStorage.removeItem('accountgo-token');
-      sessionStorage.removeItem('accountgo-tenant-id');
+      localStorage.removeItem('accountgo-token');
+      localStorage.removeItem('accountgo-tenant-id');
 
       // A 401 from /auth/login itself just means "wrong credentials" - Login.tsx
       // already renders that inline from the response body, and there's no real
