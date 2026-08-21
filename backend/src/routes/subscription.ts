@@ -68,9 +68,20 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
     const trialDaysRemaining = tenant.trialEndsAt
       ? Math.max(0, Math.ceil((tenant.trialEndsAt.getTime() - now) / 86_400_000))
       : null;
-    const graceDaysRemaining =
-      state === 'GRACE' && tenant.trialEndsAt
-        ? Math.max(0, Math.ceil((tenant.trialEndsAt.getTime() + 7 * 86_400_000 - now) / 86_400_000))
+
+    // Grace can come from a lapsed trial OR a lapsed paid subscription.
+    let graceDaysRemaining: number | null = null;
+    if (state === 'GRACE') {
+      const graceAnchor = tenant.subscriptionPaidUntil ?? tenant.trialEndsAt;
+      if (graceAnchor) {
+        graceDaysRemaining = Math.max(0, Math.ceil((graceAnchor.getTime() + 7 * 86_400_000 - now) / 86_400_000));
+      }
+    }
+
+    // Warn ACTIVE subscribers when renewal is ≤14 days away.
+    const renewalDaysRemaining =
+      state === 'ACTIVE' && tenant.subscriptionPaidUntil
+        ? Math.max(0, Math.ceil((tenant.subscriptionPaidUntil.getTime() - now) / 86_400_000))
         : null;
 
     const plan = SUBSCRIPTION_PLANS.find((p) => p.tier === tenant.tier) ?? SUBSCRIPTION_PLANS[0];
@@ -85,6 +96,7 @@ router.get('/status', async (req: Request, res: Response): Promise<void> => {
       trialEndsAt: tenant.trialEndsAt?.toISOString() ?? null,
       trialDaysRemaining,
       graceDaysRemaining,
+      renewalDaysRemaining,
       subscriptionPaidUntil: tenant.subscriptionPaidUntil?.toISOString() ?? null,
     });
   } catch (err: any) {
