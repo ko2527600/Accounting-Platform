@@ -60,6 +60,7 @@ import fixedAssetsRouter from './routes/fixedAssets';
 import payrollRouter from './routes/payroll';
 import searchRouter from './routes/search';
 import ocrRouter from './routes/ocr';
+import subscriptionRouter from './routes/subscription';
 
 dotenv.config();
 
@@ -255,6 +256,12 @@ app.use('/api/v1/search', searchRouter);
 
 // Receipt / vendor-bill OCR (Claude vision → pre-fill expense & bill forms).
 app.use('/api/v1/ocr', ocrRouter);
+
+// Subscription billing: free trial → MoMo / Visa payment via Paystack.
+// No subscription enforcement on this router — expired tenants must still
+// be able to reach the payment endpoints (enforcement is applied inside
+// tenantContextMiddleware for all other tenant-scoped routes).
+app.use('/api/v1/subscription', subscriptionRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.

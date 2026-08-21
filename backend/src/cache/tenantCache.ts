@@ -8,6 +8,9 @@ export interface CachedTenant {
   acceptedTermsVersion: string | null;
   termsAcceptedAt: Date | null;
   tier: number;
+  subscriptionStatus: string;
+  trialEndsAt: Date | null;
+  subscriptionPaidUntil: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -35,6 +38,8 @@ export async function getTenantFromCache(key: string): Promise<CachedTenant | nu
         createdAt: new Date(tenant.createdAt),
         updatedAt: new Date(tenant.updatedAt),
         termsAcceptedAt: tenant.termsAcceptedAt ? new Date(tenant.termsAcceptedAt) : null,
+        trialEndsAt: tenant.trialEndsAt ? new Date(tenant.trialEndsAt) : null,
+        subscriptionPaidUntil: tenant.subscriptionPaidUntil ? new Date(tenant.subscriptionPaidUntil) : null,
       };
     }
     

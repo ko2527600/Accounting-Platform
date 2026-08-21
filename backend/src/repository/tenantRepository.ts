@@ -31,6 +31,9 @@ export interface TenantRecord {
   paystackAccountNumber: string | null;
   paystackAccountName: string | null;
   isLive: boolean;
+  subscriptionStatus: string;
+  trialEndsAt: Date | null;
+  subscriptionPaidUntil: Date | null;
   bossPhone: string | null;
   createdAt: Date;
   updatedAt: Date;
@@ -45,6 +48,8 @@ export interface CreateTenantData {
   tier?: number;
   baseCurrency?: string;
   orgType?: string;
+  subscriptionStatus?: string;
+  trialEndsAt?: Date | null;
 }
 
 /**
@@ -71,6 +76,8 @@ export async function createTenant(prisma: PrismaClient, data: CreateTenantData)
       tier,
       ...(data.baseCurrency ? { baseCurrency: data.baseCurrency } : {}),
       ...(data.orgType ? { orgType: data.orgType } : {}),
+      ...(data.subscriptionStatus ? { subscriptionStatus: data.subscriptionStatus } : {}),
+      ...(data.trialEndsAt !== undefined ? { trialEndsAt: data.trialEndsAt } : {}),
     },
   });
 

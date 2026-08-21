@@ -6,6 +6,9 @@ export interface TenantContextData {
   tenantName?: string;
   tenantSlug?: string;
   tenantTier?: number;
+  tenantSubscriptionStatus?: string;
+  tenantTrialEndsAt?: Date | null;
+  tenantSubscriptionPaidUntil?: Date | null;
 }
 
 const asyncLocalStorage = new AsyncLocalStorage<TenantContextData>();

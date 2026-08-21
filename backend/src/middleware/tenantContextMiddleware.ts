@@ -4,6 +4,7 @@ import { runWithTenantContext, TenantContextData } from '../context/tenantContex
 import { sanitizeSchemaName } from '../database/tenantSchemaManager';
 import { ensureTenantSchemaMigrated } from '../database/tenantMigrationRunner';
 import { getTenantFromCache, setTenantInCache } from '../cache/tenantCache';
+import { computeSubscriptionState } from './subscriptionEnforcementMiddleware';
 
 // Extend Express Request type to include tenantContext
 declare global {
@@ -99,12 +100,47 @@ export function createTenantContextMiddleware(options: TenantMiddlewareOptions =
         tenantName: tenant.name,
         tenantSlug: tenant.slug,
         tenantTier: tenant.tier,
+        tenantSubscriptionStatus: (tenant as any).subscriptionStatus ?? 'ACTIVE',
+        tenantTrialEndsAt: (tenant as any).trialEndsAt ?? null,
+        tenantSubscriptionPaidUntil: (tenant as any).subscriptionPaidUntil ?? null,
       };
 
       // Attach context to request object
       req.tenantContext = tenantContext;
 
-      // 4. Propagate context via AsyncLocalStorage for downstream service execution
+      // 4. Enforce subscription state (TRIAL/ACTIVE → pass through; GRACE → read-only;
+      // EXPIRED → block). Exempt /subscription routes so expired tenants can pay.
+      if (!req.originalUrl.includes('/subscription')) {
+        const subState = computeSubscriptionState(
+          tenantContext.tenantSubscriptionStatus,
+          tenantContext.tenantTrialEndsAt,
+          tenantContext.tenantSubscriptionPaidUntil,
+        );
+        if (subState === 'GRACE') {
+          if (req.method !== 'GET' && req.method !== 'HEAD' && req.method !== 'OPTIONS') {
+            const trialEndsAt = tenantContext.tenantTrialEndsAt;
+            const graceEndsAt = trialEndsAt ? new Date(trialEndsAt.getTime() + 7 * 86_400_000) : null;
+            res.status(402).json({
+              success: false,
+              error: 'Your free trial has ended. Your account is in read-only mode until you subscribe.',
+              subscriptionRequired: true,
+              state: 'GRACE',
+              graceEndsAt: graceEndsAt?.toISOString() ?? null,
+            });
+            return;
+          }
+        } else if (subState === 'EXPIRED') {
+          res.status(402).json({
+            success: false,
+            error: 'Your account is locked. Please subscribe to continue using Ledgio.',
+            subscriptionRequired: true,
+            state: 'EXPIRED',
+          });
+          return;
+        }
+      }
+
+      // 5. Propagate context via AsyncLocalStorage for downstream service execution
       await runWithTenantContext(tenantContext, async () => {
         next();
       });

@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy, Sparkles, Stamp, ExternalLink, Wallet } from "lucide-react";
+import { Building2, Globe, Mail, Smartphone, Send, CheckCircle2, Download, FileJson, FileArchive, ShieldCheck, Copy, Sparkles, Stamp, ExternalLink, Wallet, CreditCard, Check, Loader2, AlertTriangle } from "lucide-react";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { Button } from "../../components/ui/Button";
@@ -13,6 +13,162 @@ interface ExportManifestEntry {
   key: string;
   label: string;
   description: string;
+}
+
+const PLANS = [
+  { tier: 1, name: "Shop", priceGhs: 105, features: ["Point of Sale", "Invoices & Bills", "Inventory", "Expense Claims", "Sales Reports"] },
+  { tier: 2, name: "Business", priceGhs: 305, features: ["Everything in Shop", "Payroll", "Bank Reconciliation", "Approval Workflows", "Budgets & Analytics"], popular: true },
+  { tier: 3, name: "Enterprise", priceGhs: 510, features: ["Everything in Business", "Unlimited team members", "Custom Fields", "Full Audit Trail", "Priority Support"] },
+];
+
+function SubscriptionTab() {
+  const [status, setStatus] = useState<{
+    state: string; planName: string; tier: number; priceGhs: number;
+    trialDaysRemaining: number | null; trialEndsAt: string | null; subscriptionPaidUntil: string | null;
+  } | null>(null);
+  const [selectedTier, setSelectedTier] = useState<number>(1);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isVerifying, setIsVerifying] = useState(false);
+  const [pendingRef, setPendingRef] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get<any>("/subscription/status").then((r) => {
+      setStatus(r.data);
+      setSelectedTier(r.data.tier ?? 1);
+    }).catch(() => {});
+  }, []);
+
+  async function handlePay() {
+    setError(null); setIsLoading(true);
+    try {
+      const { data } = await api.post<any>("/subscription/initialize", { planTier: selectedTier });
+      setPendingRef(data.reference);
+      window.open(data.authorizationUrl, "_blank", "noopener,noreferrer");
+    } catch (err: any) {
+      setError(err.response?.data?.error || "Failed to start payment.");
+    } finally { setIsLoading(false); }
+  }
+
+  async function handleVerify() {
+    if (!pendingRef) return;
+    setVerifyError(null); setIsVerifying(true);
+    try {
+      const { data } = await api.post<any>("/subscription/verify", { reference: pendingRef, planTier: selectedTier });
+      setSuccessMsg(data.message);
+      setPendingRef(null);
+      api.get<any>("/subscription/status").then((r) => setStatus(r.data)).catch(() => {});
+    } catch (err: any) {
+      setVerifyError(err.response?.data?.error || "Could not verify. Please wait a moment and try again.");
+    } finally { setIsVerifying(false); }
+  }
+
+  const stateColor: Record<string, string> = {
+    ACTIVE: "bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400",
+    TRIAL: "bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-400",
+    GRACE: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-400",
+    EXPIRED: "bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400",
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Current plan summary */}
+      {status && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CreditCard className="h-4 w-4 text-blue-500" />
+              Current Plan
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="flex flex-wrap items-center gap-4">
+              <div>
+                <p className="text-sm text-secondary-500">Plan</p>
+                <p className="font-semibold">{status.planName} — GHS {status.priceGhs}/month</p>
+              </div>
+              <div>
+                <p className="text-sm text-secondary-500">Status</p>
+                <span className={`inline-block text-xs font-semibold px-2 py-0.5 rounded-full ${stateColor[status.state] ?? ""}`}>
+                  {status.state}
+                </span>
+              </div>
+              {status.state === "TRIAL" && status.trialDaysRemaining !== null && (
+                <div className="flex items-center gap-1 text-amber-700 dark:text-amber-400 text-sm">
+                  <AlertTriangle className="h-4 w-4" aria-hidden />
+                  Trial ends in {status.trialDaysRemaining} day{status.trialDaysRemaining === 1 ? "" : "s"}
+                  {status.trialEndsAt ? ` (${new Date(status.trialEndsAt).toLocaleDateString("en-GB")})` : ""}
+                </div>
+              )}
+              {status.state === "ACTIVE" && status.subscriptionPaidUntil && (
+                <div className="text-sm text-secondary-500">
+                  Renews: {new Date(status.subscriptionPaidUntil).toLocaleDateString("en-GB")}
+                </div>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Plan upgrade */}
+      <Card>
+        <CardHeader>
+          <CardTitle>Subscribe / Upgrade Plan</CardTitle>
+          <CardDescription>Pay with Mobile Money (MTN/AirtelTigo/Telecel Cash) or Visa/Mastercard via Paystack.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {PLANS.map((plan) => (
+              <button
+                key={plan.tier}
+                onClick={() => setSelectedTier(plan.tier)}
+                className={`relative text-left rounded-lg border-2 p-4 transition-all ${
+                  selectedTier === plan.tier
+                    ? "border-primary-600 bg-primary-50 dark:bg-primary-900/20"
+                    : "border-secondary-200 dark:border-secondary-700 hover:border-secondary-300"
+                }`}
+              >
+                {plan.popular && (
+                  <span className="absolute -top-2 left-1/2 -translate-x-1/2 bg-primary-600 text-white text-xs font-semibold px-2 py-0.5 rounded-full">Popular</span>
+                )}
+                <p className="font-semibold text-sm">{plan.name}</p>
+                <p className="text-lg font-bold">GHS {plan.priceGhs}<span className="text-xs font-normal text-secondary-500">/mo</span></p>
+                <ul className="mt-2 space-y-1">
+                  {plan.features.map((f) => (
+                    <li key={f} className="flex items-center gap-1.5 text-xs text-secondary-600 dark:text-secondary-400">
+                      <Check className="h-3 w-3 text-green-500 flex-shrink-0" aria-hidden />{f}
+                    </li>
+                  ))}
+                </ul>
+              </button>
+            ))}
+          </div>
+
+          {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+          {successMsg && <p className="text-green-600 dark:text-green-400 text-sm">{successMsg}</p>}
+
+          {!pendingRef ? (
+            <Button onClick={handlePay} disabled={isLoading}>
+              {isLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden />Opening payment…</> : <><CreditCard className="h-4 w-4 mr-2" aria-hidden />Pay GHS {PLANS.find((p) => p.tier === selectedTier)?.priceGhs}/month</>}
+            </Button>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-sm text-secondary-600 dark:text-secondary-400">Complete payment in the Paystack tab that opened, then click below.</p>
+              {verifyError && <p className="text-red-600 dark:text-red-400 text-sm">{verifyError}</p>}
+              <div className="flex gap-2">
+                <Button onClick={handleVerify} disabled={isVerifying}>
+                  {isVerifying ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" aria-hidden />Verifying…</> : "I've completed payment"}
+                </Button>
+                <Button variant="outline" onClick={() => setPendingRef(null)}>Start over</Button>
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  );
 }
 
 export function Settings() {
@@ -71,7 +227,7 @@ export function Settings() {
   const [smsMsg, setSmsMsg] = useState<string | null>(null);
   const [testEmailMsg, setTestEmailMsg] = useState<string | null>(null);
   const [saveSuccessMsg, setSaveSuccessMsg] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export" | "security" | "compliance" | "payments">("profile");
+  const [activeTab, setActiveTab] = useState<"profile" | "regional" | "sms" | "scheduled" | "export" | "security" | "compliance" | "payments" | "subscription">("profile");
 
   const isAdmin = user?.role === "Admin" || user?.role === "Owner";
   const [exportManifest, setExportManifest] = useState<ExportManifestEntry[]>([]);
@@ -451,6 +607,15 @@ export function Settings() {
           <Wallet className="mr-2 h-4 w-4 text-emerald-500" />
           Payment Collection
         </button>
+        {isAdmin && (
+          <button
+            onClick={() => setActiveTab("subscription")}
+            className={`pb-3 text-sm font-medium transition-colors border-b-2 flex items-center ${activeTab === "subscription" ? "border-primary-600 text-primary-600" : "border-transparent text-secondary-500 hover:text-secondary-700"}`}
+          >
+            <CreditCard className="mr-2 h-4 w-4 text-blue-500" />
+            Subscription
+          </button>
+        )}
         {isAdmin && (
           <button
             onClick={() => setActiveTab("export")}
@@ -1074,6 +1239,11 @@ export function Settings() {
             )}
           </Card>
         </div>
+      )}
+
+      {/* Subscription billing — plan, trial status, payment */}
+      {activeTab === "subscription" && isAdmin && (
+        <SubscriptionTab />
       )}
 
       {/* Full Data Export - no pricing-tier gate, no cooldown, everything a business needs to leave with its data */}
