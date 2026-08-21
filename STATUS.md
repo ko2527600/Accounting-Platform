@@ -2,6 +2,7 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+<<<<<<< Updated upstream
 ## [Date: 2026-08-21] - Onboarding: Simplified Quick-Start Path for Business/Retail Workspaces
 
 **What/Why:** The full 3-step onboarding wizard (Profile → Chart of Accounts → Opening Balances) was blocking business/retail users who just want to start selling. Chart of accounts seeding and opening balance entry are meaningful for accountants and NGOs doing fund accounting, but a retail shop owner just wants to ring up a first sale. Business (non-nonprofit) workspaces now get a 2-step path: Profile → "Ready to Go" with three quick-start action buttons (Make a Sale, Send an Invoice, Add Stock). Nonprofit workspaces still follow the full 3-step wizard (fund accounting requires a proper chart of accounts and verified opening balances). Path is determined by `user?.orgType` from the existing JWT/auth context — no schema migration needed.
@@ -341,6 +342,33 @@ This file records all significant changes, decisions, and progress made on the M
 **Verification:** TypeScript compilation clean across all changed files. No existing API contracts changed — all new fields are additive with safe defaults (`RETAIL` for `customerType`/`saleType`, `null` for `wholesalePrice`).
 
 **Files:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260818000000_wholesale_retail_pricing/migration.sql`, `backend/src/routes/inventory.ts`, `backend/src/routes/invoices.ts`, `backend/src/routes/cashTill.ts`, `backend/src/routes/reports.ts`, `frontend/src/pages/inventory/WarehouseManagement.tsx`, `frontend/src/pages/invoices/Invoices.tsx`, `frontend/src/pages/pos/PointOfSale.tsx`, `frontend/src/lib/offlineDb.ts`, `frontend/src/lib/saleSyncQueue.ts`, `frontend/src/pages/reports/SalesChannelReport.tsx`, `frontend/src/lib/navigation.ts`, `frontend/src/App.tsx`.
+
+## [Date: 2026-08-21] - Payroll Module: Closed All Blocking GL Account Gaps, Making Payroll End-to-End Functional
+
+**What/Why:** The payroll module (routes, services, DB migrations 012–015, frontend pages, nav, lazy routes) was already 100% built, but `postPayrollJournalEntry` threw a hard 400 error for every tenant because 5 required GL account `defaultRole` designations were never set up anywhere in the codebase: `SALARY_EXPENSE`, `EMPLOYER_SSNIT_EXPENSE`, `PAYE_PAYABLE`, `SSNIT_PAYABLE`, `NET_PAY_PAYABLE`. Four gaps blocked this:
+
+1. `AccountDefaultRole` in `frontend/src/types/accounting.ts` was missing all 7 payroll roles (5 payroll + 2 new payroll expense roles), so TypeScript rejected them at compile time.
+2. The Chart of Accounts UI had no role toggles for `Liability`-type accounts and no payroll roles under `Expense`, so users had no way to manually designate them.
+3. `onboardingWizardService.ts`'s auto-designation loop only covered `['CASH', 'REVENUE', 'EXPENSE', 'COGS', 'INVENTORY_ASSET']` — the 5 payroll roles were never set for new tenants going through the wizard.
+4. Existing tenants who had already seeded their chart of accounts had no migration to backfill the missing payroll GL accounts or their role designations.
+
+**Fix:**
+
+- **`frontend/src/types/accounting.ts`**: Extended `AccountDefaultRole` union from 5 roles to 12, adding `SALARY_EXPENSE`, `EMPLOYER_SSNIT_EXPENSE`, `PAYE_PAYABLE`, `SSNIT_PAYABLE`, `NET_PAY_PAYABLE` (payroll) plus `DEPRECIATION_EXPENSE`, `ACCUMULATED_DEPRECIATION` (already in DB constraint but previously un-typed).
+
+- **`frontend/src/hooks/useAccounts.ts`**: Fixed a stale hardcoded union type on `setAccountDefaultRole`'s `role` parameter that hadn't been updated when the type was expanded in `accounting.ts` — was causing a `TS2345` type error in CI against the new payroll roles. Now imports and uses `AccountDefaultRole` directly.
+
+- **`frontend/src/pages/accounts/ChartOfAccounts.tsx`**: Added `Liability` entry to `ROLES_FOR_TYPE` (`['PAYE_PAYABLE', 'SSNIT_PAYABLE', 'NET_PAY_PAYABLE']`) and added `SALARY_EXPENSE`/`EMPLOYER_SSNIT_EXPENSE` to the `Expense` entry. Populated `ROLE_LABEL` and `ROLE_SHORT_LABEL` for all 12 roles including all 5 new payroll roles. Liability-type accounts now show "Set as Default PAYE Payable" / "Set as Default SSNIT Payable" / "Set as Default Net Pay Payable" role-toggle buttons in the Default Posting column.
+
+- **`backend/src/data/ghanaSmeChartOfAccountsTemplate.ts`**: Added 4 accounts that payroll requires but the original template didn't include: `2210 PAYE Tax Payable (LIABILITY)`, `2220 SSNIT Contributions Payable (LIABILITY)`, `2230 Net Pay Payable (LIABILITY)`, `6022 Employer SSNIT Contribution (EXPENSE)`. Template is now 33 accounts (was 29). The 5th payroll account (Salaries & Wages Expense, code 6020) was already present.
+
+- **`backend/src/services/onboardingWizardService.ts`**: Extended the post-seed auto-designation loop to cover all 10 roles: `['CASH', 'REVENUE', 'EXPENSE', 'COGS', 'INVENTORY_ASSET', 'SALARY_EXPENSE', 'EMPLOYER_SSNIT_EXPENSE', 'PAYE_PAYABLE', 'SSNIT_PAYABLE', 'NET_PAY_PAYABLE']`. `pickAutoDefaultCandidate` in `accountRepository.ts` already handled all 5 payroll roles by name-pattern matching — only the caller needed updating.
+
+- **`backend/src/database/migrations/tenantMigrations.ts`** (migration 017 — `017_seed_payroll_gl_accounts`): INSERTs the 4 missing payroll accounts (`ON CONFLICT (code) DO NOTHING`) and UPDATEs `default_role` for all 5 payroll roles using the same name-pattern matching as `pickAutoDefaultCandidate`. Entire INSERT + UPDATE block is wrapped in `IF EXISTS (SELECT 1 FROM accounts LIMIT 1) THEN ... END IF;` — skips empty schemas (freshly provisioned tenants who haven't run the wizard yet) entirely, preventing the migration from pre-populating accounts that would prematurely mark `chartOfAccountsReady: true` and cause the wizard's seed step to report fewer created accounts than the template length.
+
+**Verification:** `tsc --noEmit` clean (frontend and backend). `onboardingWizard.test.ts` both previously-failing tests now pass: `chartOfAccountsReady` is correctly `false` for a freshly provisioned tenant (migration 017 correctly skips the empty schema), and `seedChartOfAccounts` correctly reports `created: 33` (all 33 template accounts). All payroll roles are now auto-designated for any tenant seeded via the wizard, so `postPayrollJournalEntry`'s `resolveDefaultAccount` calls succeed without manual Chart of Accounts setup.
+
+**Files:** `frontend/src/types/accounting.ts`; `frontend/src/hooks/useAccounts.ts`; `frontend/src/pages/accounts/ChartOfAccounts.tsx`; `backend/src/data/ghanaSmeChartOfAccountsTemplate.ts`; `backend/src/services/onboardingWizardService.ts`; `backend/src/database/migrations/tenantMigrations.ts`.
 
 ## [Date: 2026-08-17] - Fixed Invoices Page Showing Accountant-Only Action Buttons to Every Role
 
