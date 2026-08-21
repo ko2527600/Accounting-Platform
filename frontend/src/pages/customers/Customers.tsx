@@ -56,7 +56,7 @@ const emptyForm = {
 };
 
 export function Customers() {
-  const { addToast } = useToast();
+  const { showToast } = useToast();
   const { user } = useAuth();
   const canWrite = !RESTRICTED_WRITE_ROLES.has((user?.role ?? "").toLowerCase());
 
@@ -80,11 +80,11 @@ export function Customers() {
       const res = await api.get("/invoices/customers");
       setCustomers(res.data.data.customers ?? []);
     } catch {
-      addToast("Failed to load customers.", "error");
+      showToast("Failed to load customers.", "error");
     } finally {
       setIsLoading(false);
     }
-  }, [addToast]);
+  }, [showToast]);
 
   useEffect(() => { loadCustomers(); }, [loadCustomers]);
 
@@ -135,7 +135,7 @@ export function Customers() {
 
   async function handleSave() {
     if (!form.name.trim() || !form.email.trim()) {
-      addToast("Name and email are required.", "error");
+      showToast("Name and email are required.", "error");
       return;
     }
     const payload: Record<string, any> = {
@@ -151,16 +151,16 @@ export function Customers() {
       setIsSaving(true);
       if (editingCustomer) {
         await api.put(`/invoices/customers/${editingCustomer.id}`, payload);
-        addToast("Customer updated.", "success");
+        showToast("Customer updated.", "success");
       } else {
         await api.post("/invoices/customers", payload);
-        addToast("Customer created.", "success");
+        showToast("Customer created.", "success");
       }
       setShowModal(false);
       loadCustomers();
       if (selectedCustomer?.id === editingCustomer?.id) setSelectedCustomer(null);
     } catch (err: any) {
-      addToast(err?.response?.data?.error ?? "Failed to save customer.", "error");
+      showToast(err?.response?.data?.error ?? "Failed to save customer.", "error");
     } finally {
       setIsSaving(false);
     }
@@ -170,11 +170,11 @@ export function Customers() {
     if (!window.confirm(`Delete customer "${c.name}"? This cannot be undone.`)) return;
     try {
       await api.delete(`/invoices/customers/${c.id}`);
-      addToast("Customer deleted.", "success");
+      showToast("Customer deleted.", "success");
       if (selectedCustomer?.id === c.id) setSelectedCustomer(null);
       loadCustomers();
     } catch (err: any) {
-      addToast(err?.response?.data?.error ?? "Failed to delete customer.", "error");
+      showToast(err?.response?.data?.error ?? "Failed to delete customer.", "error");
     }
   }
 
