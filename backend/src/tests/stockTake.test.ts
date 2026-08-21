@@ -33,8 +33,8 @@ describe('Stock Take: printable blind-count sheets + reconciliation', () => {
   const tenantSchema = `tenant_stock_take_corp_${runId}`;
   const adminEmail = `admin_stocktake_${runId}@corp.com`;
   const managerEmail = `manager_stocktake_${runId}@corp.com`;
-  const skuA = `STA-${runId}`;
-  const skuB = `STB-${runId}`;
+  const skuA = `STA-${runId}`.toUpperCase();
+  const skuB = `STB-${runId}`.toUpperCase();
 
   let adminToken: string;
   let tenantId: string;

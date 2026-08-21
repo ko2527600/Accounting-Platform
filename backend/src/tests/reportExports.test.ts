@@ -36,7 +36,7 @@ describe('Real PDF/Word/CSV export for reports (replaces window.print() and fake
   // genuinely long value, which would make this test's "contains the real
   // value" assertion fail for a reason unrelated to what it's checking.
   const runSuffix = String(runId).slice(-6);
-  const sku = `REX${runSuffix}`;
+  const sku = `REX${runSuffix}`.toUpperCase();
   const shopName = `Shop ${runSuffix}`;
 
   let adminToken: string;
