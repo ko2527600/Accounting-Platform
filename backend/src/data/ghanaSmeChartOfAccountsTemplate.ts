@@ -27,6 +27,9 @@ export const GHANA_SME_CHART_OF_ACCOUNTS_TEMPLATE: ChartOfAccountsTemplateEntry[
   { code: '2110', name: 'NHIL Payable', type: 'LIABILITY' },
   { code: '2120', name: 'GETFund Levy Payable', type: 'LIABILITY' },
   { code: '2200', name: 'Staff Salaries Payable', type: 'LIABILITY' },
+  { code: '2210', name: 'PAYE Tax Payable', type: 'LIABILITY' },
+  { code: '2220', name: 'SSNIT Contributions Payable', type: 'LIABILITY' },
+  { code: '2230', name: 'Net Pay Payable', type: 'LIABILITY' },
   { code: '2300', name: 'Short-Term Loans', type: 'LIABILITY' },
 
   // Equity
@@ -46,6 +49,7 @@ export const GHANA_SME_CHART_OF_ACCOUNTS_TEMPLATE: ChartOfAccountsTemplateEntry[
   { code: '6000', name: 'Rent Expense', type: 'EXPENSE' },
   { code: '6010', name: 'Utilities Expense', type: 'EXPENSE' },
   { code: '6020', name: 'Salaries & Wages Expense', type: 'EXPENSE' },
+  { code: '6022', name: 'Employer SSNIT Contribution', type: 'EXPENSE' },
   { code: '6030', name: 'Transport & Fuel Expense', type: 'EXPENSE' },
   { code: '6040', name: 'Communication Expense', type: 'EXPENSE' },
   { code: '6050', name: 'Office Supplies Expense', type: 'EXPENSE' },
