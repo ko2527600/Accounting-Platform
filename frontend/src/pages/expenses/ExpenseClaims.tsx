@@ -1,5 +1,5 @@
-import { useState, useEffect, useCallback } from "react";
-import { Receipt, PlusCircle, CheckCircle2, XCircle, Wallet } from "lucide-react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { Receipt, PlusCircle, CheckCircle2, XCircle, Wallet, Camera, Loader2 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "../../components/ui/Card";
@@ -62,6 +62,8 @@ export function ExpenseClaims() {
     expenseAccountId: "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isOcrProcessing, setIsOcrProcessing] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Once the tenant's real base currency loads, default the picker to it
   // instead of leaving it pinned to the initial "USD" guess - most users
@@ -144,6 +146,50 @@ export function ExpenseClaims() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to reimburse claim.", "error");
+    }
+  };
+
+  const handleOcrScan = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      showToast("Please select an image file (JPEG, PNG, WebP).", "error");
+      return;
+    }
+
+    setIsOcrProcessing(true);
+    try {
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const result = reader.result as string;
+          // Strip the data URL prefix to get just the base64 data
+          resolve(result.split(",")[1] ?? "");
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+
+      const res = await api.post("/ocr/receipt", { imageBase64: base64, mimeType: file.type });
+      if (res.data.success) {
+        const d = res.data.data;
+        setForm((f) => ({
+          ...f,
+          category: d.category || d.vendor || f.category,
+          description: d.vendor
+            ? `${d.vendor}${d.description ? ` — ${d.description}` : ""}`
+            : d.description || f.description,
+          amount: d.amount ?? f.amount,
+          expenseDate: d.date ?? f.expenseDate,
+        }));
+        showToast("Receipt scanned — please review and confirm the filled fields.", "success");
+      }
+    } catch (err: any) {
+      showToast(err.response?.data?.error || "Failed to scan receipt.", "error");
+    } finally {
+      setIsOcrProcessing(false);
+      // Reset so the same file can be scanned again if needed
+      if (fileInputRef.current) fileInputRef.current.value = "";
     }
   };
 
@@ -233,11 +279,38 @@ export function ExpenseClaims() {
       <form onSubmit={handleSubmit}>
         <Card>
           <CardHeader>
-            <CardTitle className="flex items-center">
-              <PlusCircle className="mr-2 h-5 w-5 text-primary-600" />
-              File a New Claim
+            <CardTitle className="flex items-center justify-between">
+              <span className="flex items-center">
+                <PlusCircle className="mr-2 h-5 w-5 text-primary-600" />
+                File a New Claim
+              </span>
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleOcrScan}
+                  aria-label="Scan receipt image"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  disabled={isOcrProcessing}
+                  onClick={() => fileInputRef.current?.click()}
+                  aria-label="Scan receipt to auto-fill form"
+                >
+                  {isOcrProcessing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" aria-hidden />
+                  ) : (
+                    <Camera className="mr-2 h-4 w-4" aria-hidden />
+                  )}
+                  {isOcrProcessing ? "Scanning…" : "Scan Receipt"}
+                </Button>
+              </div>
             </CardTitle>
-            <CardDescription>Any team member can submit a claim for their own spend.</CardDescription>
+            <CardDescription>Any team member can submit a claim for their own spend. Use "Scan Receipt" to auto-fill fields from a photo.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div className="grid grid-cols-2 gap-4">

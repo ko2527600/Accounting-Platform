@@ -2,6 +2,121 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Subscription Billing: Free Trial → MoMo / Visa Payment Flow
+
+**What/Why:** Implemented the full subscription billing lifecycle for the Ghanaian SMB market. New tenants get a 90-day free trial; when it expires they enter a 7-day read-only grace period, then a hard block until they subscribe. Payment via Paystack supports Mobile Money (MTN/AirtelTigo/Telecel) and Visa/Mastercard. Paying for a higher plan also upgrades the tenant's tier. All existing tenants are grandfathered to ACTIVE (no disruption).
+
+**Prices (GHS/month):** Shop = 105 | Business = 305 | Enterprise = 510
+
+**Changes:**
+- **`backend/prisma/schema.prisma`** — Added `subscriptionStatus String @default("TRIAL")`, `trialEndsAt DateTime?`, `subscriptionPaidUntil DateTime?` to `Tenant` model.
+- **`backend/prisma/migrations/20260821100000_subscription_billing/migration.sql`** (NEW) — Adds the 3 columns; backfills all existing tenants to `subscriptionStatus = 'ACTIVE'` so they are unaffected.
+- **`backend/src/middleware/subscriptionEnforcementMiddleware.ts`** (NEW) — `computeSubscriptionState()` function + `subscriptionEnforcementMiddleware` (ACTIVE/TRIAL: pass; GRACE: block writes with 402; EXPIRED: block all with 402). Inlined into `tenantContextMiddleware.ts` to cover all tenant-scoped routes without touching every router file.
+- **`backend/src/middleware/tenantContextMiddleware.ts`** — Extended `TenantContextData` construction to include 3 new subscription fields; inlined subscription enforcement after context is set.
+- **`backend/src/routes/subscription.ts`** (NEW) — `GET /plans`, `GET /status`, `POST /initialize` (Paystack checkout), `POST /verify` (activate on success), `POST /webhook` (HMAC-SHA512 Paystack webhook). Enforcement middleware intentionally excluded so expired tenants can pay.
+- **`backend/src/services/tenantService.ts`** — Sets `trialEndsAt = now() + 90 days` and `subscriptionStatus: 'TRIAL'` on new tenant creation; warms Redis cache with subscription fields.
+- **`backend/src/cache/tenantCache.ts`** — Extended `CachedTenant` interface with 3 new fields; date deserialization handles ISO strings.
+- **`backend/src/context/tenantContext.ts`** — Extended `TenantContextData` with 3 optional subscription fields.
+- **`frontend/src/components/SubscriptionBanner.tsx`** (NEW) — Amber banner for TRIAL with ≤14 days left; red banner for GRACE; links to `/settings?tab=subscription`.
+- **`frontend/src/components/SubscriptionWall.tsx`** (NEW) — Full-page overlay for EXPIRED state; plan cards with GHS prices; Paystack initialize → open tab → verify flow.
+- **`frontend/src/components/layout/MainLayout.tsx`** — Fetches `/subscription/status` on mount; renders `<SubscriptionWall>` when EXPIRED, `<SubscriptionBanner>` between Header and main content.
+- **`frontend/src/pages/settings/Settings.tsx`** — Added "Subscription" tab (Admin only) with current plan summary and upgrade payment flow.
+- **Tests fixed:** `performanceAndHardening.test.ts` (3 cache fixtures updated with new fields), `tenantContextMiddleware.test.ts` (toEqual assertions updated for new subscription context fields).
+
+**Key design decisions:**
+- Enforcement is inlined in `tenantContextMiddleware.ts` (not a separate middleware mount) to avoid touching 20+ router files.
+- `computeSubscriptionState` returns TRIAL when `subscriptionStatus = 'TRIAL'` and `trialEndsAt = null` (pre-migration / test-created tenants) rather than falling through to EXPIRED.
+- `/api/v1/subscription/*` routes are exempt from enforcement so expired tenants can pay.
+
+**Files changed:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260821100000_subscription_billing/migration.sql` (new), `backend/src/middleware/subscriptionEnforcementMiddleware.ts` (new), `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/routes/subscription.ts` (new), `backend/src/services/tenantService.ts`, `backend/src/cache/tenantCache.ts`, `backend/src/context/tenantContext.ts`, `frontend/src/components/SubscriptionBanner.tsx` (new), `frontend/src/components/SubscriptionWall.tsx` (new), `frontend/src/components/layout/MainLayout.tsx`, `frontend/src/pages/settings/Settings.tsx`, `backend/src/tests/performanceAndHardening.test.ts`, `backend/src/tests/tenantContextMiddleware.test.ts`, `TASKS.md`
+
+---
+
+## [Date: 2026-08-21] - Payroll Module: Verified End-to-End Functional
+
+**What/Why:** Closed the `Develop Payroll management module (w:15)` task. The payroll routes, services, DB schema, and frontend pages were already built. The blocking gap was `postPayrollJournalEntry` throwing a 400 for every tenant because the 5 required GL account `defaultRole` designations were never set up. Audit confirmed all 4 sub-gaps are already resolved in the codebase:
+
+1. **`frontend/src/types/accounting.ts`** — `AccountDefaultRole` union already includes all 7 payroll roles (`SALARY_EXPENSE`, `EMPLOYER_SSNIT_EXPENSE`, `PAYE_PAYABLE`, `SSNIT_PAYABLE`, `NET_PAY_PAYABLE`, plus depreciation roles).
+2. **`frontend/src/pages/accounts/ChartOfAccounts.tsx`** — `ROLES_FOR_TYPE` already has a `Liability` key with the 3 payable roles and `Expense` with the 2 expense roles; `ROLE_LABEL`/`ROLE_SHORT_LABEL` already have all payroll entries.
+3. **`backend/src/services/onboardingWizardService.ts`** — Auto-designation loop already seeds all 5 payroll roles for new tenants.
+4. **`backend/src/database/migrations/tenantMigrations.ts`** — Migration 017 (`017_seed_payroll_gl_accounts`) already handles existing tenants: inserts 4 missing accounts (`ON CONFLICT (code) DO NOTHING`) and designates all 5 roles via name-pattern matching.
+
+No code changes required — task marked complete after verification.
+
+**Files changed:** `TASKS.md`
+
+---
+
+## [Date: 2026-08-21] - CRM: Standalone Customer Management Module
+
+**What/Why:** Closed the `Integrate CRM functionalities (w:10)` task. The `Customer` model already existed in the DB schema and a partial API was embedded in `invoices.ts`, but there was no standalone page, no customer detail view, no invoice history per customer, no search/filter, and the `phone`/`address` fields were never shown in the UI. This change adds a complete standalone Customers module.
+
+**Changes:**
+- **`backend/src/routes/invoices.ts`** — Added `DELETE /api/v1/invoices/customers/:id` endpoint (Admin/Accountant only). Checks for existing invoices before allowing deletion (returns 400 with count if > 0, 404 if customer not found, 200 on success).
+- **`frontend/src/pages/customers/Customers.tsx`** (NEW) — Full-page customer management: searchable list (name/email), type filter pill buttons (All/Retail/Wholesale), table with Name/Email/Phone/Type badge/Credit Limit/Actions columns, Add/Edit modal with all fields including the previously-missing phone and address fields, and a right-panel detail drawer showing contact info, credit limit, outstanding balance (sum of unpaid invoice balances), and last 20 invoices sorted by date desc.
+- **`frontend/src/lib/navigation.ts`** — Added `{ name: "Customers", href: "/customers", icon: Users }` to the SALES & PURCHASES nav group after Invoices (AR). Visible in all workspace modes.
+- **`frontend/src/App.tsx`** — Added lazy import for `Customers` page and `<Route path="/customers">` after the `/invoices` route.
+
+**Files changed:** `backend/src/routes/invoices.ts`, `frontend/src/pages/customers/Customers.tsx` (new), `frontend/src/lib/navigation.ts`, `frontend/src/App.tsx`, `TASKS.md`
+
+---
+
+## [Date: 2026-08-21] - Performance Optimization for High Load
+
+**What/Why:** Closed the `Optimize performance and scalability for high load (w:7)` task. Four categories of change: (1) Redis report caching so expensive full-ledger aggregations are not recomputed on every page refresh; (2) Redis notification caching to absorb the 15-second polling loop that fires for every logged-in user; (3) composite DB indexes on the three hottest query paths; (4) Vite manual chunk splitting for smaller initial JS bundles.
+
+**Changes:**
+- **`backend/src/cache/reportCache.ts`** (NEW) — `getCachedReport`, `setCachedReport`, `invalidateReportCache`. 5-minute TTL per `report:{tenantId}:{type}:{sha1-param-hash}`. Fire-and-forget writes; `delPattern` for atomic tenant-wide invalidation.
+- **`backend/src/routes/reports.ts`** — Cache-aside layer added to 7 endpoints: `/trial-balance`, `/profit-loss`, `/balance-sheet`, `/kpis`, `/analytics/trends`, `/analytics/top-customers`, `/analytics/top-items`. Cache miss computes and writes; cache hit returns immediately.
+- **`backend/src/cache/notificationCache.ts`** (NEW) — Per-user 10-second Redis cache for `GET /notifications`. `invalidateNotificationCache` for single-user invalidation; `invalidateAllNotificationCaches` (delPattern) for broadcast creates.
+- **`backend/src/routes/notifications.ts`** — GET handler reads from cache; POST (create) flushes all tenant caches; PUT (mark-read / read-all) flushes the acting user's cache.
+- **`backend/src/services/journalEntryService.ts`** — `postJournalEntry` and `voidJournalEntry` now call `invalidateReportCache(tenantId)` after each ledger mutation so stale report caches expire immediately.
+- **`backend/prisma/schema.prisma`** — Added composite indexes: `Invoice(tenantId, status, issueDate)`, `CashSale(tenantId, createdAt)`, `SyncChangeLog(tenantId, occurredAt)`.
+- **`backend/prisma/migrations/20260821000000_performance_indexes/migration.sql`** (NEW) — CONCURRENTLY-safe `CREATE INDEX IF NOT EXISTS` for the three new indexes above.
+- **`backend/src/database/migrations/tenantMigrations.ts`** — Migration 018: composite indexes on per-tenant `notifications` table (`tenant_id, user_id, read` and `tenant_id, created_at DESC`).
+- **`frontend/vite.config.ts`** — `build.rollupOptions.output.manualChunks` splits react-vendor, recharts, lucide-react, and cmdk/react-hook-form into separate chunks for better cache utilisation on deployment.
+
+**Files changed:** `backend/src/cache/reportCache.ts` (new), `backend/src/cache/notificationCache.ts` (new), `backend/src/routes/reports.ts`, `backend/src/routes/notifications.ts`, `backend/src/services/journalEntryService.ts`, `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260821000000_performance_indexes/migration.sql` (new), `backend/src/database/migrations/tenantMigrations.ts`, `frontend/vite.config.ts`
+
+---
+
+## [Date: 2026-08-21] - Advanced Automation: Real Cross-App Search + Receipt OCR
+
+**What/Why:** Closed two automation gaps flagged in the Ghana market research as baseline competitive features: (1) The header search bar's placeholder ("Search accounts, entries, reports…") over-promised relative to what `CommandMenu.tsx` actually did (static navigation shortcuts only — a "copy-honesty issue" the research named explicitly). Built real cross-entity keyword search instead of just fixing the copy. (2) Expense Receipt OCR — `ExpenseClaim` was pure manual data entry with no image-processing capability at all; added Claude vision OCR to pre-fill the expense form from a photo of a receipt. Closes "Implement advanced automation features (w:8)".
+
+**Changes:**
+- **`backend/src/routes/search.ts`** (NEW) — `GET /api/v1/search?q=` endpoint. Returns ≤5 results per entity type: Customers/Invoices/Vendors/InventoryItems from the main schema (tenantId-filtered), Accounts/JournalEntries from per-tenant schemas (via `withCurrentTenantDb`). Minimum 2 chars required. Requires `requireRole('Viewer')`. Results include `type, id, title, subtitle, href` for the frontend to navigate to the right page.
+- **`backend/src/routes/ocr.ts`** (NEW) — `POST /api/v1/ocr/receipt`. Accepts `{ imageBase64, mimeType }`, validates MIME type (JPEG/PNG/GIF/WebP) and size (≤5 MB base64), calls Anthropic claude-haiku-4-5-20251001 vision API with a structured extraction prompt, returns `{ vendor, amount, date, description, category }` (null for any field Claude cannot read). 503 if `ANTHROPIC_API_KEY` not configured; 429 on Anthropic rate limit.
+- **`backend/src/app.ts`** — Mounts `searchRouter` at `/api/v1/search` and `ocrRouter` at `/api/v1/ocr`.
+- **`frontend/src/components/ui/CommandMenu.tsx`** — Extended from navigation-shortcuts-only to real data search. New `useDebounce` hook (280ms); on every input change ≥2 chars fires `GET /api/v1/search?q=`. Results shown in a "SEARCH RESULTS" group above nav shortcuts; each result has a colour-coded type badge (Customer=blue, Invoice=emerald, Vendor=orange, Item=purple, Account=amber, Journal=rose) and its source icon. Spinner shows while fetching. `shouldFilter={!hasQuery}` disables cmdk's own client-side filtering when showing real server results. Menu state (query, results) resets on close.
+- **`frontend/src/pages/expenses/ExpenseClaims.tsx`** — Added "Scan Receipt" button to the "File a New Claim" card. Hidden `<input type="file" accept="image/*">` reads the selected image via `FileReader.readAsDataURL`, strips the data-URL prefix, and POSTs to `/api/v1/ocr/receipt`. On success auto-fills `category` (OCR vendor/category), `description` (OCR vendor + description), `amount`, and `expenseDate`. Loading spinner on the button while OCR is processing; toast on success prompting the user to review the pre-filled values. File input reset after each scan so the same file can be re-scanned.
+- **`frontend/src/components/layout/Header.tsx`** — Search bar placeholder changed from "Quick navigation... (Cmd+K)" to "Search or navigate… (Cmd+K)" to accurately describe the real capability.
+
+**Files changed:** `backend/src/routes/search.ts` (new), `backend/src/routes/ocr.ts` (new), `backend/src/app.ts`, `frontend/src/components/ui/CommandMenu.tsx`, `frontend/src/pages/expenses/ExpenseClaims.tsx`, `frontend/src/components/layout/Header.tsx`
+
+---
+
+## [Date: 2026-08-21] - Analytics Dashboard (`/reports/analytics`)
+
+**What/Why:** All existing reports were point-in-time or single-period tabular views — no time-series trend visualization, no top-customer/top-item analytics. Closes the final open task "Develop advanced reporting and analytics dashboards" (w:10).
+
+**Changes:**
+- **`backend/src/routes/reports.ts`** — Three new endpoints:
+  - `GET /reports/analytics/trends?months=3|6|12` — loops over N months, calls the existing `getProfitAndLoss` service per month, returns `[{ month, label, revenue, cogs, expenses, netProfit }]`. Numbers are guaranteed to match the P&L report exactly.
+  - `GET /reports/analytics/top-customers?startDate=&endDate=&limit=10` — queries invoices with `amountPaid > 0` grouped by customer, returns ranked by total revenue with customer type.
+  - `GET /reports/analytics/top-items?startDate=&endDate=&limit=10` — queries COMPLETED POS `cashSaleLines` grouped by itemId, returns ranked by total line revenue.
+- **`frontend/src/pages/reports/AnalyticsDashboard.tsx`** — new page at `/reports/analytics`:
+  - 3M/6M/12M period selector (pill toggle), drives both trend and top-N queries.
+  - 3 KPI summary tiles: Total Revenue (with half-period trend delta), Total Costs, Net Profit (with margin %).
+  - Month-by-month SVG bar chart — Revenue (green) and Total Costs (orange) bars per month, Net Profit dot per month, Y-axis grid with compact currency labels, accessible with `<title>` tooltips per element.
+  - Top 5 Customers: ranked list with proportional share bars, customer type badge, invoice count.
+  - Top 5 Items: ranked list with proportional share bars, units sold, SKU.
+  - No external chart library — pure inline SVG, no CDN dependency.
+- **`frontend/src/lib/navigation.ts`** — Added `LineChart` import; added `{ name: "Analytics Dashboard", href: "/reports/analytics", icon: LineChart }` after Budgets in the REPORTS & ANALYTICS section; added `/reports/analytics` to `OPERATIONS_HIDDEN` (hidden from Simple mode, visible in Business/Professional); added to auditor role's allowed nav.
+- **`frontend/src/App.tsx`** — Added lazy import and `<Route path="/reports/analytics">` alongside other report routes.
+
+---
+
 ## [Date: 2026-08-21] - CRM: Standalone Customer Management Page
 
 **What/Why:** Customer management was buried inside the Invoices page as Add/Edit modals with no search, no filter, no delete, and two fields (`phone`, `address`) never exposed in the UI despite existing in the DB. Added a proper `/customers` standalone page matching the product roadmap's CRM item, with a searchable list, per-customer detail drawer showing invoice history and credit usage, and a full add/edit modal covering all fields.

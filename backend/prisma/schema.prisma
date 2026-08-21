@@ -68,6 +68,13 @@ model Tenant {
   paystackAccountNumber   String?   @map("paystack_account_number")
   paystackAccountName     String?   @map("paystack_account_name")
   isLive                  Boolean   @default(false) @map("is_live")
+  // Subscription billing: TRIAL | ACTIVE | GRACE | EXPIRED.
+  // New tenants start as TRIAL with trialEndsAt = +90 days. On payment,
+  // status flips to ACTIVE and subscriptionPaidUntil = +30 days.
+  // Existing tenants (grandfathered) are set to ACTIVE in the migration.
+  subscriptionStatus      String    @default("TRIAL") @map("subscription_status")
+  trialEndsAt             DateTime? @map("trial_ends_at")
+  subscriptionPaidUntil   DateTime? @map("subscription_paid_until")
   // Owner/manager phone number that automated SMS alerts (till-close
   // summaries, cash shortage warnings) go to. Optional - alerts are skipped
   // (not sent to a shared/hardcoded fallback) when unset for this tenant.
@@ -492,6 +499,7 @@ model Invoice {
   @@index([taxRateId])
   @@index([warehouseId])
   @@index([fundId])
+  @@index([tenantId, status, issueDate])
   @@map("invoices")
 }
 
@@ -998,6 +1006,7 @@ model CashSale {
   @@unique([tenantId, clientTxnId])
   @@index([tenantId])
   @@index([tenantId, createdByUserId])
+  @@index([tenantId, createdAt])
   @@map("cash_sales")
 }
 
@@ -1559,6 +1568,7 @@ model SyncChangeLog {
 
   @@unique([tenantId, sequence])
   @@index([tenantId, entityType])
+  @@index([tenantId, occurredAt])
   @@map("sync_change_log")
 }
 

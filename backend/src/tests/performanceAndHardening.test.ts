@@ -32,6 +32,9 @@ describe('TenantCache', () => {
       acceptedTermsVersion: null,
       termsAcceptedAt: null,
       tier: 1,
+      subscriptionStatus: 'ACTIVE',
+      trialEndsAt: null,
+      subscriptionPaidUntil: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -56,6 +59,9 @@ describe('TenantCache', () => {
       acceptedTermsVersion: null,
       termsAcceptedAt: null,
       tier: 1,
+      subscriptionStatus: 'ACTIVE',
+      trialEndsAt: null,
+      subscriptionPaidUntil: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };
@@ -81,6 +87,9 @@ describe('TenantCache', () => {
       acceptedTermsVersion: null,
       termsAcceptedAt: null,
       tier: 1,
+      subscriptionStatus: 'ACTIVE',
+      trialEndsAt: null,
+      subscriptionPaidUntil: null,
       createdAt: new Date(),
       updatedAt: new Date(),
     };

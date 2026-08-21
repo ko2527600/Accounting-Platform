@@ -48,7 +48,7 @@ const FAQ_ITEMS: { question: string; answer: string }[] = [
   {
     question: "Can I move to a different pricing tier later?",
     answer:
-      "Yes. Reach out to support as your business grows and we'll move your workspace to the tier that fits — from Shop up to a custom Enterprise plan.",
+      "Yes. You can upgrade at any time from the Subscription tab in your Settings — just pick a plan and pay via Mobile Money or card. Your workspace moves to the new tier instantly.",
   },
   {
     question: "Is there an implementation or setup fee?",
@@ -82,7 +82,7 @@ const PRICING_PLANS = [
     tier: 1,
     label: "SHOP",
     name: "Shop",
-    price: "GH₵ 150",
+    price: "GH₵ 105",
     period: "/ mo",
     seats: 3,
     tagline: "For single-location businesses getting started.",
@@ -106,7 +106,7 @@ const PRICING_PLANS = [
     tier: 2,
     label: "BUSINESS",
     name: "Business",
-    price: "GH₵ 350",
+    price: "GH₵ 305",
     period: "/ mo",
     seats: 10,
     tagline: "For growing teams with multiple locations.",
@@ -130,11 +130,11 @@ const PRICING_PLANS = [
     tier: 3,
     label: "ENTERPRISE",
     name: "Enterprise",
-    price: "Custom",
-    period: "quote",
+    price: "GH₵ 510",
+    period: "/ mo",
     seats: Infinity,
     tagline: "Dedicated support for large organisations.",
-    cta: "Contact Us",
+    cta: "Start Free Trial",
     ctaVariant: "outline" as const,
     highlight: false,
     features: [
@@ -337,7 +337,7 @@ export function LandingPage() {
           </div>
 
           <p className="mt-8 text-center text-xs text-secondary-500">
-            All plans include a free trial. No credit card required to register. Tier upgrades are handled by our team — <Link to="/legal" className="text-emerald-500 hover:text-emerald-400">see SLA & Fair Use policy</Link>.
+            All plans include a 90-day free trial. No credit card required to register. Upgrade instantly via Mobile Money or card from your Settings. — <Link to="/legal" className="text-emerald-500 hover:text-emerald-400">see SLA & Fair Use policy</Link>.
           </p>
         </div>
       </section>

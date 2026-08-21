@@ -31,6 +31,7 @@ import {
   GitBranch,
   Anchor,
   BadgeDollarSign,
+  LineChart,
 } from "lucide-react";
 
 export type WorkspaceMode = 'operations' | 'business' | 'professional';
@@ -56,7 +57,7 @@ const OPERATIONS_HIDDEN: ReadonlySet<string> = new Set([
   '/fixed-assets', '/recurring-invoices',
   '/reports/ledger', '/reports/balance-sheet', '/reports/cash-flow',
   '/reports/cash-flow-forecast', '/reports/kpis', '/reports/aging',
-  '/reports/landed-costs', '/reports/budgets', '/reports/branch-comparison',
+  '/reports/landed-costs', '/reports/budgets', '/reports/analytics', '/reports/branch-comparison',
   '/payroll/employees', '/payroll/runs', '/payroll/loans', '/payroll/leave',
   '/approvals', '/audit-logs', '/help-assistant/activity', '/import',
 ]);
@@ -153,6 +154,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Branch Comparison", href: "/reports/branch-comparison", icon: GitBranch },
       { name: "Landed Cost", href: "/reports/landed-costs", icon: Anchor },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
+      { name: "Analytics Dashboard", href: "/reports/analytics", icon: LineChart },
     ],
   },
   {
@@ -243,6 +245,7 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/branch-comparison",
     "/reports/landed-costs",
     "/reports/budgets",
+    "/reports/analytics",
     "/audit-logs",
     "/help-assistant/activity",
     "/feedback",

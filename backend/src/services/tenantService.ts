@@ -161,6 +161,7 @@ export async function onboardTenant(
 
   const tier = dto.tier !== undefined ? Number(dto.tier) : 1;
   const orgType = dto.orgType === 'NONPROFIT' ? 'NONPROFIT' : 'BUSINESS';
+  const trialEndsAt = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
 
   const schemaName = sanitizeSchemaName(slug);
 
@@ -187,6 +188,8 @@ export async function onboardTenant(
       tier,
       baseCurrency: dto.baseCurrency,
       orgType,
+      subscriptionStatus: 'TRIAL',
+      trialEndsAt,
     });
   } catch (err: any) {
     if (err.message && err.message.includes('unique constraint')) {
@@ -277,6 +280,9 @@ export async function onboardTenant(
     acceptedTermsVersion: tenantRecord.acceptedTermsVersion,
     termsAcceptedAt: tenantRecord.termsAcceptedAt,
     tier: tenantRecord.tier,
+    subscriptionStatus: tenantRecord.subscriptionStatus,
+    trialEndsAt: tenantRecord.trialEndsAt,
+    subscriptionPaidUntil: tenantRecord.subscriptionPaidUntil,
     createdAt: tenantRecord.createdAt,
     updatedAt: tenantRecord.updatedAt,
   });

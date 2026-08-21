@@ -14,6 +14,7 @@ import { requireTenantContext } from '../context/tenantContext';
 import * as fiscalPeriodService from './fiscalPeriodService';
 import * as approvalWorkflowService from './approvalWorkflowService';
 import { recordAuditLogTx, AuditActor } from './auditLogService';
+import { invalidateReportCache } from '../cache/reportCache';
 
 export class JournalEntryServiceError extends Error {
   statusCode: number;
@@ -205,6 +206,11 @@ export async function createJournalEntry(data: CreateJournalEntryInput, actor?: 
     return entry;
   });
 
+  if (entry.status === 'POSTED') {
+    const { tenantId } = requireTenantContext();
+    void invalidateReportCache(tenantId);
+  }
+
   return entry;
 }
 
@@ -374,6 +380,9 @@ export async function postJournalEntry(id: string, actor?: AuditActor): Promise<
     return updatedEntry;
   });
 
+  const { tenantId } = requireTenantContext();
+  void invalidateReportCache(tenantId);
+
   return updatedEntry;
 }
 
@@ -484,6 +493,9 @@ export async function voidJournalEntry(
 
     return { journalEntry: voidedOriginal, reversalEntry: reversalWithLines };
   });
+
+  const { tenantId } = requireTenantContext();
+  void invalidateReportCache(tenantId);
 
   return { journalEntry, reversalEntry };
 }

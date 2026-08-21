@@ -718,6 +718,20 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         END IF;
       END $$;
     `
+  },
+  {
+    version: 18,
+    name: '018_notification_performance_indexes',
+    sql: `
+      -- Composite indexes so the notification GET query (filtered by
+      -- tenant_id + user_id + unread flag, ordered by created_at DESC)
+      -- never does a sequential scan on large notification tables.
+      CREATE INDEX IF NOT EXISTS idx_notifications_tenant_user_read
+        ON notifications(tenant_id, user_id, read);
+
+      CREATE INDEX IF NOT EXISTS idx_notifications_tenant_created
+        ON notifications(tenant_id, created_at DESC);
+    `
   }
 ];
 

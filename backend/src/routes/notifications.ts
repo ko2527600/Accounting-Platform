@@ -4,6 +4,12 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import { authenticateJwt } from '../middleware/authMiddleware';
 import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
+import {
+  getCachedNotifications,
+  setCachedNotifications,
+  invalidateNotificationCache,
+  invalidateAllNotificationCaches,
+} from '../cache/notificationCache';
 
 const router = Router();
 
@@ -19,6 +25,13 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const { tenantId } = requireTenantContext();
     const userId = (req as any).user?.id;
 
+    type NotifPayload = { notifications: any[]; unreadCount: number };
+    const cached = await getCachedNotifications<NotifPayload>(tenantId, userId);
+    if (cached) {
+      res.status(200).json({ success: true, data: cached });
+      return;
+    }
+
     const notifications = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).notification.findMany({
         where: {
@@ -31,11 +44,10 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     });
 
     const unreadCount = notifications.filter((n: any) => !n.read).length;
+    const payload: NotifPayload = { notifications, unreadCount };
 
-    res.status(200).json({
-      success: true,
-      data: { notifications, unreadCount },
-    });
+    void setCachedNotifications(tenantId, userId, payload);
+    res.status(200).json({ success: true, data: payload });
   } catch (error: any) {
     console.error('[Notifications] Error fetching notifications:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch notifications.' });
@@ -69,6 +81,8 @@ router.post('/', async (req: Request, res: Response): Promise<void> => {
       });
     });
 
+    // Broadcast notification: wipe all per-user caches for this tenant
+    void invalidateAllNotificationCaches(tenantId);
     res.status(201).json({ success: true, message: 'Notification created', data: { notification: created } });
   } catch (error: any) {
     console.error('[Notifications] Error creating notification:', error);
@@ -100,6 +114,7 @@ router.put('/:id/read', async (req: Request, res: Response): Promise<void> => {
       });
     });
 
+    void invalidateNotificationCache(tenantId, userId);
     res.status(200).json({ success: true, data: { notification: updated } });
   } catch (error: any) {
     console.error('[Notifications] Error marking notification as read:', error);
@@ -131,6 +146,7 @@ router.put('/read-all', async (req: Request, res: Response): Promise<void> => {
       });
     });
 
+    void invalidateNotificationCache(tenantId, userId);
     res.status(200).json({ success: true, message: 'All notifications marked as read' });
   } catch (error: any) {
     console.error('[Notifications] Error marking all as read:', error);
