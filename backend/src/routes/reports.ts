@@ -697,31 +697,29 @@ router.get('/analytics/trends', requireRole('Viewer'), async (req: Request, res:
     if (cached) { res.json({ success: true, data: cached }); return; }
 
     const now = new Date();
-    const series: Array<{
-      month: string;
-      label: string;
-      revenue: number;
-      cogs: number;
-      expenses: number;
-      netProfit: number;
-    }> = [];
-
-    for (let i = months - 1; i >= 0; i--) {
+    const ranges = Array.from({ length: months }, (_, idx) => {
+      const i = months - 1 - idx;
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
       const startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
       const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
       const endDate = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+      const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+      return { startDate, endDate, label };
+    });
 
-      const pnl = await reportingService.getProfitAndLoss(startDate, endDate, undefined, undefined);
-      series.push({
-        month: startDate.slice(0, 7),
-        label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
-        revenue: pnl.totalRevenue,
-        cogs: pnl.totalCostOfSales,
-        expenses: pnl.totalExpenses,
-        netProfit: pnl.netProfit,
-      });
-    }
+    const series = await Promise.all(
+      ranges.map(async ({ startDate, endDate, label }) => {
+        const pnl = await reportingService.getProfitAndLoss(startDate, endDate, undefined, undefined);
+        return {
+          month: startDate.slice(0, 7),
+          label,
+          revenue: pnl.totalRevenue,
+          cogs: pnl.totalCostOfSales,
+          expenses: pnl.totalExpenses,
+          netProfit: pnl.netProfit,
+        };
+      })
+    );
 
     void setCachedReport(tenantId, 'analytics-trends', params, { series });
     res.json({ success: true, data: { series } });
@@ -753,44 +751,48 @@ router.get('/analytics/top-customers', requireRole('Viewer'), async (req: Reques
       dateFilter.lte = end;
     }
 
-    // Sum amountPaid on invoices per customer within the date range.
-    const invoices = await withCurrentTenantDb(prisma, (client) =>
-      (client as any).invoice.findMany({
+    // Group invoices by customer in SQL and fetch only the top-N customer records.
+    const grouped = await withCurrentTenantDb(prisma, (client) =>
+      (client as any).invoice.groupBy({
+        by: ['customerId'],
         where: {
           tenantId,
           customerId: { not: null },
           amountPaid: { gt: 0 },
           ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
         },
-        select: {
-          customerId: true,
-          amountPaid: true,
-          customer: { select: { id: true, name: true, email: true, customerType: true } },
-        },
+        _sum: { amountPaid: true },
+        _count: { id: true },
+        orderBy: { _sum: { amountPaid: 'desc' } },
+        take: limit,
       })
     ) as any[];
 
-    const byCustomer: Record<string, { id: string; name: string; email: string; customerType: string; revenue: number; invoiceCount: number }> = {};
-    for (const inv of invoices) {
-      if (!inv.customerId || !inv.customer) continue;
-      const key = inv.customerId;
-      if (!byCustomer[key]) {
-        byCustomer[key] = {
-          id: inv.customer.id,
-          name: inv.customer.name,
-          email: inv.customer.email ?? '',
-          customerType: inv.customer.customerType ?? 'RETAIL',
-          revenue: 0,
-          invoiceCount: 0,
-        };
-      }
-      byCustomer[key].revenue += Number(inv.amountPaid ?? 0);
-      byCustomer[key].invoiceCount += 1;
-    }
+    const customerIds = grouped.map((g: any) => g.customerId).filter(Boolean);
+    const customerRecords = customerIds.length
+      ? await withCurrentTenantDb(prisma, (client) =>
+          (client as any).customer.findMany({
+            where: { id: { in: customerIds } },
+            select: { id: true, name: true, email: true, customerType: true },
+          })
+        ) as any[]
+      : [];
 
-    const customers = Object.values(byCustomer)
-      .sort((a, b) => b.revenue - a.revenue)
-      .slice(0, limit);
+    const customerMap = Object.fromEntries(customerRecords.map((c: any) => [c.id, c]));
+    const customers = grouped
+      .map((g: any) => {
+        const c = customerMap[g.customerId];
+        if (!c) return null;
+        return {
+          id: c.id,
+          name: c.name,
+          email: c.email ?? '',
+          customerType: c.customerType ?? 'RETAIL',
+          revenue: Number(g._sum.amountPaid ?? 0),
+          invoiceCount: g._count.id,
+        };
+      })
+      .filter(Boolean);
 
     void setCachedReport(tenantId, 'analytics-top-customers', params, { customers });
     res.json({ success: true, data: { customers } });
