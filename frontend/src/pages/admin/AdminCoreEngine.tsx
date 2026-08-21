@@ -18,7 +18,8 @@ import {
   Mail,
   Users,
   Building2,
-  Plug
+  Plug,
+  MessageSquare,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -49,7 +50,27 @@ export function AdminCoreEngine() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Hub Tab
-  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "integrations" | "schemas" | "audit" | "onboard">("broadcast");
+  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "integrations" | "schemas" | "audit" | "onboard" | "feedback">("broadcast");
+
+  // Platform-wide Feedback state
+  const [feedbackItems, setFeedbackItems] = useState<{
+    id: string;
+    tenantId: string;
+    userId: string;
+    userName: string;
+    userRole: string;
+    category: string;
+    message: string;
+    status: string;
+    createdAt: string;
+    tenant: { name: string; slug: string } | null;
+  }[] | null>(null);
+  const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [isLoadingFeedback, setIsLoadingFeedback] = useState(false);
+  const [feedbackCategoryFilter, setFeedbackCategoryFilter] = useState("");
+  const [feedbackStatusFilter, setFeedbackStatusFilter] = useState("");
+  const [feedbackTenantFilter, setFeedbackTenantFilter] = useState("");
+  const [expandedFeedbackId, setExpandedFeedbackId] = useState<string | null>(null);
 
   // Engine Diagnostics State
   const [healthData, setHealthData] = useState<{
@@ -327,6 +348,25 @@ export function AdminCoreEngine() {
       setIsExportingAuditLogs(false);
     }
   };
+
+  const fetchFeedback = useCallback(() => {
+    setIsLoadingFeedback(true);
+    setFeedbackError(null);
+    const params: Record<string, string> = {};
+    if (feedbackCategoryFilter) params.category = feedbackCategoryFilter;
+    if (feedbackStatusFilter) params.status = feedbackStatusFilter;
+    if (feedbackTenantFilter.trim()) params.tenantId = feedbackTenantFilter.trim();
+    return api
+      .get("/admin/feedback", { params, headers: { 'x-admin-passcode': passcode } })
+      .then((res) => setFeedbackItems(res.data.data.items))
+      .catch(() => setFeedbackError("Failed to load platform-wide feedback."))
+      .finally(() => setIsLoadingFeedback(false));
+  }, [passcode, feedbackCategoryFilter, feedbackStatusFilter, feedbackTenantFilter]);
+
+  useEffect(() => {
+    if (!isUnlocked || activeTab !== "feedback") return;
+    fetchFeedback();
+  }, [isUnlocked, activeTab, feedbackCategoryFilter, feedbackStatusFilter, feedbackTenantFilter]);
 
   const handleVerifyPasscode = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -639,6 +679,15 @@ export function AdminCoreEngine() {
               >
                 <Building2 className="h-4 w-4" />
                 <span>Onboard Client</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("feedback")}
+                className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
+                  activeTab === "feedback" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
+                }`}
+              >
+                <MessageSquare className="h-4 w-4" />
+                <span>Feedback</span>
               </button>
             </div>
 
@@ -1368,6 +1417,135 @@ export function AdminCoreEngine() {
                       </Button>
                     </div>
                   </form>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* Tab 7: Platform-wide Feedback */}
+            {activeTab === "feedback" && (
+              <Card className="bg-secondary-900 border-secondary-800 text-white">
+                <CardHeader>
+                  <CardTitle className="text-xl font-bold flex items-center">
+                    <MessageSquare className="h-5 w-5 mr-2 text-amber-400" />
+                    Tenant Feedback Inbox
+                  </CardTitle>
+                  <CardDescription className="text-secondary-400 text-xs">
+                    All feedback submitted by users across every tenant workspace — read-only view.
+                  </CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  {/* Filters */}
+                  <div className="flex flex-wrap gap-3">
+                    <select
+                      value={feedbackCategoryFilter}
+                      onChange={(e) => setFeedbackCategoryFilter(e.target.value)}
+                      className="h-9 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs px-2"
+                    >
+                      <option value="">All Categories</option>
+                      <option value="GENERAL">General</option>
+                      <option value="BUG">Bug</option>
+                      <option value="FEATURE_REQUEST">Feature Request</option>
+                    </select>
+                    <select
+                      value={feedbackStatusFilter}
+                      onChange={(e) => setFeedbackStatusFilter(e.target.value)}
+                      className="h-9 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs px-2"
+                    >
+                      <option value="">All Statuses</option>
+                      <option value="NEW">New</option>
+                      <option value="REVIEWED">Reviewed</option>
+                    </select>
+                    <Input
+                      value={feedbackTenantFilter}
+                      onChange={(e) => setFeedbackTenantFilter(e.target.value)}
+                      placeholder="Filter by Tenant ID…"
+                      className="h-9 w-52 bg-secondary-950 border-secondary-700 text-white text-xs"
+                    />
+                    <button
+                      onClick={fetchFeedback}
+                      className="h-9 px-3 rounded-lg bg-secondary-800 hover:bg-secondary-700 text-xs font-medium border border-secondary-700 transition-colors"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+
+                  {isLoadingFeedback && (
+                    <div className="flex items-center gap-2 text-secondary-400 text-sm py-4">
+                      <Loader2 className="h-4 w-4 animate-spin" /> Loading feedback…
+                    </div>
+                  )}
+                  {feedbackError && (
+                    <div className="text-xs text-rose-400 bg-rose-950/40 p-3 rounded-lg border border-rose-900">
+                      {feedbackError}
+                    </div>
+                  )}
+                  {feedbackItems !== null && !isLoadingFeedback && (
+                    feedbackItems.length === 0 ? (
+                      <p className="text-sm text-secondary-500 py-4">No feedback found for the current filters.</p>
+                    ) : (
+                      <div className="overflow-x-auto rounded-lg border border-secondary-800">
+                        <Table>
+                          <TableHeader>
+                            <TableRow className="border-secondary-800">
+                              <TableHead className="text-secondary-400 text-xs">Date</TableHead>
+                              <TableHead className="text-secondary-400 text-xs">Tenant</TableHead>
+                              <TableHead className="text-secondary-400 text-xs">User</TableHead>
+                              <TableHead className="text-secondary-400 text-xs">Role</TableHead>
+                              <TableHead className="text-secondary-400 text-xs">Category</TableHead>
+                              <TableHead className="text-secondary-400 text-xs">Status</TableHead>
+                              <TableHead className="text-secondary-400 text-xs">Message</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {feedbackItems.map((item) => {
+                              const isExpanded = expandedFeedbackId === item.id;
+                              return (
+                                <TableRow
+                                  key={item.id}
+                                  className="border-secondary-800 cursor-pointer hover:bg-secondary-800/40"
+                                  onClick={() => setExpandedFeedbackId(isExpanded ? null : item.id)}
+                                >
+                                  <TableCell className="text-xs text-secondary-400 whitespace-nowrap">
+                                    {new Date(item.createdAt).toLocaleString()}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-secondary-300">
+                                    {item.tenant?.name ?? item.tenantId}
+                                  </TableCell>
+                                  <TableCell className="text-xs text-secondary-300">{item.userName}</TableCell>
+                                  <TableCell className="text-xs text-secondary-400">{item.userRole}</TableCell>
+                                  <TableCell>
+                                    <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
+                                      item.category === "BUG"
+                                        ? "bg-rose-950/60 text-rose-400 border border-rose-800"
+                                        : item.category === "FEATURE_REQUEST"
+                                          ? "bg-blue-950/60 text-blue-400 border border-blue-800"
+                                          : "bg-secondary-800 text-secondary-400 border border-secondary-700"
+                                    }`}>
+                                      {item.category === "FEATURE_REQUEST" ? "Feature" : item.category === "BUG" ? "Bug" : "General"}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell>
+                                    <span className={`text-[10px] font-bold rounded px-1.5 py-0.5 ${
+                                      item.status === "REVIEWED"
+                                        ? "bg-emerald-950/60 text-emerald-400 border border-emerald-800"
+                                        : "bg-amber-950/60 text-amber-400 border border-amber-800"
+                                    }`}>
+                                      {item.status}
+                                    </span>
+                                  </TableCell>
+                                  <TableCell className="text-xs text-secondary-300 max-w-xs">
+                                    {isExpanded ? item.message : (
+                                      item.message.length > 100 ? item.message.slice(0, 100) + "…" : item.message
+                                    )}
+                                  </TableCell>
+                                </TableRow>
+                              );
+                            })}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )
+                  )}
                 </CardContent>
               </Card>
             )}
