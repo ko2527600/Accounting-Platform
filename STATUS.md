@@ -2,6 +2,18 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - CRM: Standalone Customer Management Page
+
+**What/Why:** Customer management was buried inside the Invoices page as Add/Edit modals with no search, no filter, no delete, and two fields (`phone`, `address`) never exposed in the UI despite existing in the DB. Added a proper `/customers` standalone page matching the product roadmap's CRM item, with a searchable list, per-customer detail drawer showing invoice history and credit usage, and a full add/edit modal covering all fields.
+
+**Changes:**
+- **`frontend/src/pages/customers/Customers.tsx`** — New page. Searchable customer list (client-side filter by name/email), type filter pills (All/Retail/Wholesale), table with Name/Email/Phone/Type badge/Credit Limit/Actions columns. Add/Edit modal with all fields: name, email, phone (previously missing from UI), address (previously missing), credit limit, GRA TIN, customer type toggle. Delete button (calls DELETE endpoint, shows error toast if customer has invoices). Row click opens a detail drawer: contact card (email, phone, address, TIN), credit card (limit + outstanding balance with progress bar), invoice history table (last 20 invoices with status badge and amount).
+- **`backend/src/routes/invoices.ts`** — Added `DELETE /api/v1/invoices/customers/:id` (Admin/Accountant only). Checks invoice count first; returns 400 with count if any exist, otherwise deletes. Tenant-scoped via `requireTenantContext`.
+- **`frontend/src/lib/navigation.ts`** — Added `{ name: "Customers", href: "/customers", icon: Users }` after "Invoices (AR)" in SALES & PURCHASES. `Users` already imported; no new icon needed.
+- **`frontend/src/App.tsx`** — Added `Customers` lazy import and `<Route path="/customers">` after the `/invoices` route.
+
+---
+
 ## [Date: 2026-08-21] - Subscription-Gated VIEW Toggle, Feedback in Admin Console, Widget Overlap Fix
 
 **What/Why:** Three UX issues resolved. (1) Shop tenants (tier 1) could freely switch the sidebar VIEW toggle to Business or Full view and browse payroll, bank reconciliation, and approvals nav items that the backend rejects — the UI filter had no tie to the subscription tier. (2) The FeedbackWidget FAB (`fixed bottom-6 left-6`) visually overlapped the sidebar's Upgrade section on desktop. (3) Feedback submitted by tenants had no platform-level visibility — admins had to query the DB directly.

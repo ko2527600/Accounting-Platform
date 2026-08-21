@@ -118,6 +118,7 @@ export const navigationGroups: NavGroup[] = [
     items: [
       { name: "Point of Sale", href: "/pos", icon: ShoppingCart },
       { name: "Invoices (AR)", href: "/invoices", icon: FileText },
+      { name: "Customers", href: "/customers", icon: Users },
       { name: "Vendor Bills (AP)", href: "/bills", icon: Receipt },
       { name: "Purchase Orders", href: "/purchase-orders", icon: FileSpreadsheet },
       { name: "Recurring Invoices", href: "/recurring-invoices", icon: Repeat },
