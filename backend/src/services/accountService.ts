@@ -182,8 +182,11 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
       // delivers the committed row; one short retry is enough.
       created = await withCurrentTenantDb(prisma, async (client) => {
         let winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
-        if (!winner) {
-          await new Promise((r) => setTimeout(r, 50));
+        // Under heavy CI concurrency the winning transaction's committed row
+        // can take longer than 50 ms to be visible through the connection pool.
+        // Retry up to 3 times with exponential back-off before giving up.
+        for (let attempt = 0; !winner && attempt < 3; attempt++) {
+          await new Promise((r) => setTimeout(r, 50 * 2 ** attempt)); // 50, 100, 200 ms
           winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
         }
         if (winner) return winner;
