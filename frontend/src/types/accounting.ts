@@ -6,7 +6,11 @@ export type AccountStatus = 'Active' | 'Archived';
 // depreciation) target for the generic cash/revenue/expense/depreciation
 // side of a transaction - see backend accountRepository.ts's
 // resolveDefaultAccount. At most one account per role at a time.
-export type AccountDefaultRole = 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION';
+export type AccountDefaultRole =
+  | 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION'
+  | 'COGS' | 'INVENTORY_ASSET'
+  | 'SALARY_EXPENSE' | 'EMPLOYER_SSNIT_EXPENSE'
+  | 'PAYE_PAYABLE' | 'SSNIT_PAYABLE' | 'NET_PAY_PAYABLE';
 
 export interface Account {
   id: string;

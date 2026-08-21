@@ -39,10 +39,11 @@ const ACCOUNT_TYPES: AccountType[] = ['Asset', 'Liability', 'Equity', 'Revenue',
 // assuming a single role per type. Liability/Equity accounts can't hold any
 // role, so they get no toggle at all.
 const ROLES_FOR_TYPE: Partial<Record<AccountType, AccountDefaultRole[]>> = {
-  Asset: ['CASH', 'ACCUMULATED_DEPRECIATION'],
+  Asset: ['CASH', 'INVENTORY_ASSET', 'ACCUMULATED_DEPRECIATION'],
   Revenue: ['REVENUE'],
-  Expense: ['EXPENSE', 'DEPRECIATION_EXPENSE'],
-  'Cost of Sales': ['EXPENSE'],
+  Expense: ['EXPENSE', 'DEPRECIATION_EXPENSE', 'COGS', 'SALARY_EXPENSE', 'EMPLOYER_SSNIT_EXPENSE'],
+  'Cost of Sales': ['EXPENSE', 'COGS'],
+  Liability: ['PAYE_PAYABLE', 'SSNIT_PAYABLE', 'NET_PAY_PAYABLE'],
 };
 const ROLE_LABEL: Record<AccountDefaultRole, string> = {
   CASH: 'Default Cash Account',
@@ -50,6 +51,13 @@ const ROLE_LABEL: Record<AccountDefaultRole, string> = {
   EXPENSE: 'Default Expense Account',
   DEPRECIATION_EXPENSE: 'Default Depreciation Expense Account',
   ACCUMULATED_DEPRECIATION: 'Default Accumulated Depreciation Account',
+  COGS: 'Default Cost of Goods Sold Account',
+  INVENTORY_ASSET: 'Default Inventory Asset Account',
+  SALARY_EXPENSE: 'Default Salary & Wages Expense Account',
+  EMPLOYER_SSNIT_EXPENSE: 'Default Employer SSNIT Expense Account',
+  PAYE_PAYABLE: 'Default PAYE Tax Payable Account',
+  SSNIT_PAYABLE: 'Default SSNIT Contributions Payable Account',
+  NET_PAY_PAYABLE: 'Default Net Pay Payable Account',
 };
 const ROLE_SHORT_LABEL: Record<AccountDefaultRole, string> = {
   CASH: 'Default Cash',
@@ -57,6 +65,13 @@ const ROLE_SHORT_LABEL: Record<AccountDefaultRole, string> = {
   EXPENSE: 'Default Expense',
   DEPRECIATION_EXPENSE: 'Default Depreciation Exp.',
   ACCUMULATED_DEPRECIATION: 'Default Accum. Depreciation',
+  COGS: 'Default COGS',
+  INVENTORY_ASSET: 'Default Inventory Asset',
+  SALARY_EXPENSE: 'Default Salary Expense',
+  EMPLOYER_SSNIT_EXPENSE: 'Default SSNIT Expense',
+  PAYE_PAYABLE: 'Default PAYE Payable',
+  SSNIT_PAYABLE: 'Default SSNIT Payable',
+  NET_PAY_PAYABLE: 'Default Net Pay Payable',
 };
 
 export function ChartOfAccounts() {

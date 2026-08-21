@@ -640,6 +640,75 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         ADD COLUMN IF NOT EXISTS customer_name VARCHAR(255),
         ADD COLUMN IF NOT EXISTS customer_phone VARCHAR(30);
     `
+  },
+  {
+    version: 17,
+    name: '017_seed_payroll_gl_accounts',
+    sql: `
+      -- Insert the four payroll-specific GL accounts that the Ghana SME
+      -- template now includes for new tenants. ON CONFLICT (code) means
+      -- tenants that already have these codes (e.g. after manually adding
+      -- them) are not affected. The fifth payroll account (Salaries & Wages
+      -- Expense, code 6020) was already part of the original template.
+      INSERT INTO accounts (id, code, name, type, is_active, is_cash_equivalent, is_fixed_asset, created_at, updated_at)
+      VALUES
+        (gen_random_uuid(), '2210', 'PAYE Tax Payable',           'LIABILITY', true, false, false, NOW(), NOW()),
+        (gen_random_uuid(), '2220', 'SSNIT Contributions Payable','LIABILITY', true, false, false, NOW(), NOW()),
+        (gen_random_uuid(), '2230', 'Net Pay Payable',            'LIABILITY', true, false, false, NOW(), NOW()),
+        (gen_random_uuid(), '6022', 'Employer SSNIT Contribution','EXPENSE',   true, false, false, NOW(), NOW())
+      ON CONFLICT (code) DO NOTHING;
+
+      -- Auto-designate the five payroll GL roles so postPayrollJournalEntry
+      -- can resolve them without manual setup. Guards skip roles that the
+      -- tenant has already designated (preserving their explicit choice).
+      DO $$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'SALARY_EXPENSE') THEN
+          UPDATE accounts SET default_role = 'SALARY_EXPENSE'
+          WHERE id = (
+            SELECT id FROM accounts
+            WHERE type = 'EXPENSE' AND (name ILIKE '%salar%' OR name ILIKE '%wage%' OR name ILIKE '%payroll%')
+            ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'EMPLOYER_SSNIT_EXPENSE') THEN
+          UPDATE accounts SET default_role = 'EMPLOYER_SSNIT_EXPENSE'
+          WHERE id = (
+            SELECT id FROM accounts
+            WHERE type = 'EXPENSE' AND (name ILIKE '%ssnit%' OR name ILIKE '%social%' OR name ILIKE '%pension%')
+            ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'PAYE_PAYABLE') THEN
+          UPDATE accounts SET default_role = 'PAYE_PAYABLE'
+          WHERE id = (
+            SELECT id FROM accounts
+            WHERE type = 'LIABILITY' AND (name ILIKE '%paye%' OR name ILIKE '%income tax%' OR name ILIKE '%tax payable%')
+            ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'SSNIT_PAYABLE') THEN
+          UPDATE accounts SET default_role = 'SSNIT_PAYABLE'
+          WHERE id = (
+            SELECT id FROM accounts
+            WHERE type = 'LIABILITY' AND (name ILIKE '%ssnit%' OR name ILIKE '%social%' OR name ILIKE '%pension%')
+            ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'NET_PAY_PAYABLE') THEN
+          UPDATE accounts SET default_role = 'NET_PAY_PAYABLE'
+          WHERE id = (
+            SELECT id FROM accounts
+            WHERE type = 'LIABILITY' AND (name ILIKE '%net pay%' OR name ILIKE '%salaries payable%' OR name ILIKE '%wages payable%')
+            ORDER BY code ASC LIMIT 1
+          );
+        END IF;
+      END $$;
+    `
   }
 ];
 
