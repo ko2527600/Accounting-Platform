@@ -1,4 +1,4 @@
-import { Component, useEffect, useRef } from "react";
+import { Component, lazy, Suspense, useEffect, useRef } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -14,66 +14,68 @@ import { MainLayout } from "./components/layout/MainLayout";
 import { Card, CardHeader, CardTitle, CardContent } from "./components/ui/Card";
 import { Button } from "./components/ui/Button";
 import { CommandMenu } from "./components/ui/CommandMenu";
-import { Login } from "./pages/auth/Login";
-import { Register } from "./pages/auth/Register";
-import { AcceptInvitation } from "./pages/auth/AcceptInvitation";
-import { Verification } from "./pages/auth/Verification";
-import { LandingPage } from "./pages/landing/LandingPage";
-import { FeaturesPage } from "./pages/landing/FeaturesPage";
-import { HowItWorksPage } from "./pages/landing/HowItWorksPage";
-import { LegalHubPage } from "./pages/legal/LegalHubPage";
-import { LegalDocumentPage } from "./pages/legal/LegalDocumentPage";
-import { AdminCoreEngine } from "./pages/admin/AdminCoreEngine";
-import { ChartOfAccounts } from "./pages/accounts/ChartOfAccounts";
-import { OnboardingWizard } from "./pages/onboarding/OnboardingWizard";
-import { Settings } from "./pages/settings/Settings";
-import { TaxRates } from "./pages/settings/TaxRates";
-import { Funds } from "./pages/settings/Funds";
-import { FiscalPeriods } from "./pages/settings/FiscalPeriods";
-import { RecurringTransactions } from "./pages/settings/RecurringTransactions";
-import { Approvals } from "./pages/approvals/Approvals";
-import { ExpenseClaims } from "./pages/expenses/ExpenseClaims";
-import { Budgets } from "./pages/reports/Budgets";
-import { TeamManagement } from "./pages/team/TeamManagement";
-import { AuditLogs } from "./pages/audit/AuditLogs";
-import { HelpAssistantActivity } from "./pages/help/HelpAssistantActivity";
-import { FeedbackInbox } from "./pages/feedback/FeedbackInbox";
-import { BulkImportWizard } from "./pages/import/BulkImportWizard";
-import { BankReconciliation } from "./pages/banking/BankReconciliation";
-import { Invoices } from "./pages/invoices/Invoices";
-import { VendorBills } from "./pages/bills/VendorBills";
-import { WarehouseManagement } from "./pages/inventory/WarehouseManagement";
-import { PointOfSale } from "./pages/pos/PointOfSale";
-import { InventoryIntelligence } from "./pages/analytics/InventoryIntelligence";
-import { ExecutiveReports } from "./pages/reports/ExecutiveReports";
-import { JournalList } from "./pages/journals/JournalList";
-import { JournalBuilder } from "./components/journals/JournalBuilder";
-import { ContraVoucher } from "./pages/journals/ContraVoucher";
-import { GeneralLedger } from "./pages/reports/GeneralLedger";
-import { ProfitAndLoss } from "./pages/reports/ProfitAndLoss";
-import { BalanceSheet } from "./pages/reports/BalanceSheet";
-import { CashFlowStatement } from "./pages/reports/CashFlowStatement";
-import { CashFlowForecast } from "./pages/reports/CashFlowForecast";
-import { KpiDashboard } from "./pages/reports/KpiDashboard";
-import { AgingReport } from "./pages/reports/AgingReport";
-import { SalesChannelReport } from "./pages/reports/SalesChannelReport";
-import { BranchComparisonReport } from "./pages/reports/BranchComparisonReport";
-import { LandedCostReport } from "./pages/reports/LandedCostReport";
-import { PettyCash } from "./pages/pettycash/PettyCash";
-import { PurchaseOrders } from "./pages/purchaseorders/PurchaseOrders";
-import { RecurringInvoices } from "./pages/recurringinvoices/RecurringInvoices";
-import { FixedAssets } from "./pages/fixedassets/FixedAssets";
-import { Employees } from "./pages/payroll/Employees";
-import { PayrollRuns } from "./pages/payroll/PayrollRuns";
-import { Loans } from "./pages/payroll/Loans";
-import { Leave } from "./pages/payroll/Leave";
-import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
-import { useAccounts } from "./hooks/useAccounts";
 import {
   ShoppingCart, Package, FileText as FileTextIcon, DollarSign,
   Wallet as WalletIcon, ArrowLeftRight, ClipboardList, BarChart2,
   Receipt as ReceiptIcon,
 } from "lucide-react";
+import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
+import { useAccounts } from "./hooks/useAccounts";
+
+// Lazy-loaded pages — each becomes its own chunk so the initial bundle stays small.
+const Login = lazy(() => import("./pages/auth/Login").then(m => ({ default: m.Login })));
+const Register = lazy(() => import("./pages/auth/Register").then(m => ({ default: m.Register })));
+const AcceptInvitation = lazy(() => import("./pages/auth/AcceptInvitation").then(m => ({ default: m.AcceptInvitation })));
+const Verification = lazy(() => import("./pages/auth/Verification").then(m => ({ default: m.Verification })));
+const LandingPage = lazy(() => import("./pages/landing/LandingPage").then(m => ({ default: m.LandingPage })));
+const FeaturesPage = lazy(() => import("./pages/landing/FeaturesPage").then(m => ({ default: m.FeaturesPage })));
+const HowItWorksPage = lazy(() => import("./pages/landing/HowItWorksPage").then(m => ({ default: m.HowItWorksPage })));
+const LegalHubPage = lazy(() => import("./pages/legal/LegalHubPage").then(m => ({ default: m.LegalHubPage })));
+const LegalDocumentPage = lazy(() => import("./pages/legal/LegalDocumentPage").then(m => ({ default: m.LegalDocumentPage })));
+const AdminCoreEngine = lazy(() => import("./pages/admin/AdminCoreEngine").then(m => ({ default: m.AdminCoreEngine })));
+const ChartOfAccounts = lazy(() => import("./pages/accounts/ChartOfAccounts").then(m => ({ default: m.ChartOfAccounts })));
+const OnboardingWizard = lazy(() => import("./pages/onboarding/OnboardingWizard").then(m => ({ default: m.OnboardingWizard })));
+const Settings = lazy(() => import("./pages/settings/Settings").then(m => ({ default: m.Settings })));
+const TaxRates = lazy(() => import("./pages/settings/TaxRates").then(m => ({ default: m.TaxRates })));
+const Funds = lazy(() => import("./pages/settings/Funds").then(m => ({ default: m.Funds })));
+const FiscalPeriods = lazy(() => import("./pages/settings/FiscalPeriods").then(m => ({ default: m.FiscalPeriods })));
+const RecurringTransactions = lazy(() => import("./pages/settings/RecurringTransactions").then(m => ({ default: m.RecurringTransactions })));
+const Approvals = lazy(() => import("./pages/approvals/Approvals").then(m => ({ default: m.Approvals })));
+const ExpenseClaims = lazy(() => import("./pages/expenses/ExpenseClaims").then(m => ({ default: m.ExpenseClaims })));
+const Budgets = lazy(() => import("./pages/reports/Budgets").then(m => ({ default: m.Budgets })));
+const TeamManagement = lazy(() => import("./pages/team/TeamManagement").then(m => ({ default: m.TeamManagement })));
+const AuditLogs = lazy(() => import("./pages/audit/AuditLogs").then(m => ({ default: m.AuditLogs })));
+const HelpAssistantActivity = lazy(() => import("./pages/help/HelpAssistantActivity").then(m => ({ default: m.HelpAssistantActivity })));
+const FeedbackInbox = lazy(() => import("./pages/feedback/FeedbackInbox").then(m => ({ default: m.FeedbackInbox })));
+const BulkImportWizard = lazy(() => import("./pages/import/BulkImportWizard").then(m => ({ default: m.BulkImportWizard })));
+const BankReconciliation = lazy(() => import("./pages/banking/BankReconciliation").then(m => ({ default: m.BankReconciliation })));
+const Invoices = lazy(() => import("./pages/invoices/Invoices").then(m => ({ default: m.Invoices })));
+const VendorBills = lazy(() => import("./pages/bills/VendorBills").then(m => ({ default: m.VendorBills })));
+const WarehouseManagement = lazy(() => import("./pages/inventory/WarehouseManagement").then(m => ({ default: m.WarehouseManagement })));
+const PointOfSale = lazy(() => import("./pages/pos/PointOfSale").then(m => ({ default: m.PointOfSale })));
+const InventoryIntelligence = lazy(() => import("./pages/analytics/InventoryIntelligence").then(m => ({ default: m.InventoryIntelligence })));
+const ExecutiveReports = lazy(() => import("./pages/reports/ExecutiveReports").then(m => ({ default: m.ExecutiveReports })));
+const JournalList = lazy(() => import("./pages/journals/JournalList").then(m => ({ default: m.JournalList })));
+const JournalBuilder = lazy(() => import("./components/journals/JournalBuilder").then(m => ({ default: m.JournalBuilder })));
+const ContraVoucher = lazy(() => import("./pages/journals/ContraVoucher").then(m => ({ default: m.ContraVoucher })));
+const GeneralLedger = lazy(() => import("./pages/reports/GeneralLedger").then(m => ({ default: m.GeneralLedger })));
+const ProfitAndLoss = lazy(() => import("./pages/reports/ProfitAndLoss").then(m => ({ default: m.ProfitAndLoss })));
+const BalanceSheet = lazy(() => import("./pages/reports/BalanceSheet").then(m => ({ default: m.BalanceSheet })));
+const CashFlowStatement = lazy(() => import("./pages/reports/CashFlowStatement").then(m => ({ default: m.CashFlowStatement })));
+const CashFlowForecast = lazy(() => import("./pages/reports/CashFlowForecast").then(m => ({ default: m.CashFlowForecast })));
+const KpiDashboard = lazy(() => import("./pages/reports/KpiDashboard").then(m => ({ default: m.KpiDashboard })));
+const AgingReport = lazy(() => import("./pages/reports/AgingReport").then(m => ({ default: m.AgingReport })));
+const SalesChannelReport = lazy(() => import("./pages/reports/SalesChannelReport").then(m => ({ default: m.SalesChannelReport })));
+const BranchComparisonReport = lazy(() => import("./pages/reports/BranchComparisonReport").then(m => ({ default: m.BranchComparisonReport })));
+const LandedCostReport = lazy(() => import("./pages/reports/LandedCostReport").then(m => ({ default: m.LandedCostReport })));
+const PettyCash = lazy(() => import("./pages/pettycash/PettyCash").then(m => ({ default: m.PettyCash })));
+const PurchaseOrders = lazy(() => import("./pages/purchaseorders/PurchaseOrders").then(m => ({ default: m.PurchaseOrders })));
+const RecurringInvoices = lazy(() => import("./pages/recurringinvoices/RecurringInvoices").then(m => ({ default: m.RecurringInvoices })));
+const FixedAssets = lazy(() => import("./pages/fixedassets/FixedAssets").then(m => ({ default: m.FixedAssets })));
+const Employees = lazy(() => import("./pages/payroll/Employees").then(m => ({ default: m.Employees })));
+const PayrollRuns = lazy(() => import("./pages/payroll/PayrollRuns").then(m => ({ default: m.PayrollRuns })));
+const Loans = lazy(() => import("./pages/payroll/Loans").then(m => ({ default: m.Loans })));
+const Leave = lazy(() => import("./pages/payroll/Leave").then(m => ({ default: m.Leave })));
 
 // "What happened today?" quick-action grid shown in Operations and Business modes.
 const GUIDED_ACTIONS_OPS = [
@@ -356,6 +358,12 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   }
 }
 
+const RouteLoadingFallback = () => (
+  <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-900">
+    <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
+  </div>
+);
+
 function App() {
   return (
     <ErrorBoundary>
@@ -367,67 +375,69 @@ function App() {
         <PresenceLifecycleMount />
         <BrowserRouter>
           <CommandMenu />
-          <Routes>
-            <Route path="/" element={<LandingPage />} />
-            <Route path="/login" element={<Login />} />
-            <Route path="/register" element={<Register />} />
-            <Route path="/accept-invite" element={<AcceptInvitation />} />
-            <Route path="/verify-account" element={<Verification />} />
-            <Route path="/features" element={<FeaturesPage />} />
-            <Route path="/how-it-works" element={<HowItWorksPage />} />
-            <Route path="/legal" element={<LegalHubPage />} />
-            <Route path="/legal/:policyName" element={<LegalDocumentPage />} />
-            <Route path="/admin/core-engine" element={<AdminCoreEngine />} />
-            
-            {/* Protected Routes */}
-            <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
-            <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
-            <Route path="/onboarding" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><OnboardingWizard /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/tax-rates" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/funds" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Funds /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
-            <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
-            <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
-            <Route path="/expenses" element={<ProtectedRoute><MainLayout><ExpenseClaims /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
-            <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
-            <Route path="/audit-logs" element={<ProtectedRoute><MainLayout><AuditLogs /></MainLayout></ProtectedRoute>} />
-            <Route path="/help-assistant/activity" element={<ProtectedRoute><MainLayout><HelpAssistantActivity /></MainLayout></ProtectedRoute>} />
-            <Route path="/feedback" element={<ProtectedRoute><MainLayout><FeedbackInbox /></MainLayout></ProtectedRoute>} />
-            <Route path="/import" element={<ProtectedRoute><MainLayout><BulkImportWizard /></MainLayout></ProtectedRoute>} />
-            <Route path="/banking" element={<ProtectedRoute><MainLayout><BankReconciliation /></MainLayout></ProtectedRoute>} />
-            <Route path="/invoices" element={<ProtectedRoute><MainLayout><Invoices /></MainLayout></ProtectedRoute>} />
-            <Route path="/bills" element={<ProtectedRoute><MainLayout><VendorBills /></MainLayout></ProtectedRoute>} />
-            <Route path="/inventory" element={<ProtectedRoute><MainLayout><WarehouseManagement /></MainLayout></ProtectedRoute>} />
-            <Route path="/pos" element={<ProtectedRoute><MainLayout><PointOfSale /></MainLayout></ProtectedRoute>} />
-            <Route path="/analytics/inventory" element={<ProtectedRoute><MainLayout><InventoryIntelligence /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/executive" element={<ProtectedRoute><MainLayout><ExecutiveReports /></MainLayout></ProtectedRoute>} />
-            <Route path="/journals" element={<ProtectedRoute><MainLayout><JournalList /></MainLayout></ProtectedRoute>} />
-            <Route path="/journals/new" element={<ProtectedRoute><MainLayout><JournalBuilder /></MainLayout></ProtectedRoute>} />
-            <Route path="/journals/contra" element={<ProtectedRoute><MainLayout><ContraVoucher /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/ledger" element={<ProtectedRoute><MainLayout><GeneralLedger /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/cash-flow" element={<ProtectedRoute><MainLayout><CashFlowStatement /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/cash-flow-forecast" element={<ProtectedRoute><MainLayout><CashFlowForecast /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/kpis" element={<ProtectedRoute><MainLayout><KpiDashboard /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/aging" element={<ProtectedRoute><MainLayout><AgingReport /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/sales-channel" element={<ProtectedRoute><MainLayout><SalesChannelReport /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/branch-comparison" element={<ProtectedRoute><MainLayout><BranchComparisonReport /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports/landed-costs" element={<ProtectedRoute><MainLayout><LandedCostReport /></MainLayout></ProtectedRoute>} />
-            <Route path="/petty-cash" element={<ProtectedRoute><MainLayout><PettyCash /></MainLayout></ProtectedRoute>} />
-            <Route path="/purchase-orders" element={<ProtectedRoute><MainLayout><PurchaseOrders /></MainLayout></ProtectedRoute>} />
-            <Route path="/recurring-invoices" element={<ProtectedRoute><MainLayout><RecurringInvoices /></MainLayout></ProtectedRoute>} />
-            <Route path="/fixed-assets" element={<ProtectedRoute><MainLayout><FixedAssets /></MainLayout></ProtectedRoute>} />
-            <Route path="/payroll/employees" element={<ProtectedRoute><MainLayout><Employees /></MainLayout></ProtectedRoute>} />
-            <Route path="/payroll/runs" element={<ProtectedRoute><MainLayout><PayrollRuns /></MainLayout></ProtectedRoute>} />
-            <Route path="/payroll/loans" element={<ProtectedRoute><MainLayout><Loans /></MainLayout></ProtectedRoute>} />
-            <Route path="/payroll/leave" element={<ProtectedRoute><MainLayout><Leave /></MainLayout></ProtectedRoute>} />
-            <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
-            
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          <Suspense fallback={<RouteLoadingFallback />}>
+            <Routes>
+              <Route path="/" element={<LandingPage />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/accept-invite" element={<AcceptInvitation />} />
+              <Route path="/verify-account" element={<Verification />} />
+              <Route path="/features" element={<FeaturesPage />} />
+              <Route path="/how-it-works" element={<HowItWorksPage />} />
+              <Route path="/legal" element={<LegalHubPage />} />
+              <Route path="/legal/:policyName" element={<LegalDocumentPage />} />
+              <Route path="/admin/core-engine" element={<AdminCoreEngine />} />
+
+              {/* Protected Routes */}
+              <Route path="/dashboard" element={<ProtectedRoute><MainLayout><Dashboard /></MainLayout></ProtectedRoute>} />
+              <Route path="/accounts" element={<ProtectedRoute><MainLayout><ChartOfAccounts /></MainLayout></ProtectedRoute>} />
+              <Route path="/onboarding" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><OnboardingWizard /></MainLayout></ProtectedRoute>} />
+              <Route path="/settings" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Settings /></MainLayout></ProtectedRoute>} />
+              <Route path="/settings/tax-rates" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><TaxRates /></MainLayout></ProtectedRoute>} />
+              <Route path="/settings/funds" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><Funds /></MainLayout></ProtectedRoute>} />
+              <Route path="/settings/fiscal-periods" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><FiscalPeriods /></MainLayout></ProtectedRoute>} />
+              <Route path="/settings/recurring-transactions" element={<ProtectedRoute blockedRoles={SETTINGS_RESTRICTED_ROLES}><MainLayout><RecurringTransactions /></MainLayout></ProtectedRoute>} />
+              <Route path="/approvals" element={<ProtectedRoute><MainLayout><Approvals /></MainLayout></ProtectedRoute>} />
+              <Route path="/expenses" element={<ProtectedRoute><MainLayout><ExpenseClaims /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/budgets" element={<ProtectedRoute><MainLayout><Budgets /></MainLayout></ProtectedRoute>} />
+              <Route path="/team" element={<ProtectedRoute><MainLayout><TeamManagement /></MainLayout></ProtectedRoute>} />
+              <Route path="/audit-logs" element={<ProtectedRoute><MainLayout><AuditLogs /></MainLayout></ProtectedRoute>} />
+              <Route path="/help-assistant/activity" element={<ProtectedRoute><MainLayout><HelpAssistantActivity /></MainLayout></ProtectedRoute>} />
+              <Route path="/feedback" element={<ProtectedRoute><MainLayout><FeedbackInbox /></MainLayout></ProtectedRoute>} />
+              <Route path="/import" element={<ProtectedRoute><MainLayout><BulkImportWizard /></MainLayout></ProtectedRoute>} />
+              <Route path="/banking" element={<ProtectedRoute><MainLayout><BankReconciliation /></MainLayout></ProtectedRoute>} />
+              <Route path="/invoices" element={<ProtectedRoute><MainLayout><Invoices /></MainLayout></ProtectedRoute>} />
+              <Route path="/bills" element={<ProtectedRoute><MainLayout><VendorBills /></MainLayout></ProtectedRoute>} />
+              <Route path="/inventory" element={<ProtectedRoute><MainLayout><WarehouseManagement /></MainLayout></ProtectedRoute>} />
+              <Route path="/pos" element={<ProtectedRoute><MainLayout><PointOfSale /></MainLayout></ProtectedRoute>} />
+              <Route path="/analytics/inventory" element={<ProtectedRoute><MainLayout><InventoryIntelligence /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/executive" element={<ProtectedRoute><MainLayout><ExecutiveReports /></MainLayout></ProtectedRoute>} />
+              <Route path="/journals" element={<ProtectedRoute><MainLayout><JournalList /></MainLayout></ProtectedRoute>} />
+              <Route path="/journals/new" element={<ProtectedRoute><MainLayout><JournalBuilder /></MainLayout></ProtectedRoute>} />
+              <Route path="/journals/contra" element={<ProtectedRoute><MainLayout><ContraVoucher /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/ledger" element={<ProtectedRoute><MainLayout><GeneralLedger /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/pnl" element={<ProtectedRoute><MainLayout><ProfitAndLoss /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/balance-sheet" element={<ProtectedRoute><MainLayout><BalanceSheet /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/cash-flow" element={<ProtectedRoute><MainLayout><CashFlowStatement /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/cash-flow-forecast" element={<ProtectedRoute><MainLayout><CashFlowForecast /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/kpis" element={<ProtectedRoute><MainLayout><KpiDashboard /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/aging" element={<ProtectedRoute><MainLayout><AgingReport /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/sales-channel" element={<ProtectedRoute><MainLayout><SalesChannelReport /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/branch-comparison" element={<ProtectedRoute><MainLayout><BranchComparisonReport /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/landed-costs" element={<ProtectedRoute><MainLayout><LandedCostReport /></MainLayout></ProtectedRoute>} />
+              <Route path="/petty-cash" element={<ProtectedRoute><MainLayout><PettyCash /></MainLayout></ProtectedRoute>} />
+              <Route path="/purchase-orders" element={<ProtectedRoute><MainLayout><PurchaseOrders /></MainLayout></ProtectedRoute>} />
+              <Route path="/recurring-invoices" element={<ProtectedRoute><MainLayout><RecurringInvoices /></MainLayout></ProtectedRoute>} />
+              <Route path="/fixed-assets" element={<ProtectedRoute><MainLayout><FixedAssets /></MainLayout></ProtectedRoute>} />
+              <Route path="/payroll/employees" element={<ProtectedRoute><MainLayout><Employees /></MainLayout></ProtectedRoute>} />
+              <Route path="/payroll/runs" element={<ProtectedRoute><MainLayout><PayrollRuns /></MainLayout></ProtectedRoute>} />
+              <Route path="/payroll/loans" element={<ProtectedRoute><MainLayout><Loans /></MainLayout></ProtectedRoute>} />
+              <Route path="/payroll/leave" element={<ProtectedRoute><MainLayout><Leave /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </Suspense>
         </BrowserRouter>
       </TenantSettingsProvider>
       </AuthProvider>
