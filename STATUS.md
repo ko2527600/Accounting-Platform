@@ -2,6 +2,25 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - CI Test Reliability Fixes (PR #86)
+
+**What/Why:** Four targeted fixes to resolve flaky/failing CI tests that had accumulated across the backend Jest suite. All failures were test-infrastructure issues, not production bugs. CI is now green (all suites passing) on commit `2ea5088`.
+
+**Changes:**
+
+- **`backend/src/tests/` (67 files)** — Replaced `const runId = Date.now()` with `` const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; `` in every test file that used a timestamp-based runId. Jest parallel workers can start within the same millisecond and collide on unique-constraint columns (tenant slugs, emails, SKUs, invoice numbers). The added hex suffix makes each worker's namespace unique even at identical wall-clock milliseconds.
+
+- **`backend/src/routes/cashTill.ts`** — `GET /tills/current` Prisma select for sale lines was missing `lineTotal` and `unitPrice`. `posCart.test.ts:122` asserted `Number(breadLine.lineTotal).toBe(10)` and received `NaN` (undefined field). Added both fields to the `lines` select.
+
+- **`backend/src/services/pdfGenerationService.ts`** — Stock blind-count sheet SKU column was 28% of tableWidth (~123 pt), too narrow for the 24-character runId-derived SKUs the test generates. `truncateToWidth` was silently ellipsizing them, so `expect(text).toContain(skuA)` failed. Widened SKU column to 38% (~171 pt), reduced the always-blank "Counted Qty" column from 28% to 20% to compensate.
+
+- **`backend/src/tests/stockTake.test.ts`** and **`backend/src/tests/reportExports.test.ts`** — `inventory.ts:190` uppercases all incoming SKUs on create (`sku.trim().toUpperCase()`). Tests generated SKU variables with lowercase hex suffixes (e.g., `STA-...-8r1prm`) but the stored and PDF-rendered values are uppercase (`STA-...-8R1PRM`). Added `.toUpperCase()` to the `skuA`/`skuB` declarations in `stockTake.test.ts` and to `sku` in `reportExports.test.ts`.
+
+**Files affected:**
+`backend/src/tests/` (67 test files), `backend/src/routes/cashTill.ts`, `backend/src/services/pdfGenerationService.ts`, `backend/src/tests/stockTake.test.ts`, `backend/src/tests/reportExports.test.ts`
+
+---
+
 ## [Date: 2026-08-21] - Backend API Execution-Time Improvements
 
 **What/Why:** Six targeted performance fixes to reduce API response times across the most expensive endpoints. No schema or API contract changes that break existing behaviour.
