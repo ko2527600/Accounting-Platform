@@ -1,4 +1,5 @@
 import { Component, lazy, Suspense, useEffect, useRef } from "react";
+import { initAnalytics, trackPageView } from "./lib/analytics";
 import type { ErrorInfo, ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
@@ -324,6 +325,14 @@ function PresenceLifecycleMount() {
   return null;
 }
 
+function PageViewTracker() {
+  const location = useLocation();
+  useEffect(() => {
+    trackPageView(location.pathname + location.search);
+  }, [location]);
+  return null;
+}
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   constructor(props: { children: ReactNode }) {
     super(props);
@@ -368,6 +377,8 @@ const RouteLoadingFallback = () => (
 );
 
 function App() {
+  useEffect(() => { initAnalytics(); }, []);
+
   return (
     <ErrorBoundary>
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
@@ -377,6 +388,7 @@ function App() {
         <SyncEngineLifecycleMount />
         <PresenceLifecycleMount />
         <BrowserRouter>
+          <PageViewTracker />
           <CommandMenu />
           <Suspense fallback={<RouteLoadingFallback />}>
             <Routes>
