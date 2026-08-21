@@ -1,4 +1,5 @@
-import { useEffect, useRef } from "react";
+import { Component, useEffect, useRef } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useWorkspaceMode } from "./contexts/WorkspaceModeContext";
@@ -318,8 +319,46 @@ function PresenceLifecycleMount() {
   return null;
 }
 
+class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error('[ErrorBoundary]', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-secondary-50 dark:bg-secondary-950 p-6">
+          <div className="text-center max-w-md">
+            <h1 className="text-2xl font-bold text-secondary-900 dark:text-secondary-50 mb-2">Something went wrong</h1>
+            <p className="text-sm text-secondary-600 dark:text-secondary-400 mb-4">
+              {this.state.error?.message || "An unexpected error occurred."}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="px-4 py-2 bg-primary-600 text-white rounded-lg text-sm font-medium hover:bg-primary-700"
+            >
+              Reload
+            </button>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
 function App() {
   return (
+    <ErrorBoundary>
     <ThemeProvider defaultTheme="system" storageKey="accountgo-theme">
       <ToastProvider>
       <AuthProvider>
@@ -394,6 +433,7 @@ function App() {
       </AuthProvider>
       </ToastProvider>
     </ThemeProvider>
+    </ErrorBoundary>
   );
 }
 

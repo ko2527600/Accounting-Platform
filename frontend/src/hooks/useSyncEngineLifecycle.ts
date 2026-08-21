@@ -8,6 +8,7 @@ import {
   startSyncBackground,
   stopSyncBackground,
 } from "../lib/syncEngine";
+import { clearPosOfflineData } from "../lib/offlineDb";
 
 /**
  * Drives the local-first sync engine's lifecycle off the same auth state
@@ -32,6 +33,7 @@ export function useSyncEngineLifecycle(): void {
       disconnectSyncSocket();
       stopSyncBackground();
       resetLocalSyncData().catch(() => {});
+      clearPosOfflineData().catch(() => {});
     }
 
     return () => {

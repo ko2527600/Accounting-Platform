@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import { Router, Request, Response } from 'express';
 import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
@@ -6,6 +7,7 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireTenantContext } from '../context/tenantContext';
 import * as accountRepository from '../repository/accountRepository';
 import { getCurrentSequence, getChangesSince } from '../services/syncChangeLogService';
+import { redis } from '../config/redis';
 
 const router = Router();
 
@@ -86,6 +88,31 @@ router.get('/changes', async (req: Request, res: Response): Promise<void> => {
   } catch (error: any) {
     console.error('[Sync] Error fetching changes:', error);
     res.status(500).json({ success: false, error: 'Failed to fetch sync changes.' });
+  }
+});
+
+/**
+ * POST /api/v1/sync/ticket
+ * Exchanges a valid JWT session for a 30-second single-use WebSocket ticket.
+ * The ticket goes in the WS URL (?ticket=...) instead of the raw JWT, keeping
+ * bearer tokens out of server/proxy access logs.
+ */
+router.post('/ticket', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const user = (req as any).user;
+    const ticket = crypto.randomBytes(24).toString('hex');
+    await redis.setex(`ws-ticket:${ticket}`, 30, JSON.stringify({
+      tenantId,
+      userId: user?.id,
+      name: user?.name,
+      email: user?.email,
+      role: user?.role,
+    }));
+    res.json({ success: true, data: { ticket } });
+  } catch (error: any) {
+    console.error('[Sync] Error issuing WebSocket ticket:', error);
+    res.status(500).json({ success: false, error: 'Failed to issue WebSocket ticket.' });
   }
 });
 

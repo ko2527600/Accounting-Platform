@@ -165,3 +165,14 @@ export async function removePendingSale(clientTxnId: string): Promise<void> {
   const db = await getDb();
   await db.delete("pendingSales", clientTxnId);
 }
+
+/** Wipes all POS offline stores - called on logout alongside resetLocalSyncData() so a shared device's next user never inherits stale POS data. */
+export async function clearPosOfflineData(): Promise<void> {
+  const db = await getDb();
+  await Promise.all([
+    db.clear("catalogSnapshot"),
+    db.clear("pendingSales"),
+    db.clear("tillSnapshot"),
+    db.clear("warehousesSnapshot"),
+  ]);
+}

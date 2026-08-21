@@ -184,7 +184,7 @@ export function AdminCoreEngine() {
     setIsLoadingIntegrations(true);
     setIntegrationsError(null);
     return api
-      .get("/admin/integrations", { params: { passcode } })
+      .get("/admin/integrations", { headers: { 'x-admin-passcode': passcode } })
       .then((res) => setIntegrationsData(res.data.data))
       .catch(() => setIntegrationsError("Failed to load integrations status."))
       .finally(() => setIsLoadingIntegrations(false));
@@ -203,7 +203,7 @@ export function AdminCoreEngine() {
     setIsLoadingTenants(true);
     setTenantsError(null);
     return api
-      .get("/tenants", { params: { passcode } })
+      .get("/tenants", { headers: { 'x-admin-passcode': passcode } })
       .then((res) => {
         setTenants(res.data.data.tenants);
         setTierDrafts(Object.fromEntries(res.data.data.tenants.map((t: any) => [t.id, t.tier])));
@@ -228,7 +228,7 @@ export function AdminCoreEngine() {
     const tier = tierDrafts[tenantId];
     setSavingTierId(tenantId);
     try {
-      const res = await api.put(`/tenants/${tenantId}/tier`, { tier, passcode });
+      const res = await api.put(`/tenants/${tenantId}/tier`, { tier }, { headers: { 'x-admin-passcode': passcode } });
       if (res.data.success) {
         showToast(`Plan updated to ${res.data.data.tenant.tier === 1 ? "Shop" : res.data.data.tenant.tier === 2 ? "Business" : "Enterprise"}.`, "success");
         fetchTenants();
@@ -241,7 +241,7 @@ export function AdminCoreEngine() {
   };
 
   const buildAuditLogParams = (filters: typeof EMPTY_AUDIT_FILTERS) => {
-    const params: Record<string, string | number> = { passcode, limit: 50 };
+    const params: Record<string, string | number> = { limit: 50 };
     if (filters.action.trim()) params.action = filters.action.trim();
     if (filters.entity.trim()) params.entity = filters.entity.trim();
     if (filters.entityId.trim()) params.entityId = filters.entityId.trim();
@@ -263,7 +263,7 @@ export function AdminCoreEngine() {
     setAuditLogsError(null);
 
     api
-      .get("/admin/audit-logs", { params: buildAuditLogParams(appliedAuditFilters) })
+      .get("/admin/audit-logs", { params: buildAuditLogParams(appliedAuditFilters), headers: { 'x-admin-passcode': passcode } })
       .then((res) => {
         if (!cancelled) setAuditLogs(res.data.data.logs);
       })
@@ -284,7 +284,7 @@ export function AdminCoreEngine() {
   useEffect(() => {
     if (!isUnlocked) return;
     api
-      .get("/admin/audit-logs/meta/values", { params: { passcode } })
+      .get("/admin/audit-logs/meta/values", { headers: { 'x-admin-passcode': passcode } })
       .then((res) => {
         if (res.data.success) {
           setAuditActionOptions(res.data.data.actions || []);
@@ -309,6 +309,7 @@ export function AdminCoreEngine() {
       const res = await api.get("/admin/audit-logs/export", {
         params: buildAuditLogParams(appliedAuditFilters),
         responseType: "blob",
+        headers: { 'x-admin-passcode': passcode },
       });
       const blob = new Blob([res.data], { type: "text/csv" });
       const url = URL.createObjectURL(blob);
@@ -333,7 +334,7 @@ export function AdminCoreEngine() {
     setAuthError(null);
 
     try {
-      const res = await api.post("/admin/broadcast/verify-passcode", { passcode });
+      const res = await api.post("/admin/broadcast/verify-passcode", {}, { headers: { 'x-admin-passcode': passcode } });
       if (res.data.success) {
         setIsUnlocked(true);
         sessionStorage.setItem("accountgo_admin_engine_passcode", passcode);
@@ -373,12 +374,11 @@ export function AdminCoreEngine() {
     setBroadcastResult(null);
     try {
       const res = await api.post("/admin/broadcast/send", {
-        passcode,
         subject,
         message,
         channel,
         targetTier: targetTier === "ALL" ? undefined : Number(targetTier),
-      });
+      }, { headers: { 'x-admin-passcode': passcode } });
 
       if (res.data.success) {
         setBroadcastResult(res.data.data);
@@ -398,7 +398,6 @@ export function AdminCoreEngine() {
     setIsOnboarding(true);
     try {
       const res = await api.post("/tenants/admin-onboard", {
-        passcode,
         companyName: onboardCompanyName,
         slug: onboardSlug,
         adminName: onboardAdminName,
@@ -407,7 +406,7 @@ export function AdminCoreEngine() {
         phone: onboardAdminPhone || undefined,
         baseCurrency: onboardBaseCurrency,
         orgType: onboardOrgType,
-      });
+      }, { headers: { 'x-admin-passcode': passcode } });
       if (res.data.success) {
         setOnboardResult(res.data.data);
         setOnboardCompanyName("");

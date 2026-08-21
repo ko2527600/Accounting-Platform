@@ -207,6 +207,7 @@ export function Invoices() {
   const [verifyingPaystackRef, setVerifyingPaystackRef] = useState<string | null>(null);
 
   const [requestingGraClearanceId, setRequestingGraClearanceId] = useState<string | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
 
   // Once the tenant's real base currency loads, default the new-invoice
   // currency picker to it instead of leaving it pinned to the initial "USD"
@@ -541,6 +542,26 @@ export function Invoices() {
     }
   };
 
+  const handleDownloadPdf = async (invoiceId: string, isGraCleared: boolean) => {
+    setDownloadingPdfId(invoiceId);
+    setOpenActionsMenuId(null);
+    try {
+      const res = await api.get(`/invoices/${invoiceId}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${invoiceId}${isGraCleared ? "-gra-cleared" : ""}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Failed to download PDF. Please try again.", "error");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
+
   // Defaults to the tenant's real configured base currency (not a hardcoded
   // "USD") for aggregate figures like the AR/Paid summary tiles that don't
   // pass an explicit currency. Individual invoice rows still pass
@@ -745,17 +766,15 @@ export function Invoices() {
                                 {requestingGraClearanceId === inv.id ? "Requesting..." : "Request GRA Clearance"}
                               </button>
                             )}
-                            <a
-                              href={`${import.meta.env.VITE_API_URL || ''}/api/v1/invoices/${inv.id}/pdf`}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={() => setOpenActionsMenuId(null)}
-                              className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800"
+                            <button
+                              onClick={() => handleDownloadPdf(inv.id, inv.graClearanceStatus === 'CLEARED')}
+                              disabled={downloadingPdfId === inv.id}
+                              className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 disabled:opacity-50"
                               title={inv.graClearanceStatus === 'CLEARED' ? 'Download PDF with GRA clearance badge and QR code' : 'Download invoice PDF'}
                             >
                               <Download className="mr-2 h-3 w-3" />
-                              Download PDF{inv.graClearanceStatus === 'CLEARED' ? ' (GRA Cleared)' : ''}
-                            </a>
+                              {downloadingPdfId === inv.id ? 'Downloading...' : `Download PDF${inv.graClearanceStatus === 'CLEARED' ? ' (GRA Cleared)' : ''}`}
+                            </button>
                             {inv.status !== "PAID" && canRecordPayment && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openPaymentModal(inv); }}
