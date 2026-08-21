@@ -204,7 +204,24 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
     const invoices = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).invoice.findMany({
         where: { tenantId },
-        include: { customer: true, items: true },
+        select: {
+          id: true,
+          invoiceNumber: true,
+          status: true,
+          totalAmount: true,
+          subtotal: true,
+          taxAmount: true,
+          currency: true,
+          exchangeRate: true,
+          dueDate: true,
+          createdAt: true,
+          paidAt: true,
+          clientTxnId: true,
+          warehouseId: true,
+          stockDeducted: true,
+          fundId: true,
+          customer: { select: { id: true, name: true, email: true } },
+        },
         orderBy: { createdAt: 'desc' },
       });
     });
