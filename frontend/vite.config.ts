@@ -10,9 +10,8 @@ export default defineConfig({
       output: {
         manualChunks: {
           'react-vendor': ['react', 'react-dom', 'react-router-dom'],
-          'charts': ['recharts'],
           'icons': ['lucide-react'],
-          'forms': ['cmdk', 'react-hook-form'],
+          'command': ['cmdk'],
         },
       },
     },
