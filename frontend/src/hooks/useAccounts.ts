@@ -3,7 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { api } from '../lib/api';
 import { useTenantSettings } from './useTenantSettings';
 import { syncDb, createAccountLocalFirst, updateAccountLocalFirst } from '../lib/syncEngine';
-import type { Account, AccountType, CreateAccountDTO, UpdateAccountDTO } from '../types/accounting';
+import type { Account, AccountType, AccountDefaultRole, CreateAccountDTO, UpdateAccountDTO } from '../types/accounting';
 
 // Backend account type values (fixed, matching the tenant-schema CHECK
 // constraint) don't title-case cleanly - "COST_OF_SALES" needs "of"
@@ -118,7 +118,7 @@ export function useAccounts() {
   // including clearing the same role locally from whoever previously held
   // it (the server already did this atomically), so the UI never shows two
   // "default" badges for one role in the gap before that push arrives.
-  const setAccountDefaultRole = useCallback(async (id: string, role: 'CASH' | 'REVENUE' | 'EXPENSE' | 'DEPRECIATION_EXPENSE' | 'ACCUMULATED_DEPRECIATION' | null) => {
+  const setAccountDefaultRole = useCallback(async (id: string, role: AccountDefaultRole | null) => {
     const res = await api.put(`/accounts/${id}/default-role`, { role });
     const updated = res.data.data.account;
     if (res.data.success) {
