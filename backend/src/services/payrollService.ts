@@ -2,6 +2,7 @@ import { prisma } from '../config/db';
 import { withCurrentTenantDb } from '../database/tenantClient';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalEntryService from './journalEntryService';
+import { applyLoanDeductions } from './loanService';
 import { AuditActor } from './auditLogService';
 
 export class PayrollServiceError extends Error {
@@ -90,6 +91,7 @@ export interface PayslipRecord {
   paye: number;
   ssnitEmployee: number;
   ssnitEmployer: number;
+  loanDeduction: number;
   netPay: number;
   createdAt: string;
 }
@@ -104,6 +106,7 @@ function mapPayslip(row: any): PayslipRecord {
     paye: Number(row.paye),
     ssnitEmployee: Number(row.ssnit_employee),
     ssnitEmployer: Number(row.ssnit_employer),
+    loanDeduction: Number(row.loan_deduction ?? 0),
     netPay: Number(row.net_pay),
     createdAt: row.created_at,
   };
@@ -370,16 +373,29 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
     );
     const runId = runs[0].id;
     for (const s of payslipData) {
-      await (client as any).$queryRawUnsafe(
+      const slipRows: any[] = await (client as any).$queryRawUnsafe(
         `INSERT INTO payslips (payroll_run_id, employee_id, gross_salary, paye, ssnit_employee, ssnit_employer, net_pay)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)`,
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7) RETURNING id`,
         runId, s.employeeId, s.gross, s.paye, s.ssnitEmp, s.ssnitEr, s.net
       );
+      // Apply any active loan deductions for this employee
+      await applyLoanDeductions(s.employeeId, slipRows[0].id);
     }
     return runs;
   }) as any[];
 
-  return mapPayrollRun(runRows[0]);
+  // Recalculate total net pay after loan deductions have been applied
+  const updatedRun = await getPayrollRun(runRows[0].id);
+  const adjustedNetPay = (updatedRun.payslips || []).reduce((sum, s) => sum + s.netPay, 0);
+  const roundedNetPay = Math.round(adjustedNetPay * 100) / 100;
+  await withCurrentTenantDb(prisma, async (client) =>
+    (client as any).$queryRawUnsafe(
+      `UPDATE payroll_runs SET total_net_pay = $2 WHERE id = $1::uuid`,
+      runRows[0].id, roundedNetPay
+    )
+  );
+
+  return getPayrollRun(runRows[0].id);
 }
 
 /**

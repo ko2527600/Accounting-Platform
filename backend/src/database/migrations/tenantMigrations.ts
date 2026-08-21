@@ -504,6 +504,46 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
       CREATE INDEX IF NOT EXISTS idx_payslips_run ON payslips(payroll_run_id);
       CREATE INDEX IF NOT EXISTS idx_payslips_employee ON payslips(employee_id);
     `
+  },
+  {
+    version: 13,
+    name: '013_add_employee_loans',
+    sql: `
+      -- Employee loans / salary advance deductions.
+      -- Each loan has a principal, a per-payroll installment, and a running balance.
+      -- During a payroll run the service deducts pending installments and stamps
+      -- the payslip_id to link the deduction back to the payslip.
+      CREATE TABLE IF NOT EXISTS employee_loans (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE RESTRICT,
+        description TEXT NOT NULL DEFAULT 'Salary Advance',
+        principal NUMERIC(15, 2) NOT NULL CHECK (principal > 0),
+        monthly_installment NUMERIC(15, 2) NOT NULL CHECK (monthly_installment > 0),
+        balance NUMERIC(15, 2) NOT NULL,
+        start_date DATE NOT NULL,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Records one deduction made against a loan during a payroll run.
+      CREATE TABLE IF NOT EXISTS loan_deductions (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        loan_id UUID NOT NULL REFERENCES employee_loans(id) ON DELETE CASCADE,
+        payslip_id UUID NOT NULL REFERENCES payslips(id) ON DELETE CASCADE,
+        amount NUMERIC(15, 2) NOT NULL CHECK (amount > 0),
+        balance_after NUMERIC(15, 2) NOT NULL,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Add loan_deductions column to payslips to track total deducted per payslip
+      ALTER TABLE payslips ADD COLUMN IF NOT EXISTS loan_deduction NUMERIC(15, 2) NOT NULL DEFAULT 0.00;
+
+      CREATE INDEX IF NOT EXISTS idx_employee_loans_employee ON employee_loans(employee_id);
+      CREATE INDEX IF NOT EXISTS idx_employee_loans_active ON employee_loans(is_active);
+      CREATE INDEX IF NOT EXISTS idx_loan_deductions_loan ON loan_deductions(loan_id);
+      CREATE INDEX IF NOT EXISTS idx_loan_deductions_payslip ON loan_deductions(payslip_id);
+    `
   }
 ];
 

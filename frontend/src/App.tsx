@@ -63,6 +63,7 @@ import { RecurringInvoices } from "./pages/recurringinvoices/RecurringInvoices";
 import { FixedAssets } from "./pages/fixedassets/FixedAssets";
 import { Employees } from "./pages/payroll/Employees";
 import { PayrollRuns } from "./pages/payroll/PayrollRuns";
+import { Loans } from "./pages/payroll/Loans";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 
@@ -302,6 +303,7 @@ function App() {
             <Route path="/fixed-assets" element={<ProtectedRoute><MainLayout><FixedAssets /></MainLayout></ProtectedRoute>} />
             <Route path="/payroll/employees" element={<ProtectedRoute><MainLayout><Employees /></MainLayout></ProtectedRoute>} />
             <Route path="/payroll/runs" element={<ProtectedRoute><MainLayout><PayrollRuns /></MainLayout></ProtectedRoute>} />
+            <Route path="/payroll/loans" element={<ProtectedRoute><MainLayout><Loans /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

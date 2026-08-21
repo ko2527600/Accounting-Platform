@@ -215,6 +215,16 @@ export function PayrollRuns() {
 
                   {expandedId === run.id && expandedRun && (
                     <div className="px-4 pb-4 bg-secondary-50 dark:bg-secondary-900/20">
+                      <div className="flex justify-end mb-2 pt-2">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => downloadPdf(`/payroll/runs/${run.id}/remittance/pdf`, `remittance-${run.runNumber}.pdf`)}
+                          className="text-xs"
+                        >
+                          <Download className="h-3.5 w-3.5 mr-1" /> GRA Remittance PDF
+                        </Button>
+                      </div>
                       <div className="grid grid-cols-4 gap-4 py-3 mb-3 border-b border-secondary-200 dark:border-secondary-700">
                         <div>
                           <div className="text-xs text-secondary-500">PAYE Withheld</div>

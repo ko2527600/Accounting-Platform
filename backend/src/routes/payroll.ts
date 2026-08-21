@@ -9,6 +9,9 @@ import * as payrollService from '../services/payrollService';
 import { PayrollServiceError } from '../services/payrollService';
 import { JournalEntryServiceError } from '../services/journalEntryService';
 import { generatePayslipPdf, generatePayrollRunPdf } from '../services/payslipPdfService';
+import { buildRemittanceReport, generateRemittancePdf } from '../services/remittanceReportService';
+import * as loanService from '../services/loanService';
+import { LoanServiceError } from '../services/loanService';
 
 const router = Router();
 router.use(authenticateJwt);
@@ -16,7 +19,7 @@ router.use(tenantContextMiddleware);
 router.use(requireTier(2, 'Payroll'));
 
 function handleError(res: Response, error: any, fallback: string): void {
-  if (error instanceof PayrollServiceError || error instanceof JournalEntryServiceError) {
+  if (error instanceof PayrollServiceError || error instanceof JournalEntryServiceError || error instanceof LoanServiceError) {
     res.status(error.statusCode).json({ success: false, error: error.message });
     return;
   }
@@ -152,6 +155,33 @@ router.get('/runs/:runId/payslips/:payslipId/pdf', requireRole('Admin', 'Account
   }
 });
 
+/** GET /payroll/runs/:id/remittance  — JSON remittance data */
+router.get('/runs/:id/remittance', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantName } = requireTenantContext();
+    const run = await payrollService.getPayrollRun(req.params.id);
+    const report = buildRemittanceReport(run, tenantName || 'Company');
+    res.json({ success: true, data: { report } });
+  } catch (error) {
+    handleError(res, error, 'Failed to generate remittance report.');
+  }
+});
+
+/** GET /payroll/runs/:id/remittance/pdf  — GRA-formatted PDF */
+router.get('/runs/:id/remittance/pdf', requireRole('Admin', 'Accountant', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantName } = requireTenantContext();
+    const run = await payrollService.getPayrollRun(req.params.id);
+    const report = buildRemittanceReport(run, tenantName || 'Company');
+    const pdfBuffer = await generateRemittancePdf(report);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="remittance-${run.runNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    handleError(res, error, 'Failed to generate remittance PDF.');
+  }
+});
+
 // ── PAYE Calculator (utility) ──────────────────────────────────────────────
 
 router.post('/calculate-paye', requireRole('Admin', 'Accountant', 'HR'), async (req: Request, res: Response): Promise<void> => {
@@ -168,6 +198,48 @@ router.post('/calculate-paye', requireRole('Admin', 'Accountant', 'HR'), async (
     res.json({ success: true, data: { grossSalary: gross, paye, ssnitEmployee, ssnitEmployer, netPay } });
   } catch (error) {
     handleError(res, error, 'Failed to calculate PAYE.');
+  }
+});
+
+// ── Employee Loans ────────────────────────────────────────────────────────
+
+router.get('/loans', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const employeeId = req.query.employeeId as string | undefined;
+    const activeOnly = req.query.activeOnly !== 'false';
+    const loans = await loanService.listLoans(employeeId, activeOnly);
+    res.json({ success: true, data: { loans } });
+  } catch (error) {
+    handleError(res, error, 'Failed to list loans.');
+  }
+});
+
+router.post('/loans', requireRole('Admin', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const loan = await loanService.createLoan(req.body, actor);
+    res.status(201).json({ success: true, data: { loan } });
+  } catch (error) {
+    handleError(res, error, 'Failed to create loan.');
+  }
+});
+
+router.get('/loans/:id', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const loan = await loanService.getLoan(req.params.id);
+    res.json({ success: true, data: { loan } });
+  } catch (error) {
+    handleError(res, error, 'Failed to get loan.');
+  }
+});
+
+router.put('/loans/:id', requireRole('Admin', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const loan = await loanService.updateLoan(req.params.id, req.body, actor);
+    res.json({ success: true, data: { loan } });
+  } catch (error) {
+    handleError(res, error, 'Failed to update loan.');
   }
 });
 
