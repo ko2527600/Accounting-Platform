@@ -492,6 +492,7 @@ model Invoice {
   @@index([taxRateId])
   @@index([warehouseId])
   @@index([fundId])
+  @@index([tenantId, status, issueDate])
   @@map("invoices")
 }
 
@@ -998,6 +999,7 @@ model CashSale {
   @@unique([tenantId, clientTxnId])
   @@index([tenantId])
   @@index([tenantId, createdByUserId])
+  @@index([tenantId, createdAt])
   @@map("cash_sales")
 }
 
@@ -1559,6 +1561,7 @@ model SyncChangeLog {
 
   @@unique([tenantId, sequence])
   @@index([tenantId, entityType])
+  @@index([tenantId, occurredAt])
   @@map("sync_change_log")
 }
 

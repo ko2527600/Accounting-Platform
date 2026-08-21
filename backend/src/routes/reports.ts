@@ -13,6 +13,7 @@ import { generateBalanceSheetDocx, generateProfitAndLossDocx, generateCashFlowDo
 import * as cashFlowForecastService from '../services/cashFlowForecastService';
 import { CashFlowForecastServiceError } from '../services/cashFlowForecastService';
 import * as agingReportService from '../services/agingReportService';
+import { getCachedReport, setCachedReport } from '../cache/reportCache';
 
 const router = Router();
 
@@ -32,28 +33,26 @@ router.use(tenantContextMiddleware);
  */
 router.get('/trial-balance', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { startDate, endDate, asOfDate } = req.query;
+    const params = { startDate: startDate as string, endDate: endDate as string, asOfDate: asOfDate as string };
+
+    const cached = await getCachedReport(tenantId, 'trial-balance', params);
+    if (cached) { res.status(200).json({ success: true, data: cached }); return; }
+
     const report = await reportingService.getTrialBalance(
       startDate ? (startDate as string) : undefined,
       endDate ? (endDate as string) : undefined,
       asOfDate ? (asOfDate as string) : undefined
     );
-    res.status(200).json({
-      success: true,
-      data: report,
-    });
+    void setCachedReport(tenantId, 'trial-balance', params, report);
+    res.status(200).json({ success: true, data: report });
   } catch (error: any) {
     if (error instanceof ReportingServiceError) {
-      res.status(error.statusCode).json({
-        success: false,
-        error: error.message,
-      });
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Internal Server Error while generating Trial Balance report.',
-    });
+    res.status(500).json({ success: false, error: error.message || 'Internal Server Error while generating Trial Balance report.' });
   }
 });
 
@@ -64,29 +63,27 @@ router.get('/trial-balance', requireRole('Viewer'), async (req: Request, res: Re
  */
 router.get('/profit-loss', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { startDate, endDate, asOfDate, fundId } = req.query;
+    const params = { startDate: startDate as string, endDate: endDate as string, asOfDate: asOfDate as string, fundId: fundId as string };
+
+    const cached = await getCachedReport(tenantId, 'profit-loss', params);
+    if (cached) { res.status(200).json({ success: true, data: cached }); return; }
+
     const report = await reportingService.getProfitAndLoss(
       startDate ? (startDate as string) : undefined,
       endDate ? (endDate as string) : undefined,
       asOfDate ? (asOfDate as string) : undefined,
       fundId ? (fundId as string) : undefined
     );
-    res.status(200).json({
-      success: true,
-      data: report,
-    });
+    void setCachedReport(tenantId, 'profit-loss', params, report);
+    res.status(200).json({ success: true, data: report });
   } catch (error: any) {
     if (error instanceof ReportingServiceError) {
-      res.status(error.statusCode).json({
-        success: false,
-        error: error.message,
-      });
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Internal Server Error while generating Profit & Loss report.',
-    });
+    res.status(500).json({ success: false, error: error.message || 'Internal Server Error while generating Profit & Loss report.' });
   }
 });
 
@@ -97,28 +94,26 @@ router.get('/profit-loss', requireRole('Viewer'), async (req: Request, res: Resp
  */
 router.get('/balance-sheet', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { asOfDate, endDate, fundId } = req.query;
+    const params = { asOfDate: asOfDate as string, endDate: endDate as string, fundId: fundId as string };
+
+    const cached = await getCachedReport(tenantId, 'balance-sheet', params);
+    if (cached) { res.status(200).json({ success: true, data: cached }); return; }
+
     const report = await reportingService.getBalanceSheet(
       asOfDate ? (asOfDate as string) : undefined,
       endDate ? (endDate as string) : undefined,
       fundId ? (fundId as string) : undefined
     );
-    res.status(200).json({
-      success: true,
-      data: report,
-    });
+    void setCachedReport(tenantId, 'balance-sheet', params, report);
+    res.status(200).json({ success: true, data: report });
   } catch (error: any) {
     if (error instanceof ReportingServiceError) {
-      res.status(error.statusCode).json({
-        success: false,
-        error: error.message,
-      });
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Internal Server Error while generating Balance Sheet report.',
-    });
+    res.status(500).json({ success: false, error: error.message || 'Internal Server Error while generating Balance Sheet report.' });
   }
 });
 
@@ -321,27 +316,25 @@ router.get('/cash-flow/export', requireRole('Viewer'), async (req: Request, res:
  */
 router.get('/kpis', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const { startDate, endDate } = req.query;
+    const params = { startDate: startDate as string, endDate: endDate as string };
+
+    const cached = await getCachedReport(tenantId, 'kpis', params);
+    if (cached) { res.status(200).json({ success: true, data: cached }); return; }
+
     const report = await reportingService.getKpiDashboard(
       startDate ? (startDate as string) : undefined,
       endDate ? (endDate as string) : undefined
     );
-    res.status(200).json({
-      success: true,
-      data: report,
-    });
+    void setCachedReport(tenantId, 'kpis', params, report);
+    res.status(200).json({ success: true, data: report });
   } catch (error: any) {
     if (error instanceof ReportingServiceError) {
-      res.status(error.statusCode).json({
-        success: false,
-        error: error.message,
-      });
+      res.status(error.statusCode).json({ success: false, error: error.message });
       return;
     }
-    res.status(500).json({
-      success: false,
-      error: error.message || 'Internal Server Error while generating KPI dashboard.',
-    });
+    res.status(500).json({ success: false, error: error.message || 'Internal Server Error while generating KPI dashboard.' });
   }
 });
 
@@ -696,7 +689,12 @@ router.get(
  */
 router.get('/analytics/trends', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
   try {
+    const { tenantId } = requireTenantContext();
     const months = Math.min(24, Math.max(1, parseInt((req.query.months as string) || '12', 10) || 12));
+    const params = { months: String(months) };
+
+    const cached = await getCachedReport(tenantId, 'analytics-trends', params);
+    if (cached) { res.json({ success: true, data: cached }); return; }
 
     const now = new Date();
     const series: Array<{
@@ -725,6 +723,7 @@ router.get('/analytics/trends', requireRole('Viewer'), async (req: Request, res:
       });
     }
 
+    void setCachedReport(tenantId, 'analytics-trends', params, { series });
     res.json({ success: true, data: { series } });
   } catch (error: any) {
     console.error('[Reports] Analytics trends error:', error);
@@ -742,6 +741,9 @@ router.get('/analytics/top-customers', requireRole('Viewer'), async (req: Reques
     const { tenantId } = requireTenantContext();
     const { startDate, endDate } = req.query;
     const limit = Math.min(25, Math.max(1, parseInt((req.query.limit as string) || '10', 10) || 10));
+    const params = { startDate: startDate as string, endDate: endDate as string, limit: String(limit) };
+    const cached = await getCachedReport(tenantId, 'analytics-top-customers', params);
+    if (cached) { res.json({ success: true, data: cached }); return; }
 
     const dateFilter: any = {};
     if (startDate) dateFilter.gte = new Date(startDate as string);
@@ -790,6 +792,7 @@ router.get('/analytics/top-customers', requireRole('Viewer'), async (req: Reques
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, limit);
 
+    void setCachedReport(tenantId, 'analytics-top-customers', params, { customers });
     res.json({ success: true, data: { customers } });
   } catch (error: any) {
     console.error('[Reports] Top customers error:', error);
@@ -807,6 +810,9 @@ router.get('/analytics/top-items', requireRole('Viewer'), async (req: Request, r
     const { tenantId } = requireTenantContext();
     const { startDate, endDate } = req.query;
     const limit = Math.min(25, Math.max(1, parseInt((req.query.limit as string) || '10', 10) || 10));
+    const params = { startDate: startDate as string, endDate: endDate as string, limit: String(limit) };
+    const cached = await getCachedReport(tenantId, 'analytics-top-items', params);
+    if (cached) { res.json({ success: true, data: cached }); return; }
 
     const dateFilter: any = {};
     if (startDate) dateFilter.gte = new Date(startDate as string);
@@ -844,6 +850,7 @@ router.get('/analytics/top-items', requireRole('Viewer'), async (req: Request, r
       .sort((a, b) => b.revenue - a.revenue)
       .slice(0, limit);
 
+    void setCachedReport(tenantId, 'analytics-top-items', params, { items });
     res.json({ success: true, data: { items } });
   } catch (error: any) {
     console.error('[Reports] Top items error:', error);

@@ -2,6 +2,25 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Performance Optimization for High Load
+
+**What/Why:** Closed the `Optimize performance and scalability for high load (w:7)` task. Four categories of change: (1) Redis report caching so expensive full-ledger aggregations are not recomputed on every page refresh; (2) Redis notification caching to absorb the 15-second polling loop that fires for every logged-in user; (3) composite DB indexes on the three hottest query paths; (4) Vite manual chunk splitting for smaller initial JS bundles.
+
+**Changes:**
+- **`backend/src/cache/reportCache.ts`** (NEW) — `getCachedReport`, `setCachedReport`, `invalidateReportCache`. 5-minute TTL per `report:{tenantId}:{type}:{sha1-param-hash}`. Fire-and-forget writes; `delPattern` for atomic tenant-wide invalidation.
+- **`backend/src/routes/reports.ts`** — Cache-aside layer added to 7 endpoints: `/trial-balance`, `/profit-loss`, `/balance-sheet`, `/kpis`, `/analytics/trends`, `/analytics/top-customers`, `/analytics/top-items`. Cache miss computes and writes; cache hit returns immediately.
+- **`backend/src/cache/notificationCache.ts`** (NEW) — Per-user 10-second Redis cache for `GET /notifications`. `invalidateNotificationCache` for single-user invalidation; `invalidateAllNotificationCaches` (delPattern) for broadcast creates.
+- **`backend/src/routes/notifications.ts`** — GET handler reads from cache; POST (create) flushes all tenant caches; PUT (mark-read / read-all) flushes the acting user's cache.
+- **`backend/src/services/journalEntryService.ts`** — `postJournalEntry` and `voidJournalEntry` now call `invalidateReportCache(tenantId)` after each ledger mutation so stale report caches expire immediately.
+- **`backend/prisma/schema.prisma`** — Added composite indexes: `Invoice(tenantId, status, issueDate)`, `CashSale(tenantId, createdAt)`, `SyncChangeLog(tenantId, occurredAt)`.
+- **`backend/prisma/migrations/20260821000000_performance_indexes/migration.sql`** (NEW) — CONCURRENTLY-safe `CREATE INDEX IF NOT EXISTS` for the three new indexes above.
+- **`backend/src/database/migrations/tenantMigrations.ts`** — Migration 018: composite indexes on per-tenant `notifications` table (`tenant_id, user_id, read` and `tenant_id, created_at DESC`).
+- **`frontend/vite.config.ts`** — `build.rollupOptions.output.manualChunks` splits react-vendor, recharts, lucide-react, and cmdk/react-hook-form into separate chunks for better cache utilisation on deployment.
+
+**Files changed:** `backend/src/cache/reportCache.ts` (new), `backend/src/cache/notificationCache.ts` (new), `backend/src/routes/reports.ts`, `backend/src/routes/notifications.ts`, `backend/src/services/journalEntryService.ts`, `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260821000000_performance_indexes/migration.sql` (new), `backend/src/database/migrations/tenantMigrations.ts`, `frontend/vite.config.ts`
+
+---
+
 ## [Date: 2026-08-21] - Advanced Automation: Real Cross-App Search + Receipt OCR
 
 **What/Why:** Closed two automation gaps flagged in the Ghana market research as baseline competitive features: (1) The header search bar's placeholder ("Search accounts, entries, reports…") over-promised relative to what `CommandMenu.tsx` actually did (static navigation shortcuts only — a "copy-honesty issue" the research named explicitly). Built real cross-entity keyword search instead of just fixing the copy. (2) Expense Receipt OCR — `ExpenseClaim` was pure manual data entry with no image-processing capability at all; added Claude vision OCR to pre-fill the expense form from a photo of a receipt. Closes "Implement advanced automation features (w:8)".
