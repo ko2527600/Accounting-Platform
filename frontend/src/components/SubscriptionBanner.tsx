@@ -6,6 +6,7 @@ interface SubscriptionStatus {
   state: "ACTIVE" | "TRIAL" | "GRACE" | "EXPIRED";
   trialDaysRemaining: number | null;
   graceDaysRemaining: number | null;
+  renewalDaysRemaining: number | null;
   planName: string;
 }
 
@@ -24,9 +25,11 @@ export function SubscriptionBanner() {
 
   const showTrialWarning =
     status.state === "TRIAL" && status.trialDaysRemaining !== null && status.trialDaysRemaining <= 14;
+  const showRenewalWarning =
+    status.state === "ACTIVE" && status.renewalDaysRemaining !== null && status.renewalDaysRemaining <= 14;
   const showGrace = status.state === "GRACE";
 
-  if (!showTrialWarning && !showGrace) return null;
+  if (!showTrialWarning && !showRenewalWarning && !showGrace) return null;
 
   const isGrace = showGrace;
   const bgClass = isGrace
@@ -35,7 +38,9 @@ export function SubscriptionBanner() {
   const Icon = isGrace ? XCircle : AlertTriangle;
 
   const message = isGrace
-    ? `Your free trial has ended. ${status.graceDaysRemaining ?? 0} day${status.graceDaysRemaining === 1 ? "" : "s"} left in read-only mode before your account is locked.`
+    ? `Your subscription has ended. ${status.graceDaysRemaining ?? 0} day${status.graceDaysRemaining === 1 ? "" : "s"} left in read-only mode before your account is locked.`
+    : showRenewalWarning
+    ? `Your subscription renews in ${status.renewalDaysRemaining} day${status.renewalDaysRemaining === 1 ? "" : "s"}. Renew now to avoid interruption.`
     : `Your free trial ends in ${status.trialDaysRemaining} day${status.trialDaysRemaining === 1 ? "" : "s"}.`;
 
   return (

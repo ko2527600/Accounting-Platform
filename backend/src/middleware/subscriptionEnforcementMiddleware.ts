@@ -11,18 +11,19 @@ export function computeSubscriptionState(
 ): SubscriptionState {
   const now = Date.now();
 
-  // Paid subscription that is still within its billing period.
+  // Paid subscription still within its billing period.
   if (subscriptionStatus === 'ACTIVE' && subscriptionPaidUntil && subscriptionPaidUntil.getTime() > now) {
     return 'ACTIVE';
   }
 
-  // Grandfathered tenants (ACTIVE but no subscriptionPaidUntil) — treat as active indefinitely.
-  if (subscriptionStatus === 'ACTIVE' && !subscriptionPaidUntil) {
-    return 'ACTIVE';
+  // Paid subscription just lapsed — apply the same 7-day grace window.
+  if (subscriptionStatus === 'ACTIVE' && subscriptionPaidUntil) {
+    const daysSinceLapse = (now - subscriptionPaidUntil.getTime()) / 86_400_000;
+    if (daysSinceLapse <= GRACE_PERIOD_DAYS) return 'GRACE';
+    return 'EXPIRED';
   }
 
-  // No trial end date set — tenant was created before trial tracking or via direct DB insert;
-  // allow through rather than blocking.
+  // No trial end date set — tenant created before trial tracking; allow through.
   if (subscriptionStatus === 'TRIAL' && !trialEndsAt) {
     return 'TRIAL';
   }
