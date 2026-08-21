@@ -81,7 +81,7 @@ router.get('/runs', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), async (
   }
 });
 
-router.post('/runs', requireRole('Admin', 'Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/runs', requireRole('Admin', 'Accountant', 'Payroll Officer'), async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = actorFromRequest(req);
     const { periodMonth, periodYear } = req.body;
@@ -101,7 +101,7 @@ router.get('/runs/:id', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), asy
   }
 });
 
-router.post('/runs/:id/post', requireRole('Admin', 'Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/runs/:id/post', requireRole('Admin', 'Accountant', 'Payroll Approver'), async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = actorFromRequest(req);
     const result = await payrollService.postPayrollJournalEntry(req.params.id, actor);
@@ -111,7 +111,7 @@ router.post('/runs/:id/post', requireRole('Admin', 'Accountant'), async (req: Re
   }
 });
 
-router.post('/runs/:id/void', requireRole('Admin', 'Accountant'), async (req: Request, res: Response): Promise<void> => {
+router.post('/runs/:id/void', requireRole('Admin', 'Accountant', 'Payroll Approver'), async (req: Request, res: Response): Promise<void> => {
   try {
     const actor = actorFromRequest(req);
     await payrollService.voidPayrollRun(req.params.id, actor);

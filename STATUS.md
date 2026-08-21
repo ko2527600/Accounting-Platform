@@ -2,6 +2,24 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - RBAC Hardening: 14-Role Model, Default-Deny, Segregation of Duties
+
+**What/Why:** Implemented the Permissions & RBAC Benchmark recommendations. The existing system had a critical security gap: unrecognized role strings (e.g. "Intern", "Store Clerk", or a typo) fell through to `return true`, giving them full operational access. Expanded from 5 to 14 typed roles with a default-deny policy and role implication for proper segregation of duties.
+
+**Changes:**
+
+- **`backend/src/middleware/rbacMiddleware.ts`** (rewritten) — Expanded `UserRole` type from 5 to 14 roles: Admin, Finance Controller, Accountant, Accounts Payable Clerk, Accounts Receivable Clerk, Payroll Officer, Payroll Approver, HR, Auditor, Warehouse Manager, Shop Manager, Cashier, Viewer, External Accountant. Added `ALL_KNOWN_ROLES` closed set, `OPERATIONAL_ROLES` (Admin/Owner/Accountant/Finance Controller get blanket non-Admin access), `ROLE_IMPLIES` map (Finance Controller implies Accountant; External Accountant implies Viewer/Auditor; Payroll Approver implies Payroll Officer + HR; Warehouse Manager implies Shop Manager + Viewer; AP/AR Clerks imply Viewer). Fixed default-deny: unrecognized role strings now return `false` instead of `true`. Added `noSelfApproval()` SOD helper (returns 403 if actor === creator).
+
+- **`backend/src/routes/payroll.ts`** — Separated preparation from approval: `POST /runs` now also allows `Payroll Officer`; `POST /runs/:id/post` and `POST /runs/:id/void` now also allow `Payroll Approver`. This enforces the maker-checker control: a Payroll Officer cannot release their own payroll run.
+
+- **`backend/src/routes/inventory.ts`** — Added `Warehouse Manager` to all inventory write routes (create items, edit items, bulk import, transfers, adjustments, stock-take).
+
+- **`frontend/src/pages/team/TeamManagement.tsx`** — Replaced `CLOSED_ROLES` string array with `ROLE_OPTIONS` array of `{value, label, description}` objects covering all 14 roles. Role select dropdowns now show the selected role's description beneath the selector. Warehouse Manager added to location-scoped roles (requires warehouse assignment).
+
+- **`frontend/src/lib/navigation.ts`** — Added sidebar nav allowlists for Warehouse Manager, Payroll Officer, Payroll Approver, Accounts Payable Clerk, Accounts Receivable Clerk, External Accountant, and Viewer restricted roles. Expanded `SETTINGS_RESTRICTED_ROLES` to include all scoped roles (AP/AR Clerk, Payroll Officer/Approver, Warehouse Manager, External Accountant, Viewer) — they cannot reach /settings.
+
+**Security impact:** Any tenant user whose role string is not in the recognized 14-role set (free-text job titles, typos) is now denied access to `requireRole()`-protected routes. Previously they received full operational access.
+
 ## [Date: 2026-08-21] - Workspace Mode Selector and Guided Daily Operations Panel
 
 **What/Why:** User provided a Business Fit and Usability Report recommending that Ledgio stop presenting every accounting feature to every customer. A retail shop owner or cashier should feel like they bought a simple shop-management tool — not an ERP — while an accountant still sees the full professional workspace. Implemented the report's core UX recommendations as a frontend-only change (no backend changes required).

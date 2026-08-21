@@ -10,8 +10,25 @@ import { useToast } from "../../contexts/ToastContext";
 import { usePresence } from "../../hooks/usePresence";
 import { UserPlus, Copy, Check, Mail, UserCheck, MapPin, Settings2, UserCog, UserMinus } from "lucide-react";
 
-const CLOSED_ROLES = ["Admin", "Accountant", "Auditor", "Viewer", "Shop Manager", "Cashier", "HR"] as const;
-const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier"]);
+const ROLE_OPTIONS: { value: string; label: string; description: string }[] = [
+  { value: "Admin", label: "Admin", description: "Full access — user management, settings, all modules" },
+  { value: "Finance Controller", label: "Finance Controller", description: "Period close, journal review, financial reports, approval policy" },
+  { value: "Accountant", label: "Accountant", description: "Post entries, reconcile, prepare reports — no self-approval" },
+  { value: "Accounts Payable Clerk", label: "Accounts Payable Clerk", description: "Create vendors, bills, payment proposals — cannot approve own items" },
+  { value: "Accounts Receivable Clerk", label: "Accounts Receivable Clerk", description: "Customers, invoices, collections, credit-note requests" },
+  { value: "Payroll Officer", label: "Payroll Officer", description: "Prepare payroll runs — cannot post/release (requires Payroll Approver)" },
+  { value: "Payroll Approver", label: "Payroll Approver", description: "Approve and release payroll — separate from Payroll Officer" },
+  { value: "HR", label: "HR", description: "Employee records, leave, loans workflow — no payroll amount release" },
+  { value: "Auditor", label: "Auditor", description: "Read-only financial records, audit logs, and authorised exports" },
+  { value: "Warehouse Manager", label: "Warehouse Manager", description: "Stock receiving, transfers, count entry, adjustments — no journal posting" },
+  { value: "Shop Manager", label: "Shop Manager", description: "Branch-scoped POS and inventory — approves cashier exceptions within a limit" },
+  { value: "Cashier", label: "Cashier", description: "Open till, sales, receipts for their own shift only" },
+  { value: "Viewer", label: "Viewer", description: "Read-only dashboards and approved reports" },
+  { value: "External Accountant", label: "External Accountant", description: "Time-limited read-only accounting access — no user management or payments" },
+];
+
+const CLOSED_ROLES = ROLE_OPTIONS.map((r) => r.value);
+const LOCATION_SCOPED_ROLES = new Set(["shop manager", "cashier", "warehouse manager"]);
 
 function isLocationScopedRole(role: string): boolean {
   return LOCATION_SCOPED_ROLES.has(role.toLowerCase().trim());
@@ -472,13 +489,20 @@ export function TeamManagement() {
               onChange={(e) => { setInviteRole(e.target.value); setInviteWarehouseIds([]); }}
             >
               <option value="">-- Select Role --</option>
-              {CLOSED_ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
               ))}
             </select>
-            <p className="text-[11px] text-secondary-500 mt-1">
-              "Shop Manager" and "Cashier" are shop-scoped roles - they'll only see and operate on the shop(s) you assign below. Every other role sees the whole business.
-            </p>
+            {inviteRole && (
+              <p className="text-[11px] text-secondary-500 mt-1">
+                {ROLE_OPTIONS.find((r) => r.value === inviteRole)?.description}
+              </p>
+            )}
+            {!inviteRole && (
+              <p className="text-[11px] text-secondary-500 mt-1">
+                Shop Manager, Cashier, and Warehouse Manager are location-scoped — assign a shop/warehouse below.
+              </p>
+            )}
           </div>
 
           {isLocationScopedRole(inviteRole) && (
@@ -564,8 +588,8 @@ export function TeamManagement() {
               value={newRole}
               onChange={(e) => setNewRole(e.target.value)}
             >
-              {CLOSED_ROLES.map((r) => (
-                <option key={r} value={r}>{r}</option>
+              {ROLE_OPTIONS.map((r) => (
+                <option key={r.value} value={r.value}>{r.label}</option>
               ))}
             </select>
           </div>

@@ -190,7 +190,38 @@ export const navigationGroups: NavGroup[] = [
 export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
   "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/invoices", "/bills", "/expenses"],
   cashier: ["/dashboard", "/inventory", "/pos", "/expenses"],
+  "warehouse manager": ["/dashboard", "/inventory", "/analytics/inventory", "/purchase-orders", "/expenses"],
   hr: ["/dashboard", "/team", "/expenses", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave"],
+  "payroll officer": ["/dashboard", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave", "/expenses"],
+  "payroll approver": ["/dashboard", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave", "/expenses"],
+  "accounts payable clerk": ["/dashboard", "/bills", "/purchase-orders", "/expenses", "/inventory", "/vendors"],
+  "accounts receivable clerk": ["/dashboard", "/invoices", "/recurring-invoices", "/customers", "/expenses"],
+  "external accountant": [
+    "/dashboard",
+    "/accounts",
+    "/journals",
+    "/banking",
+    "/fixed-assets",
+    "/invoices",
+    "/bills",
+    "/expenses",
+    "/reports/executive",
+    "/reports/ledger",
+    "/reports/pnl",
+    "/reports/balance-sheet",
+    "/reports/cash-flow",
+    "/reports/kpis",
+    "/reports/aging",
+    "/reports/budgets",
+  ],
+  viewer: [
+    "/dashboard",
+    "/reports/executive",
+    "/reports/pnl",
+    "/reports/balance-sheet",
+    "/reports/cash-flow",
+    "/reports/kpis",
+  ],
   auditor: [
     "/dashboard",
     "/accounts",
@@ -224,7 +255,12 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
 // and any UI entry point into /settings (Header's profile menu, etc.) must
 // check this same set so a restricted role never sees a link that just
 // bounces them back to /dashboard.
-export const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "auditor"]);
+export const SETTINGS_RESTRICTED_ROLES = new Set([
+  "shop manager", "cashier", "warehouse manager",
+  "hr", "payroll officer", "payroll approver",
+  "accounts payable clerk", "accounts receivable clerk",
+  "auditor", "external accountant", "viewer",
+]);
 
 export function isSettingsRestricted(role: string | undefined): boolean {
   return SETTINGS_RESTRICTED_ROLES.has((role || "").toLowerCase().trim());
