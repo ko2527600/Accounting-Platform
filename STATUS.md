@@ -2,6 +2,21 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Payroll Module: Verified End-to-End Functional
+
+**What/Why:** Closed the `Develop Payroll management module (w:15)` task. The payroll routes, services, DB schema, and frontend pages were already built. The blocking gap was `postPayrollJournalEntry` throwing a 400 for every tenant because the 5 required GL account `defaultRole` designations were never set up. Audit confirmed all 4 sub-gaps are already resolved in the codebase:
+
+1. **`frontend/src/types/accounting.ts`** — `AccountDefaultRole` union already includes all 7 payroll roles (`SALARY_EXPENSE`, `EMPLOYER_SSNIT_EXPENSE`, `PAYE_PAYABLE`, `SSNIT_PAYABLE`, `NET_PAY_PAYABLE`, plus depreciation roles).
+2. **`frontend/src/pages/accounts/ChartOfAccounts.tsx`** — `ROLES_FOR_TYPE` already has a `Liability` key with the 3 payable roles and `Expense` with the 2 expense roles; `ROLE_LABEL`/`ROLE_SHORT_LABEL` already have all payroll entries.
+3. **`backend/src/services/onboardingWizardService.ts`** — Auto-designation loop already seeds all 5 payroll roles for new tenants.
+4. **`backend/src/database/migrations/tenantMigrations.ts`** — Migration 017 (`017_seed_payroll_gl_accounts`) already handles existing tenants: inserts 4 missing accounts (`ON CONFLICT (code) DO NOTHING`) and designates all 5 roles via name-pattern matching.
+
+No code changes required — task marked complete after verification.
+
+**Files changed:** `TASKS.md`
+
+---
+
 ## [Date: 2026-08-21] - CRM: Standalone Customer Management Module
 
 **What/Why:** Closed the `Integrate CRM functionalities (w:10)` task. The `Customer` model already existed in the DB schema and a partial API was embedded in `invoices.ts`, but there was no standalone page, no customer detail view, no invoice history per customer, no search/filter, and the `phone`/`address` fields were never shown in the UI. This change adds a complete standalone Customers module.
