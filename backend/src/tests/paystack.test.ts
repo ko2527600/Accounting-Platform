@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import axios from 'axios';
 import app from '../app';
@@ -122,7 +123,7 @@ describe('Paystack pay-now link on invoices - Subaccounts (platform-wide key + p
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

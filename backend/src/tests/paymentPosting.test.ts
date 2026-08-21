@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -33,7 +34,7 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
       await prisma.fund.deleteMany({ where: { tenantId } }).catch(() => {});
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});

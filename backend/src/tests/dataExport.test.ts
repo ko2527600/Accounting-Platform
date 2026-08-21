@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import JSZip from 'jszip';
 import app from '../app';
@@ -32,7 +33,7 @@ describe('Full tenant data export (Phase 2 trust feature - no paywall, no cooldo
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

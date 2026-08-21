@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -36,7 +37,7 @@ describe('Journal Entries API Integration Tests (BE-107)', () => {
 
   async function cleanupTestData() {
     if (tenant1Id) {
-      await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId: tenant1Id });
       await prisma.fund.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
     }
     console.log("-> cleanup: deleteTenantBySlug 1");

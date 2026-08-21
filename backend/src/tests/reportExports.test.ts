@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -46,7 +47,7 @@ describe('Real PDF/Word/CSV export for reports (replaces window.print() and fake
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

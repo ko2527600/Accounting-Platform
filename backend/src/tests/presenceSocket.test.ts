@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import http from 'http';
 import type { AddressInfo } from 'net';
 import { WebSocket } from 'ws';
@@ -162,8 +163,8 @@ describe('Presence WebSocket (GET /ws/presence)', () => {
       new Promise<void>((resolve) => setTimeout(resolve, 3000)),
     ]);
 
-    if (tenant1Id) await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
-    if (tenant2Id) await prisma.auditLog.deleteMany({ where: { tenantId: tenant2Id } }).catch(() => {});
+    if (tenant1Id) await deleteAuditLogs(prisma, { tenantId: tenant1Id });
+    if (tenant2Id) await deleteAuditLogs(prisma, { tenantId: tenant2Id });
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});
     await deleteUserByEmail(prisma, admin1Email).catch(() => {});

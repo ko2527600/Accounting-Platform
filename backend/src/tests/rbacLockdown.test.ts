@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -33,7 +34,7 @@ describe('RBAC lockdown for Shop Manager / Cashier', () => {
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

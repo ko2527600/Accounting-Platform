@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -25,7 +26,7 @@ describe('GET /api/v1/admin/audit-logs (platform-wide, passcode-gated)', () => {
   async function cleanupTestData() {
     const ids = [tenant1Id, tenant2Id].filter((id): id is string => Boolean(id));
     if (ids.length > 0) {
-      await prisma.auditLog.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId: { in: ids } });
     }
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});

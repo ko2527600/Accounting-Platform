@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -22,7 +23,7 @@ describe('Credit Notes (AR) and Debit Notes (AP)', () => {
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
       await prisma.fund.deleteMany({ where: { tenantId } }).catch(() => {});
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});

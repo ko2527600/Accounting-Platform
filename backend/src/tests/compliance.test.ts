@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -18,7 +19,7 @@ describe('Compliance update tracking (Phase 4 trust feature - provable, not just
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await prisma.complianceUpdate.deleteMany({ where: { area: `Test Area ${runId}` } }).catch(() => {});
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
