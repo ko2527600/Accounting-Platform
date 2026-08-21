@@ -362,10 +362,20 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
               clientTxnId: clientTxnId || null,
               clientOccurredAt: clientOccurredAt ? new Date(clientOccurredAt) : null,
               saleType: resolvedSaleType,
-              customerName: customerName ? String(customerName).trim() : null,
-              customerPhone: customerPhone ? String(customerPhone).trim() : null,
             },
           });
+
+          // customer_name / customer_phone were added via raw SQL migration (016)
+          // and are not in schema.prisma, so we save them in a follow-up UPDATE
+          // to avoid Prisma's "Unknown field" runtime error.
+          if (customerName || customerPhone) {
+            await (client as any).$executeRawUnsafe(
+              `UPDATE cash_sales SET customer_name = $1, customer_phone = $2 WHERE id = $3`,
+              customerName ? String(customerName).trim() : null,
+              customerPhone ? String(customerPhone).trim() : null,
+              sale.id
+            );
+          }
         } catch (createError: any) {
           // A concurrent request racing on the SAME clientTxnId can lose this
           // unique-constraint check even after passing the fast-path findFirst
