@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -7,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Audit Trail filter advancements (entityId, ipAddress, meta/values, CSV formatting)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `audit-filter-corp-${runId}`;
   const tenantSchema = `tenant_audit_filter_corp_${runId}`;
   const adminEmail = `admin_auditfilter_${runId}@corp.com`;
@@ -26,7 +27,7 @@ describe('Audit Trail filter advancements (entityId, ipAddress, meta/values, CSV
   async function cleanupTestData() {
     const ids = [tenantId, otherTenantId].filter((id): id is string => Boolean(id));
     if (ids.length > 0) {
-      await prisma.auditLog.deleteMany({ where: { tenantId: { in: ids } } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId: { in: ids } });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteTenantBySlug(prisma, otherTenantSlug).catch(() => {});

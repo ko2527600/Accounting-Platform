@@ -1,17 +1,18 @@
+import { deleteAuditLogs } from './testHelpers';
 import { prisma } from '../config/db';
 import { runWithTenantContext } from '../context/tenantContext';
 import { logger } from '../utils/logger';
 import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
 
 describe('auditLogService', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantId = `audit-svc-tenant-${runId}`;
 
   afterAll(async () => {
     // audit_logs is DB-enforced append-only (see the
     // enforce_audit_log_append_only migration) - this always rejects, and
     // test rows are just left in place like every other suite's cleanup.
-    await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+    await deleteAuditLogs(prisma, { tenantId });
   });
 
   describe('recordAuditLog', () => {
@@ -61,7 +62,7 @@ describe('auditLogService', () => {
       expect(row.ipAddress).toBeNull();
       expect(row.changes).toBeNull();
 
-      await prisma.auditLog.deleteMany({ where: { action: 'NO_TENANT_TEST', tenantId: null } }).catch(() => {});
+      await deleteAuditLogs(prisma, { action: 'NO_TENANT_TEST', tenantId: null });
     });
 
     it('never throws when the DB write fails, and logs the failure instead', async () => {

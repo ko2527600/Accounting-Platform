@@ -18,7 +18,7 @@ import { apiRateLimiter, authRateLimiter } from '../middleware/rateLimiterMiddle
  */
 describe('Rate limiter key isolation between limiters', () => {
   const originalNodeEnv = process.env.NODE_ENV;
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantId = `rl-isolation-${runId}`;
 
   function buildReq(): Request {

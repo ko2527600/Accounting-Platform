@@ -53,6 +53,8 @@ export function Login() {
       if (err.response?.data?.message) {
         setError(err.response.data.message);
         setIsDeactivated(err.response.data.message === "User account has been deactivated.");
+      } else if (!err.response) {
+        setError("Unable to reach the server. Please check your internet connection and try again.");
       } else {
         setError("An unexpected error occurred. Please try again.");
       }

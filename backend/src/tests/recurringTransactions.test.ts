@@ -8,7 +8,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { RecurringTransactionCronService, advanceDate } from '../services/recurringTransactionService';
 
 describe('Recurring Transactions API + cron generator', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `recurring-corp-1-${runId}`;
   const tenant1Schema = `tenant_recurring_corp_1_${runId}`;
   const admin1Email = `admin_recurring1_${runId}@corp1.com`;

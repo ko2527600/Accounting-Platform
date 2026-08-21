@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -7,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Compliance update tracking (Phase 4 trust feature - provable, not just claimed)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `compliance-corp-${runId}`;
   const tenantSchema = `tenant_compliance_corp_${runId}`;
   const adminEmail = `admin_compliance_${runId}@corp.com`;
@@ -18,7 +19,7 @@ describe('Compliance update tracking (Phase 4 trust feature - provable, not just
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await prisma.complianceUpdate.deleteMany({ where: { area: `Test Area ${runId}` } }).catch(() => {});
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});

@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -7,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Cash Sale idempotency (offline-sync retry safety)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `sale-idem-corp-1-${runId}`;
   const tenantSchema = `tenant_sale_idem_corp_1_${runId}`;
   const adminEmail = `admin_sale_idem_${runId}@corp1.com`;
@@ -19,7 +20,7 @@ describe('Cash Sale idempotency (offline-sync retry safety)', () => {
   let tillId: string;
 
   async function cleanupTestData() {
-    await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+    await deleteAuditLogs(prisma, { tenantId });
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});
     await dropTenantSchema(prisma, tenantSchema).catch(() => {});

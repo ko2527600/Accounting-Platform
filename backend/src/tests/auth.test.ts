@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -26,7 +27,7 @@ describe('Auth & RBAC Service Tests', () => {
 
   afterAll(async () => {
     // Cleanup after test run
-    await prisma.auditLog.deleteMany({ where: { userEmail: testAdminEmail } }).catch(() => {});
+    await deleteAuditLogs(prisma, { userEmail: testAdminEmail });
     await deleteUserByEmail(prisma, testAdminEmail);
     await deleteUserByEmail(prisma, testAccountantEmail);
     await deleteUserByEmail(prisma, testAuditorEmail);

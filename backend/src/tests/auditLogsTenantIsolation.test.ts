@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -15,7 +16,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * Auditor-role user in any tenant.
  */
 describe('Audit Logs API - tenant isolation', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `audit-corp-1-${runId}`;
   const tenant1Schema = `tenant_audit_corp_1_${runId}`;
   const admin1Email = `admin_audit1_${runId}@corp1.com`;
@@ -30,7 +31,7 @@ describe('Audit Logs API - tenant isolation', () => {
   let tenant2Id: string;
 
   async function cleanupTestData() {
-    await prisma.auditLog.deleteMany({ where: { tenantId: { in: [tenant1Id, tenant2Id].filter(Boolean) } } }).catch(() => {});
+    await deleteAuditLogs(prisma, { tenantId: { in: [tenant1Id, tenant2Id].filter(Boolean) } });
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});
     await deleteUserByEmail(prisma, admin1Email).catch(() => {});

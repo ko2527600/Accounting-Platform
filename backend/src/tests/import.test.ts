@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Bulk Import API (POST /api/v1/import/accounts, /journals)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `import-corp-${runId}`;
   const tenantSchema = `tenant_import_corp_${runId}`;
   const adminEmail = `admin_import_${runId}@corp.com`;

@@ -8,7 +8,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 jest.setTimeout(180000);
 
 describe('POST /api/v1/tenants/admin-onboard - pre-verified contracted-client onboarding', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `admin-onboard-corp-${runId}`;
   const tenantSchema = `tenant_admin_onboard_corp_${runId}`;
   const adminEmail = `admin_adminonboard_${runId}@corp.com`;

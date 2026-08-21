@@ -8,7 +8,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { generateJwtToken } from '../utils/jwt';
 
 describe('Notifications API - read-all tenant isolation', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `notif-corp-1-${runId}`;
   const tenantSchema = `tenant_notif_corp_1_${runId}`;
   const adminEmail = `admin_notif_${runId}@corp1.com`;

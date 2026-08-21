@@ -13,7 +13,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * funds), while a fund-scoped call only sums that fund's ledger rows.
  */
 describe('Fund-scoped reports (Balance Sheet, P&L)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `fund-report-corp-${runId}`;
   const tenantSchema = `tenant_fund_report_corp_${runId}`;
   const adminEmail = `admin_fundreport_${runId}@corp.com`;

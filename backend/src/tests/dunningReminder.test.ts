@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -8,7 +9,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { DunningReminderCronService } from '../services/dunningReminderService';
 
 describe('Dunning reminders (DunningReminderCronService.runOverdueInvoicesJob)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `dunning-corp-${runId}`;
   const tenantSchema = `tenant_dunning_corp_${runId}`;
   const adminEmail = `admin_dunning_${runId}@corp.com`;
@@ -23,7 +24,7 @@ describe('Dunning reminders (DunningReminderCronService.runOverdueInvoicesJob)',
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

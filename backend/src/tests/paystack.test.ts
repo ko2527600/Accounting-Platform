@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import axios from 'axios';
 import app from '../app';
@@ -108,7 +109,7 @@ function mockPaystackVerify(status: 'success' | 'failed' | 'abandoned', amountSu
 }
 
 describe('Paystack pay-now link on invoices - Subaccounts (platform-wide key + per-tenant bank settlement)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `paystack-corp-${runId}`;
   const tenantSchema = `tenant_paystack_corp_${runId}`;
   const adminEmail = `admin_paystack_${runId}@corp.com`;
@@ -122,7 +123,7 @@ describe('Paystack pay-now link on invoices - Subaccounts (platform-wide key + p
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

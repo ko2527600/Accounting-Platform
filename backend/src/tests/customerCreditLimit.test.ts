@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Customer credit limits', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `credit-corp-${runId}`;
   const tenantSchema = `tenant_credit_corp_${runId}`;
   const adminEmail = `admin_credit_${runId}@corp.com`;

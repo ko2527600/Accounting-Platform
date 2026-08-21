@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Cash Till API - multi-item cart', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `pos-cart-corp-${runId}`;
   const tenantSchema = `tenant_pos_cart_corp_${runId}`;
   const adminEmail = `admin_poscart_${runId}@corp.com`;

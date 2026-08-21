@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -18,7 +19,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * requireRole() check where explicitly listed.
  */
 describe('RBAC lockdown for Shop Manager / Cashier', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `rbac-lockdown-corp-${runId}`;
   const tenantSchema = `tenant_rbac_lockdown_corp_${runId}`;
   const adminEmail = `admin_rbaclock_${runId}@corp.com`;
@@ -33,7 +34,7 @@ describe('RBAC lockdown for Shop Manager / Cashier', () => {
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});
     await deleteUserByEmail(prisma, adminEmail).catch(() => {});

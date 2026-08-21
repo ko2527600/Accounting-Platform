@@ -849,10 +849,10 @@ export function generateStockTakeSheetPdf(
 
     const tableWidth = doc.page.width - leftX - rightMargin;
     const columns: TableColumn[] = [
-      { header: 'SKU', width: tableWidth * 0.28 },
-      { header: 'Item Name', width: tableWidth * 0.32 },
+      { header: 'SKU', width: tableWidth * 0.38 },
+      { header: 'Item Name', width: tableWidth * 0.30 },
       { header: 'Unit', width: tableWidth * 0.12 },
-      { header: 'Counted Qty', width: tableWidth * 0.28 },
+      { header: 'Counted Qty', width: tableWidth * 0.20 },
     ];
     const rows = items.map((item) => [item.sku, item.name, item.unitOfMeasure, '']);
 

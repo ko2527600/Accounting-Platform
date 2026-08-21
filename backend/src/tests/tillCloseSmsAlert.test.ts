@@ -8,7 +8,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { SmsService } from '../services/smsService';
 
 describe('Till-close SMS alert to the tenant\'s configured boss number', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `boss-sms-corp-${runId}`;
   const tenantSchema = `tenant_boss_sms_corp_${runId}`;
   const adminEmail = `admin_boss_sms_${runId}@corp.com`;

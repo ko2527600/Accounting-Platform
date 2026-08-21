@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -7,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Credit Notes (AR) and Debit Notes (AP)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `notes-corp-${runId}`;
   const tenantSchema = `tenant_notes_corp_${runId}`;
   const adminEmail = `admin_notes_${runId}@corp.com`;
@@ -22,7 +23,7 @@ describe('Credit Notes (AR) and Debit Notes (AP)', () => {
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
       await prisma.fund.deleteMany({ where: { tenantId } }).catch(() => {});
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});

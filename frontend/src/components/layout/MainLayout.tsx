@@ -1,6 +1,7 @@
 import { useState, useEffect, type ReactNode } from "react";
 import { Sidebar } from "./Sidebar";
 import { Header } from "./Header";
+import { MobileBottomNav } from "./MobileBottomNav";
 import { HelpAssistantWidget } from "../HelpAssistantWidget";
 import { FeedbackWidget } from "../FeedbackWidget";
 import { SubscriptionBanner } from "../SubscriptionBanner";
@@ -31,13 +32,15 @@ export function MainLayout({ children }: { children: ReactNode }) {
           <Header />
           <SubscriptionBanner />
           <main className="flex-1 relative z-0 overflow-y-auto focus:outline-none">
-            <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full">
+            {/* pb-20 on mobile leaves room above the fixed bottom nav bar */}
+            <div className="py-6 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto w-full pb-20 md:pb-6">
               {children}
             </div>
           </main>
         </div>
         <HelpAssistantWidget />
         <FeedbackWidget />
+        <MobileBottomNav />
       </div>
     </WorkspaceModeProvider>
   );

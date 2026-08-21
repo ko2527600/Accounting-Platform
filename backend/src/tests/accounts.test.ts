@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -34,7 +35,7 @@ describe('Chart of Accounts CRUD API Integration Tests (BE-106)', () => {
 
   async function cleanupTestData() {
     if (tenant1Id) {
-      await prisma.auditLog.deleteMany({ where: { tenantId: tenant1Id } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId: tenant1Id });
     }
     await deleteTenantBySlug(prisma, tenant1Slug).catch(() => {});
     await deleteTenantBySlug(prisma, tenant2Slug).catch(() => {});

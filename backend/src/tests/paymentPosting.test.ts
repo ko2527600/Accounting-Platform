@@ -1,3 +1,4 @@
+import { deleteAuditLogs } from './testHelpers';
 import request from 'supertest';
 import app from '../app';
 import { prisma } from '../config/db';
@@ -18,7 +19,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * returned `suggestion: null`.
  */
 describe('Payment posting & AI categorization - real Chart of Accounts lookup', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `pay-post-corp-${runId}`;
   const tenantSchema = `tenant_pay_post_corp_${runId}`;
   const adminEmail = `admin_paypost_${runId}@corp.com`;
@@ -33,7 +34,7 @@ describe('Payment posting & AI categorization - real Chart of Accounts lookup', 
 
   async function cleanupTestData() {
     if (tenantId) {
-      await prisma.auditLog.deleteMany({ where: { tenantId } }).catch(() => {});
+      await deleteAuditLogs(prisma, { tenantId });
       await prisma.fund.deleteMany({ where: { tenantId } }).catch(() => {});
     }
     await deleteTenantBySlug(prisma, tenantSlug).catch(() => {});

@@ -8,7 +8,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { RecurringInvoiceCronService } from '../services/recurringInvoiceCronService';
 
 describe('Recurring customer invoices', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `ri-corp-${runId}`;
   const tenantSchema = `tenant_ri_corp_${runId}`;
   const adminEmail = `admin_ri_${runId}@corp.com`;
