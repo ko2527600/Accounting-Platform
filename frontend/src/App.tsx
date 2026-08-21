@@ -78,6 +78,7 @@ const Employees = lazy(() => import("./pages/payroll/Employees").then(m => ({ de
 const PayrollRuns = lazy(() => import("./pages/payroll/PayrollRuns").then(m => ({ default: m.PayrollRuns })));
 const Loans = lazy(() => import("./pages/payroll/Loans").then(m => ({ default: m.Loans })));
 const Leave = lazy(() => import("./pages/payroll/Leave").then(m => ({ default: m.Leave })));
+const PaymentCallback = lazy(() => import("./pages/subscription/PaymentCallback").then(m => ({ default: m.PaymentCallback })));
 
 // "What happened today?" quick-action grid shown in Operations and Business modes.
 const GUIDED_ACTIONS_OPS = [
@@ -384,6 +385,7 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route path="/accept-invite" element={<AcceptInvitation />} />
               <Route path="/verify-account" element={<Verification />} />
+              <Route path="/verify" element={<PaymentCallback />} />
               <Route path="/features" element={<FeaturesPage />} />
               <Route path="/how-it-works" element={<HowItWorksPage />} />
               <Route path="/legal" element={<LegalHubPage />} />
