@@ -177,9 +177,15 @@ export async function createAccount(data: CreateAccountData, actor?: AuditActor)
     if (raceError instanceof DuplicateAccountReplayError) {
       // The winning transaction is guaranteed committed by now (Postgres
       // blocked our INSERT until it resolved) - a fresh transaction here is
-      // safe and will find it.
+      // safe and will find it. Under heavy CI concurrency, the lookup can
+      // occasionally return null on the first try before the connection pool
+      // delivers the committed row; one short retry is enough.
       created = await withCurrentTenantDb(prisma, async (client) => {
-        const winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
+        let winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
+        if (!winner) {
+          await new Promise((r) => setTimeout(r, 50));
+          winner = await accountRepository.getAccountByClientTxnId(client, data.clientTxnId!);
+        }
         if (winner) return winner;
         // The code collision wasn't actually the same logical create racing
         // itself (no account exists under this clientTxnId) - it's a
