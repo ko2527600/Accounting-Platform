@@ -3,6 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalService from './journalEntryService';
 import * as approvalWorkflowService from './approvalWorkflowService';
+import * as fxRateService from './fxRateService';
 import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
 export class VendorBillPaymentServiceError extends Error {
@@ -42,20 +43,51 @@ export async function payVendorBill(tenantId: string, billId: string, actor?: Au
   const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
   const expenseAcc = accountRepository.resolveDefaultAccount(accounts, 'EXPENSE') || accounts[0];
   const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
+  const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
 
-  const postingAmount = bill.baseCurrencyAmount != null ? Number(bill.baseCurrencyAmount) : Number(bill.amount);
+  // Amount at locked (original) rate
+  const lockedBaseAmount = bill.baseCurrencyAmount != null ? Number(bill.baseCurrencyAmount) : Number(bill.amount);
+  const nativeAmount = Number(bill.amount);
+
+  // FX gain/loss on AP: if bill was in a foreign currency and we have live
+  // rates, revalue the cash outflow at today's rate. A favorable rate move
+  // (we pay less base currency than originally accrued) is an FX gain
+  // (credit REVENUE); an unfavorable move is an FX loss (debit EXPENSE).
+  const billCurrency = bill.currency || 'USD';
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const baseCurrency = tenant?.baseCurrency || 'USD';
+  let cashPostingAmount = lockedBaseAmount;
+  let fxGainLoss = 0;
+  if (billCurrency !== baseCurrency && fxRateService.isFxConfigured()) {
+    try {
+      const currentBaseAmount = await fxRateService.convertAmount(nativeAmount, billCurrency, baseCurrency);
+      fxGainLoss = Math.round((lockedBaseAmount - currentBaseAmount) * 100) / 100;
+      cashPostingAmount = Math.round(currentBaseAmount * 100) / 100;
+    } catch {
+      // Fall back to locked rate silently if live rate unavailable.
+    }
+  }
 
   let journalId = null;
   if (expenseAcc && cashAcc) {
+    const lines: { accountId: string; debit: number; credit: number; description: string; fundId?: string }[] = [
+      { accountId: expenseAcc.id, debit: lockedBaseAmount, credit: 0, description: `Expense - ${bill.billNumber}`, fundId: bill.fundId || undefined },
+      { accountId: cashAcc.id, debit: 0, credit: cashPostingAmount, description: `Cash Payment - ${bill.billNumber}`, fundId: bill.fundId || undefined },
+    ];
+    // FX gain (paid less than accrued): credit REVENUE; FX loss: debit EXPENSE
+    if (Math.abs(fxGainLoss) > 0.001) {
+      if (fxGainLoss > 0 && revenueAcc) {
+        lines.push({ accountId: revenueAcc.id, debit: 0, credit: fxGainLoss, description: `FX Gain - ${bill.billNumber}`, fundId: bill.fundId || undefined });
+      } else if (fxGainLoss < 0) {
+        lines.push({ accountId: expenseAcc.id, debit: -fxGainLoss, credit: 0, description: `FX Loss - ${bill.billNumber}`, fundId: bill.fundId || undefined });
+      }
+    }
     const journal = await journalService.createJournalEntry(
       {
         description: `Vendor Bill Payment for ${bill.billNumber} (${bill.vendor.name})`,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
-        lines: [
-          { accountId: expenseAcc.id, debit: postingAmount, credit: 0, description: `Expense - ${bill.billNumber}`, fundId: bill.fundId || undefined },
-          { accountId: cashAcc.id, debit: 0, credit: postingAmount, description: `Cash Payment - ${bill.billNumber}`, fundId: bill.fundId || undefined },
-        ],
+        lines,
       },
       actor
     );
@@ -74,7 +106,7 @@ export async function payVendorBill(tenantId: string, billId: string, actor?: Au
       entityId: billId,
       actor,
       changes: diffFields(bill, updated, ['status', 'journalId']),
-      details: `Vendor bill ${bill.billNumber} marked PAID (${postingAmount}).`,
+      details: `Vendor bill ${bill.billNumber} marked PAID (${cashPostingAmount}).`,
     });
 
     return updated;

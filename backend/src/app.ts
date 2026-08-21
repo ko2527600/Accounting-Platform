@@ -57,6 +57,7 @@ import purchaseOrdersRouter from './routes/purchaseOrders';
 import recurringInvoicesRouter from './routes/recurringInvoices';
 import paystackRouter from './routes/paystack';
 import fixedAssetsRouter from './routes/fixedAssets';
+import payrollRouter from './routes/payroll';
 
 dotenv.config();
 
@@ -243,6 +244,9 @@ app.use('/api/v1/compliance', complianceRouter);
 // Phase 3 trust feature - guided onboarding wizard (business profile -> COA
 // -> opening balances with a hard trial-balance gate -> completion checklist).
 app.use('/api/v1/onboarding', onboardingWizardRouter);
+
+// Ghana Payroll (PAYE, SSNIT, payslips, journal posting).
+app.use('/api/v1/payroll', payrollRouter);
 
 // Rejected CORS requests otherwise fall through to Express's default HTML
 // error handler, which leaks a stack trace and breaks the API's JSON contract.

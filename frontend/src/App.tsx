@@ -56,10 +56,15 @@ import { KpiDashboard } from "./pages/reports/KpiDashboard";
 import { AgingReport } from "./pages/reports/AgingReport";
 import { SalesChannelReport } from "./pages/reports/SalesChannelReport";
 import { BranchComparisonReport } from "./pages/reports/BranchComparisonReport";
+import { LandedCostReport } from "./pages/reports/LandedCostReport";
 import { PettyCash } from "./pages/pettycash/PettyCash";
 import { PurchaseOrders } from "./pages/purchaseorders/PurchaseOrders";
 import { RecurringInvoices } from "./pages/recurringinvoices/RecurringInvoices";
 import { FixedAssets } from "./pages/fixedassets/FixedAssets";
+import { Employees } from "./pages/payroll/Employees";
+import { PayrollRuns } from "./pages/payroll/PayrollRuns";
+import { Loans } from "./pages/payroll/Loans";
+import { Leave } from "./pages/payroll/Leave";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
 
@@ -292,10 +297,15 @@ function App() {
             <Route path="/reports/aging" element={<ProtectedRoute><MainLayout><AgingReport /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/sales-channel" element={<ProtectedRoute><MainLayout><SalesChannelReport /></MainLayout></ProtectedRoute>} />
             <Route path="/reports/branch-comparison" element={<ProtectedRoute><MainLayout><BranchComparisonReport /></MainLayout></ProtectedRoute>} />
+            <Route path="/reports/landed-costs" element={<ProtectedRoute><MainLayout><LandedCostReport /></MainLayout></ProtectedRoute>} />
             <Route path="/petty-cash" element={<ProtectedRoute><MainLayout><PettyCash /></MainLayout></ProtectedRoute>} />
             <Route path="/purchase-orders" element={<ProtectedRoute><MainLayout><PurchaseOrders /></MainLayout></ProtectedRoute>} />
             <Route path="/recurring-invoices" element={<ProtectedRoute><MainLayout><RecurringInvoices /></MainLayout></ProtectedRoute>} />
             <Route path="/fixed-assets" element={<ProtectedRoute><MainLayout><FixedAssets /></MainLayout></ProtectedRoute>} />
+            <Route path="/payroll/employees" element={<ProtectedRoute><MainLayout><Employees /></MainLayout></ProtectedRoute>} />
+            <Route path="/payroll/runs" element={<ProtectedRoute><MainLayout><PayrollRuns /></MainLayout></ProtectedRoute>} />
+            <Route path="/payroll/loans" element={<ProtectedRoute><MainLayout><Loans /></MainLayout></ProtectedRoute>} />
+            <Route path="/payroll/leave" element={<ProtectedRoute><MainLayout><Leave /></MainLayout></ProtectedRoute>} />
             <Route path="/reports" element={<Navigate to="/reports/pnl" replace />} />
             
             <Route path="*" element={<Navigate to="/" replace />} />

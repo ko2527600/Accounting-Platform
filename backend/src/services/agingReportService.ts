@@ -17,6 +17,8 @@ export interface ArAgingRow {
   daysOverdue: number;
   balanceDue: number;
   bucket: keyof Omit<AgingBucketTotals, 'total'>;
+  currency: string;
+  nativeBalanceDue: number;
 }
 
 export interface ApAgingRow {
@@ -27,6 +29,8 @@ export interface ApAgingRow {
   daysOverdue: number;
   balanceDue: number;
   bucket: keyof Omit<AgingBucketTotals, 'total'>;
+  currency: string;
+  nativeBalanceDue: number;
 }
 
 function emptyTotals(): AgingBucketTotals {
@@ -62,8 +66,15 @@ export async function getArAging(prisma: PrismaClient, tenantId: string, now: Da
   const rows: ArAgingRow[] = [];
 
   for (const invoice of invoices) {
-    const balanceDue = Math.round((Number(invoice.total) - Number(invoice.amountPaid)) * 100) / 100;
-    if (balanceDue <= 0) continue;
+    const invoiceTotal = Number(invoice.total);
+    const nativeBalanceDue = Math.round((invoiceTotal - Number(invoice.amountPaid)) * 100) / 100;
+    if (nativeBalanceDue <= 0) continue;
+
+    // Convert outstanding balance to base currency using the original FX rate
+    const fxScale = invoiceTotal > 0 && invoice.baseCurrencyAmount != null
+      ? Number(invoice.baseCurrencyAmount) / invoiceTotal
+      : 1;
+    const balanceDue = Math.round(nativeBalanceDue * fxScale * 100) / 100;
 
     const daysOverdue = daysOverdueFrom(invoice.dueDate, now);
     const bucket = bucketFor(daysOverdue);
@@ -76,6 +87,8 @@ export async function getArAging(prisma: PrismaClient, tenantId: string, now: Da
       daysOverdue,
       balanceDue,
       bucket,
+      currency: invoice.currency || 'USD',
+      nativeBalanceDue,
     });
 
     totals[bucket] += balanceDue;
@@ -93,7 +106,7 @@ export async function getArAging(prisma: PrismaClient, tenantId: string, now: Da
  */
 export async function getApAging(prisma: PrismaClient, tenantId: string, now: Date = new Date()): Promise<{ rows: ApAgingRow[]; totals: AgingBucketTotals }> {
   const bills = await prisma.vendorBill.findMany({
-    where: { tenantId, status: 'UNPAID' },
+    where: { tenantId, status: 'UNPAID', billType: { not: 'LANDED_COST' } },
     include: { vendor: true },
     orderBy: { dueDate: 'asc' },
   });
@@ -102,8 +115,13 @@ export async function getApAging(prisma: PrismaClient, tenantId: string, now: Da
   const rows: ApAgingRow[] = [];
 
   for (const bill of bills) {
-    const balanceDue = Number(bill.amount);
-    if (balanceDue <= 0) continue;
+    const nativeBalanceDue = Number(bill.amount);
+    if (nativeBalanceDue <= 0) continue;
+
+    // Use base currency amount if available, else native amount
+    const balanceDue = bill.baseCurrencyAmount != null
+      ? Number(bill.baseCurrencyAmount)
+      : nativeBalanceDue;
 
     const daysOverdue = daysOverdueFrom(bill.dueDate, now);
     const bucket = bucketFor(daysOverdue);
@@ -116,6 +134,8 @@ export async function getApAging(prisma: PrismaClient, tenantId: string, now: Da
       daysOverdue,
       balanceDue,
       bucket,
+      currency: bill.currency || 'USD',
+      nativeBalanceDue,
     });
 
     totals[bucket] += balanceDue;

@@ -586,4 +586,105 @@ router.get(
   }
 );
 
+/**
+ * GET /reports/landed-costs
+ * Per-shipment landed cost summary: primary purchase bills with all linked
+ * freight/customs/duty bills and their per-item allocation.
+ * Gated at Business tier - importers/distributors feature.
+ */
+router.get(
+  '/landed-costs',
+  requireTier(2, 'Landed Cost Report'),
+  requireRole('Viewer'),
+  async (req: Request, res: Response): Promise<void> => {
+    try {
+      const { tenantId } = requireTenantContext();
+      const { from, to } = req.query as { from?: string; to?: string };
+
+      const dateFilter: any = {};
+      if (from) dateFilter.gte = new Date(from);
+      if (to) {
+        const toDate = new Date(to);
+        toDate.setHours(23, 59, 59, 999);
+        dateFilter.lte = toDate;
+      }
+
+      // Primary bills that have at least one landed cost bill linked to them
+      const primaryBills = await withCurrentTenantDb(prisma, async (client) => {
+        return (client as any).vendorBill.findMany({
+          where: {
+            tenantId,
+            billType: 'STANDARD',
+            landedCostBills: { some: {} },
+            ...(Object.keys(dateFilter).length ? { billDate: dateFilter } : {}),
+          },
+          include: {
+            vendor: true,
+            lines: { include: { item: true } },
+            landedCostBills: {
+              include: { vendor: true },
+            },
+          },
+          orderBy: { billDate: 'desc' },
+        });
+      }) as any[];
+
+      const result = primaryBills.map((bill: any) => {
+        const totalGoodsCost = Number(bill.baseCurrencyAmount ?? bill.amount);
+        const totalLandedCost = bill.landedCostBills.reduce(
+          (sum: number, lc: any) => sum + Number(lc.baseCurrencyAmount ?? lc.amount),
+          0
+        );
+        const grandTotal = Math.round((totalGoodsCost + totalLandedCost) * 100) / 100;
+
+        // Allocate landed cost proportionally across line items by line total
+        const linesTotal = bill.lines.reduce((s: number, l: any) => s + Number(l.lineTotal), 0);
+        const itemBreakdown = bill.lines.map((line: any) => {
+          const lineShare = linesTotal > 0 ? Number(line.lineTotal) / linesTotal : 0;
+          const allocatedLanded = Math.round(totalLandedCost * lineShare * 100) / 100;
+          const totalLineCost = Math.round((Number(line.lineTotal) + allocatedLanded) * 100) / 100;
+          const effectiveUnitCost = line.quantity > 0
+            ? Math.round((totalLineCost / line.quantity) * 100) / 100
+            : 0;
+          return {
+            itemId: line.itemId,
+            itemName: line.item?.name ?? 'Unknown',
+            itemSku: line.item?.sku ?? '',
+            quantity: line.quantity,
+            originalUnitCost: Number(line.unitCost),
+            landedCostAllocation: allocatedLanded,
+            totalLineCost,
+            effectiveUnitCost,
+          };
+        });
+
+        return {
+          billId: bill.id,
+          billNumber: bill.billNumber,
+          billDate: bill.billDate,
+          vendorName: bill.vendor.name,
+          currency: bill.currency,
+          goodsCost: totalGoodsCost,
+          landedCosts: bill.landedCostBills.map((lc: any) => ({
+            billId: lc.id,
+            billNumber: lc.billNumber,
+            vendorName: lc.vendor.name,
+            description: lc.billNumber,
+            amount: Number(lc.baseCurrencyAmount ?? lc.amount),
+            currency: lc.currency,
+          })),
+          totalLandedCost: Math.round(totalLandedCost * 100) / 100,
+          grandTotal,
+          itemBreakdown,
+        };
+      });
+
+      res.status(200).json({ success: true, data: result });
+    } catch (error: any) {
+      console.error('[Reports] Landed Cost Report error:', error);
+      res.status(500).json({ success: false, error: error.message || 'Failed to generate landed cost report.' });
+    }
+  }
+);
+
 export default router;
