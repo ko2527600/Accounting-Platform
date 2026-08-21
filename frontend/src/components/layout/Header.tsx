@@ -110,10 +110,13 @@ export function Header() {
   };
 
   return (
-    <header className="h-16 flex items-center justify-between px-6 bg-white dark:bg-secondary-900 border-b border-secondary-200 dark:border-secondary-800 transition-colors duration-200 z-10 relative">
+    <header className="h-14 md:h-16 flex items-center justify-between px-4 md:px-6 bg-white dark:bg-secondary-900 border-b border-secondary-200 dark:border-secondary-800 transition-colors duration-200 z-10 relative">
+      {/* Mobile: app name; Desktop: global search */}
       <div className="flex flex-1 items-center space-x-4">
-        {/* Global Search */}
-        <div className="max-w-md w-full relative group cursor-text" onClick={triggerCommandMenu}>
+        <h1 className="text-xl font-bold bg-gradient-to-r from-primary-500 to-primary-700 bg-clip-text text-transparent md:hidden">
+          Ledgio
+        </h1>
+        <div className="max-w-md w-full relative group cursor-text hidden md:flex" onClick={triggerCommandMenu}>
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-secondary-400 group-focus-within:text-primary-500 transition-colors" />
           <Input
             type="text"
@@ -154,7 +157,7 @@ export function Header() {
           </Button>
           
           {showNotifications && (
-            <div className="absolute right-0 mt-2 w-80 md:w-96 bg-white dark:bg-secondary-900 rounded-xl shadow-xl border border-secondary-200 dark:border-secondary-800 z-50 overflow-hidden animate-in slide-in-from-top-2">
+            <div className="fixed md:absolute left-2 right-2 md:left-auto md:right-0 top-14 md:top-auto md:mt-2 md:w-96 bg-white dark:bg-secondary-900 rounded-xl shadow-xl border border-secondary-200 dark:border-secondary-800 z-50 overflow-hidden animate-in slide-in-from-top-2">
               <div className="px-4 py-3 border-b border-secondary-200 dark:border-secondary-800 flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <h3 className="text-sm font-semibold text-secondary-900 dark:text-secondary-50">Notifications</h3>
