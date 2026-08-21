@@ -2,6 +2,36 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Subscription Billing: Free Trial → MoMo / Visa Payment Flow
+
+**What/Why:** Implemented the full subscription billing lifecycle for the Ghanaian SMB market. New tenants get a 90-day free trial; when it expires they enter a 7-day read-only grace period, then a hard block until they subscribe. Payment via Paystack supports Mobile Money (MTN/AirtelTigo/Telecel) and Visa/Mastercard. Paying for a higher plan also upgrades the tenant's tier. All existing tenants are grandfathered to ACTIVE (no disruption).
+
+**Prices (GHS/month):** Shop = 105 | Business = 305 | Enterprise = 510
+
+**Changes:**
+- **`backend/prisma/schema.prisma`** — Added `subscriptionStatus String @default("TRIAL")`, `trialEndsAt DateTime?`, `subscriptionPaidUntil DateTime?` to `Tenant` model.
+- **`backend/prisma/migrations/20260821100000_subscription_billing/migration.sql`** (NEW) — Adds the 3 columns; backfills all existing tenants to `subscriptionStatus = 'ACTIVE'` so they are unaffected.
+- **`backend/src/middleware/subscriptionEnforcementMiddleware.ts`** (NEW) — `computeSubscriptionState()` function + `subscriptionEnforcementMiddleware` (ACTIVE/TRIAL: pass; GRACE: block writes with 402; EXPIRED: block all with 402). Inlined into `tenantContextMiddleware.ts` to cover all tenant-scoped routes without touching every router file.
+- **`backend/src/middleware/tenantContextMiddleware.ts`** — Extended `TenantContextData` construction to include 3 new subscription fields; inlined subscription enforcement after context is set.
+- **`backend/src/routes/subscription.ts`** (NEW) — `GET /plans`, `GET /status`, `POST /initialize` (Paystack checkout), `POST /verify` (activate on success), `POST /webhook` (HMAC-SHA512 Paystack webhook). Enforcement middleware intentionally excluded so expired tenants can pay.
+- **`backend/src/services/tenantService.ts`** — Sets `trialEndsAt = now() + 90 days` and `subscriptionStatus: 'TRIAL'` on new tenant creation; warms Redis cache with subscription fields.
+- **`backend/src/cache/tenantCache.ts`** — Extended `CachedTenant` interface with 3 new fields; date deserialization handles ISO strings.
+- **`backend/src/context/tenantContext.ts`** — Extended `TenantContextData` with 3 optional subscription fields.
+- **`frontend/src/components/SubscriptionBanner.tsx`** (NEW) — Amber banner for TRIAL with ≤14 days left; red banner for GRACE; links to `/settings?tab=subscription`.
+- **`frontend/src/components/SubscriptionWall.tsx`** (NEW) — Full-page overlay for EXPIRED state; plan cards with GHS prices; Paystack initialize → open tab → verify flow.
+- **`frontend/src/components/layout/MainLayout.tsx`** — Fetches `/subscription/status` on mount; renders `<SubscriptionWall>` when EXPIRED, `<SubscriptionBanner>` between Header and main content.
+- **`frontend/src/pages/settings/Settings.tsx`** — Added "Subscription" tab (Admin only) with current plan summary and upgrade payment flow.
+- **Tests fixed:** `performanceAndHardening.test.ts` (3 cache fixtures updated with new fields), `tenantContextMiddleware.test.ts` (toEqual assertions updated for new subscription context fields).
+
+**Key design decisions:**
+- Enforcement is inlined in `tenantContextMiddleware.ts` (not a separate middleware mount) to avoid touching 20+ router files.
+- `computeSubscriptionState` returns TRIAL when `subscriptionStatus = 'TRIAL'` and `trialEndsAt = null` (pre-migration / test-created tenants) rather than falling through to EXPIRED.
+- `/api/v1/subscription/*` routes are exempt from enforcement so expired tenants can pay.
+
+**Files changed:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260821100000_subscription_billing/migration.sql` (new), `backend/src/middleware/subscriptionEnforcementMiddleware.ts` (new), `backend/src/middleware/tenantContextMiddleware.ts`, `backend/src/routes/subscription.ts` (new), `backend/src/services/tenantService.ts`, `backend/src/cache/tenantCache.ts`, `backend/src/context/tenantContext.ts`, `frontend/src/components/SubscriptionBanner.tsx` (new), `frontend/src/components/SubscriptionWall.tsx` (new), `frontend/src/components/layout/MainLayout.tsx`, `frontend/src/pages/settings/Settings.tsx`, `backend/src/tests/performanceAndHardening.test.ts`, `backend/src/tests/tenantContextMiddleware.test.ts`, `TASKS.md`
+
+---
+
 ## [Date: 2026-08-21] - Payroll Module: Verified End-to-End Functional
 
 **What/Why:** Closed the `Develop Payroll management module (w:15)` task. The payroll routes, services, DB schema, and frontend pages were already built. The blocking gap was `postPayrollJournalEntry` throwing a 400 for every tenant because the 5 required GL account `defaultRole` designations were never set up. Audit confirmed all 4 sub-gaps are already resolved in the codebase:
