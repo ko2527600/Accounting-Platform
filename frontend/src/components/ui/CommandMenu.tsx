@@ -10,7 +10,7 @@ import { useTheme } from "../../contexts/ThemeContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useWorkspaceMode } from "../../contexts/WorkspaceModeContext";
 import { getVisibleNavGroups, getVisibleHrefs } from "../../lib/navigation";
-import api from "../../lib/api";
+import { api } from "../../lib/api";
 
 const ITEM_CLASSNAME =
   "flex items-center px-2 py-2 mt-1 rounded-md text-sm cursor-pointer aria-selected:bg-primary-50 aria-selected:text-primary-700 dark:aria-selected:bg-primary-900/50 dark:aria-selected:text-primary-300";
