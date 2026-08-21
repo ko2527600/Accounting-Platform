@@ -2,6 +2,20 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - CRM: Standalone Customer Management Module
+
+**What/Why:** Closed the `Integrate CRM functionalities (w:10)` task. The `Customer` model already existed in the DB schema and a partial API was embedded in `invoices.ts`, but there was no standalone page, no customer detail view, no invoice history per customer, no search/filter, and the `phone`/`address` fields were never shown in the UI. This change adds a complete standalone Customers module.
+
+**Changes:**
+- **`backend/src/routes/invoices.ts`** — Added `DELETE /api/v1/invoices/customers/:id` endpoint (Admin/Accountant only). Checks for existing invoices before allowing deletion (returns 400 with count if > 0, 404 if customer not found, 200 on success).
+- **`frontend/src/pages/customers/Customers.tsx`** (NEW) — Full-page customer management: searchable list (name/email), type filter pill buttons (All/Retail/Wholesale), table with Name/Email/Phone/Type badge/Credit Limit/Actions columns, Add/Edit modal with all fields including the previously-missing phone and address fields, and a right-panel detail drawer showing contact info, credit limit, outstanding balance (sum of unpaid invoice balances), and last 20 invoices sorted by date desc.
+- **`frontend/src/lib/navigation.ts`** — Added `{ name: "Customers", href: "/customers", icon: Users }` to the SALES & PURCHASES nav group after Invoices (AR). Visible in all workspace modes.
+- **`frontend/src/App.tsx`** — Added lazy import for `Customers` page and `<Route path="/customers">` after the `/invoices` route.
+
+**Files changed:** `backend/src/routes/invoices.ts`, `frontend/src/pages/customers/Customers.tsx` (new), `frontend/src/lib/navigation.ts`, `frontend/src/App.tsx`, `TASKS.md`
+
+---
+
 ## [Date: 2026-08-21] - Performance Optimization for High Load
 
 **What/Why:** Closed the `Optimize performance and scalability for high load (w:7)` task. Four categories of change: (1) Redis report caching so expensive full-ledger aggregations are not recomputed on every page refresh; (2) Redis notification caching to absorb the 15-second polling loop that fires for every logged-in user; (3) composite DB indexes on the three hottest query paths; (4) Vite manual chunk splitting for smaller initial JS bundles.

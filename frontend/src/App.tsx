@@ -77,6 +77,7 @@ const Employees = lazy(() => import("./pages/payroll/Employees").then(m => ({ de
 const PayrollRuns = lazy(() => import("./pages/payroll/PayrollRuns").then(m => ({ default: m.PayrollRuns })));
 const Loans = lazy(() => import("./pages/payroll/Loans").then(m => ({ default: m.Loans })));
 const Leave = lazy(() => import("./pages/payroll/Leave").then(m => ({ default: m.Leave })));
+const Customers = lazy(() => import("./pages/customers/Customers").then(m => ({ default: m.Customers })));
 
 // "What happened today?" quick-action grid shown in Operations and Business modes.
 const GUIDED_ACTIONS_OPS = [
@@ -408,6 +409,7 @@ function App() {
               <Route path="/import" element={<ProtectedRoute><MainLayout><BulkImportWizard /></MainLayout></ProtectedRoute>} />
               <Route path="/banking" element={<ProtectedRoute><MainLayout><BankReconciliation /></MainLayout></ProtectedRoute>} />
               <Route path="/invoices" element={<ProtectedRoute><MainLayout><Invoices /></MainLayout></ProtectedRoute>} />
+              <Route path="/customers" element={<ProtectedRoute><MainLayout><Customers /></MainLayout></ProtectedRoute>} />
               <Route path="/bills" element={<ProtectedRoute><MainLayout><VendorBills /></MainLayout></ProtectedRoute>} />
               <Route path="/inventory" element={<ProtectedRoute><MainLayout><WarehouseManagement /></MainLayout></ProtectedRoute>} />
               <Route path="/pos" element={<ProtectedRoute><MainLayout><PointOfSale /></MainLayout></ProtectedRoute>} />

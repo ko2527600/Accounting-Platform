@@ -160,6 +160,41 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
 });
 
 /**
+ * DELETE /api/v1/invoices/customers/:id
+ * Deletes a customer — blocked if they have any invoices.
+ */
+router.delete('/customers/:id', requireRole('Admin', 'Accountant'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { id } = req.params;
+
+    const result = await withCurrentTenantDb(prisma, async (client) => {
+      const invoiceCount = await (client as any).invoice.count({ where: { tenantId, customerId: id } });
+      if (invoiceCount > 0) {
+        return { blocked: true, invoiceCount };
+      }
+      const existing = await (client as any).customer.findFirst({ where: { id, tenantId } });
+      if (!existing) return { notFound: true };
+      await (client as any).customer.delete({ where: { id } });
+      return { deleted: true };
+    });
+
+    if ((result as any).notFound) {
+      res.status(404).json({ success: false, error: 'Customer not found.' });
+      return;
+    }
+    if ((result as any).blocked) {
+      res.status(400).json({ success: false, error: `Cannot delete: customer has ${(result as any).invoiceCount} invoice(s).` });
+      return;
+    }
+    res.status(200).json({ success: true });
+  } catch (error: any) {
+    console.error('[Invoices] Error deleting customer:', error);
+    res.status(500).json({ success: false, error: 'Failed to delete customer.' });
+  }
+});
+
+/**
  * GET /api/v1/invoices
  * Lists all invoices.
  */
