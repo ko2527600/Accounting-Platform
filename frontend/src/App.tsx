@@ -1,4 +1,5 @@
-import { Component, ErrorInfo, ReactNode, useEffect, useRef } from "react";
+import { Component, useEffect, useRef } from "react";
+import type { ErrorInfo, ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
 import { AuthProvider, useAuth } from "./contexts/AuthContext";
 import { useWorkspaceMode } from "./contexts/WorkspaceModeContext";
