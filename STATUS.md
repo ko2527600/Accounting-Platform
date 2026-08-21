@@ -2,6 +2,22 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Backend API Execution-Time Improvements
+
+**What/Why:** Six targeted performance fixes to reduce API response times across the most expensive endpoints. No schema or API contract changes that break existing behaviour.
+
+**Changes:**
+- **`backend/src/routes/reports.ts`** — `GET /analytics/trends`: replaced 24-iteration sequential `for` loop with `Promise.all` fan-out; expected improvement from ~20 s cold to ~1–2 s. `GET /analytics/top-customers`: replaced `findMany` + JS `for` loop aggregation with a Prisma `groupBy` SQL aggregation followed by a small `IN` lookup for customer names — eliminates loading every invoice into JS memory.
+- **`backend/src/routes/cashTill.ts`** — `GET /tills/current`: added `take: 100` cap on the `sales` include and narrowed `lines` to a `select` with only `{ id, quantity, itemName }` — prevents unbounded sales+lines load in POS environments with high transaction volumes.
+- **`backend/src/routes/bills.ts`** — `GET /bills`: switched from `include: { vendor, lines: { include: { item } }, warehouse }` to a targeted `select` that omits `warehouse` (unused in the frontend list view) and returns only the line/vendor fields the list table actually renders.
+- **`backend/src/utils/jwt.ts`** — Added a 30-second in-process negative revocation cache (`notRevokedCache: Map<string, number>`). Authenticated requests with a valid LRU-cached token skip the Redis revocation round-trip for up to 30 s. `evictFromJwtCache` (called at logout) clears both caches immediately so revocation is still instant.
+- **`backend/prisma/schema.prisma`** + **`backend/prisma/migrations/20260821300000_add_cash_till_status_index/`** — Replaced the single `@@index([tenantId])` on `CashTill` with `@@index([tenantId, status])` so the common `WHERE tenant_id = $1 AND status = 'OPEN'` query uses an index scan instead of a sequential scan.
+
+**Files affected:**
+`backend/src/routes/reports.ts`, `backend/src/routes/cashTill.ts`, `backend/src/routes/bills.ts`, `backend/src/utils/jwt.ts`, `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260821300000_add_cash_till_status_index/migration.sql`
+
+---
+
 ## [Date: 2026-08-21] - Subscription Billing: Free Trial → MoMo / Visa Payment Flow
 
 **What/Why:** Implemented the full subscription billing lifecycle for the Ghanaian SMB market. New tenants get a 90-day free trial; when it expires they enter a 7-day read-only grace period, then a hard block until they subscribe. Payment via Paystack supports Mobile Money (MTN/AirtelTigo/Telecel) and Visa/Mastercard. Paying for a higher plan also upgrades the tenant's tier. All existing tenants are grandfathered to ACTIVE (no disruption).
