@@ -147,7 +147,10 @@ export async function seedChartOfAccounts(
   // wizard run, already made.
   if (created > 0) {
     const freshAccounts = await withCurrentTenantDb(prisma, async (client) => accountRepository.listAccounts(client));
-    for (const role of ['CASH', 'REVENUE', 'EXPENSE'] as const) {
+    for (const role of [
+      'CASH', 'REVENUE', 'EXPENSE', 'COGS', 'INVENTORY_ASSET',
+      'SALARY_EXPENSE', 'EMPLOYER_SSNIT_EXPENSE', 'PAYE_PAYABLE', 'SSNIT_PAYABLE', 'NET_PAY_PAYABLE',
+    ] as const) {
       if (freshAccounts.some((a) => a.defaultRole === role)) continue;
       const candidate = accountRepository.pickAutoDefaultCandidate(freshAccounts, role);
       if (candidate) {

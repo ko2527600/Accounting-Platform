@@ -23,6 +23,8 @@ interface ArRow {
   daysOverdue: number;
   balanceDue: number;
   bucket: string;
+  currency: string;
+  nativeBalanceDue: number;
 }
 
 interface ApRow {
@@ -33,6 +35,8 @@ interface ApRow {
   daysOverdue: number;
   balanceDue: number;
   bucket: string;
+  currency: string;
+  nativeBalanceDue: number;
 }
 
 const BUCKET_LABELS: Record<string, string> = {
@@ -161,7 +165,9 @@ export function AgingReport() {
                   <TableHead>Due Date</TableHead>
                   <TableHead>Days Overdue</TableHead>
                   <TableHead>Bucket</TableHead>
-                  <TableHead>Balance Due</TableHead>
+                  <TableHead>Currency</TableHead>
+                  <TableHead>Native Amount</TableHead>
+                  <TableHead>Balance Due ({settings.baseCurrency})</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -175,6 +181,12 @@ export function AgingReport() {
                           {r.daysOverdue > 0 ? `${r.daysOverdue}d` : "-"}
                         </TableCell>
                         <TableCell className="text-xs">{BUCKET_LABELS[r.bucket]}</TableCell>
+                        <TableCell className="text-xs font-medium text-secondary-500">{r.currency}</TableCell>
+                        <TableCell className="text-xs">
+                          {r.currency !== settings.baseCurrency
+                            ? new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(r.nativeBalanceDue)
+                            : "-"}
+                        </TableCell>
                         <TableCell className="font-semibold">{formatCurrency(r.balanceDue)}</TableCell>
                       </TableRow>
                     ))
@@ -187,6 +199,12 @@ export function AgingReport() {
                           {r.daysOverdue > 0 ? `${r.daysOverdue}d` : "-"}
                         </TableCell>
                         <TableCell className="text-xs">{BUCKET_LABELS[r.bucket]}</TableCell>
+                        <TableCell className="text-xs font-medium text-secondary-500">{r.currency}</TableCell>
+                        <TableCell className="text-xs">
+                          {r.currency !== settings.baseCurrency
+                            ? new Intl.NumberFormat("en-US", { minimumFractionDigits: 2 }).format(r.nativeBalanceDue)
+                            : "-"}
+                        </TableCell>
                         <TableCell className="font-semibold">{formatCurrency(r.balanceDue)}</TableCell>
                       </TableRow>
                     ))}

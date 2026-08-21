@@ -5,6 +5,62 @@ import * as fiscalPeriodRepository from '../repository/fiscalPeriodRepository';
 import { BudgetRecord } from '../repository/budgetRepository';
 import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 
+const ALERT_THRESHOLDS = [80, 100] as const;
+
+async function checkBudgetAlerts(tenantId: string, budgets: BudgetRecord[]): Promise<void> {
+  try {
+    for (const budget of budgets) {
+      const budgetAmt = Number(budget.budgetAmount);
+      if (budgetAmt <= 0) continue;
+      const actualAmt = Number(budget.actualAmount ?? 0);
+      const pct = (actualAmt / budgetAmt) * 100;
+
+      for (const threshold of ALERT_THRESHOLDS) {
+        if (pct < threshold) continue;
+
+        // Check if we already fired this alert for this budget+period+threshold
+        const existing: any[] = await withCurrentTenantDb(prisma, (client) =>
+          client.$queryRawUnsafe(
+            `SELECT id FROM budget_alert_log
+             WHERE budget_id = $1::uuid AND fiscal_period_id = $2::uuid AND threshold_pct = $3
+             LIMIT 1`,
+            budget.id, budget.fiscalPeriodId, threshold
+          ) as Promise<any[]>
+        ) as any[];
+
+        if (existing.length > 0) continue;
+
+        // Record the alert first (unique constraint prevents duplicates)
+        try {
+          await withCurrentTenantDb(prisma, (client) =>
+            client.$queryRawUnsafe(
+              `INSERT INTO budget_alert_log (budget_id, fiscal_period_id, threshold_pct)
+               VALUES ($1::uuid, $2::uuid, $3)
+               ON CONFLICT DO NOTHING`,
+              budget.id, budget.fiscalPeriodId, threshold
+            )
+          );
+        } catch {
+          continue; // Race — another request already inserted it
+        }
+
+        const overLabel = threshold === 100 ? 'exceeded' : `reached ${threshold}%`;
+        await (prisma as any).notification.create({
+          data: {
+            tenantId,
+            title: `Budget Alert: ${threshold}% ${threshold === 100 ? 'Reached' : 'Warning'}`,
+            message: `Spend on account ${budget.accountId} has ${overLabel} its budget (GHS ${Number(budget.actualAmount ?? 0).toFixed(2)} of GHS ${budgetAmt.toFixed(2)}).`,
+            type: 'BUDGET_ALERT',
+            link: '/reports/budgets',
+          },
+        });
+      }
+    }
+  } catch (err) {
+    console.error('[BudgetAlerts] Error checking budget alerts:', err);
+  }
+}
+
 export class BudgetServiceError extends Error {
   statusCode: number;
 
@@ -68,7 +124,9 @@ async function recomputeActualsForBudgets(tenantId: string, budgets: BudgetRecor
 
 export async function listBudgets(tenantId: string, fiscalPeriodId?: string): Promise<BudgetRecord[]> {
   const budgets = await budgetRepository.listBudgets(prisma, tenantId, fiscalPeriodId);
-  return recomputeActualsForBudgets(tenantId, budgets);
+  const recomputed = await recomputeActualsForBudgets(tenantId, budgets);
+  checkBudgetAlerts(tenantId, recomputed); // fire-and-forget
+  return recomputed;
 }
 
 export async function getBudgetById(tenantId: string, id: string): Promise<BudgetRecord | null> {

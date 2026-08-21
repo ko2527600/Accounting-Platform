@@ -1,38 +1,70 @@
 import { Request, Response, NextFunction } from 'express';
 import { JwtPayload } from '../utils/jwt';
 
-export type UserRole = 'Admin' | 'Accountant' | 'Auditor' | 'Viewer' | 'HR';
+export type UserRole =
+  | 'Admin'
+  | 'Finance Controller'
+  | 'Accountant'
+  | 'Accounts Payable Clerk'
+  | 'Accounts Receivable Clerk'
+  | 'Payroll Officer'
+  | 'Payroll Approver'
+  | 'HR'
+  | 'Auditor'
+  | 'Warehouse Manager'
+  | 'Shop Manager'
+  | 'Cashier'
+  | 'Viewer'
+  | 'External Accountant';
 
 export const USER_ROLES: Record<UserRole, UserRole> = {
   Admin: 'Admin',
+  'Finance Controller': 'Finance Controller',
   Accountant: 'Accountant',
-  Auditor: 'Auditor',
-  Viewer: 'Viewer',
+  'Accounts Payable Clerk': 'Accounts Payable Clerk',
+  'Accounts Receivable Clerk': 'Accounts Receivable Clerk',
+  'Payroll Officer': 'Payroll Officer',
+  'Payroll Approver': 'Payroll Approver',
   HR: 'HR',
+  Auditor: 'Auditor',
+  'Warehouse Manager': 'Warehouse Manager',
+  'Shop Manager': 'Shop Manager',
+  Cashier: 'Cashier',
+  Viewer: 'Viewer',
+  'External Accountant': 'External Accountant',
 };
 
-// Role hierarchy rank mapping (higher index = higher privilege)
-const ROLE_HIERARCHY: Record<UserRole, number> = {
-  Viewer: 1,
-  Auditor: 2,
-  HR: 2,
-  Accountant: 3,
-  Admin: 4,
-};
+// Every recognized role. Anything outside this set is denied by default —
+// "Store Clerk", "Intern", or a typo no longer inherits operational access.
+const ALL_KNOWN_ROLES = new Set(
+  Object.keys(USER_ROLES).map((r) => r.toLowerCase())
+);
 
-// Roles that are explicitly scoped to their own screen(s) - denied by
-// default on any requireRole()-gated route unless that role is listed
-// there explicitly. Unlike an unrecognized free-text worker title, these
-// are NOT given blanket operational access as a fallback (rule 5 below) -
-// Auditor/Viewer are read-only reviewers, HR only manages the team roster,
-// and Shop Manager/Cashier are location-scoped to Inventory/POS/Expense
-// Claims, plus creating invoices/vendor bills for their own warehouse (see
-// warehouseAccessService.ts's LOCATION_SCOPED_ROLES and navigation.ts's
-// RESTRICTED_ROLE_NAV, which this list must stay in sync with) - none of
-// them should incidentally gain write access to Journal Entries, Banking,
-// etc. just by having a role string the fallback rule doesn't recognize as
-// scoped.
-const SCOPED_ROLES = new Set(['viewer', 'auditor', 'hr', 'shop manager', 'cashier']);
+// Roles with blanket operational access to all non-Admin-only routes when
+// not restricted by a requireRole() call. Other roles are default-deny:
+// they must be named explicitly in requireRole() or covered by ROLE_IMPLIES.
+const OPERATIONAL_ROLES = new Set(['admin', 'owner', 'accountant', 'finance controller']);
+
+// Role implication: a user with role X also satisfies a requireRole check for
+// role Y. This lets us keep route definitions stable while new roles inherit
+// access from existing ones.
+//
+// Segregation-of-duties notes encoded here:
+//  - Payroll Officer can prepare but NOT approve/post (Accountant is on the
+//    post route; Payroll Officer only implies HR for read/create-draft paths).
+//  - Payroll Approver implies Payroll Officer (can also prepare), plus HR.
+//  - Warehouse Manager implies Shop Manager for location-scoped inventory routes.
+//  - External Accountant is read-only (implies Viewer and Auditor only).
+//  - Finance Controller implies Accountant, giving full operational access.
+const ROLE_IMPLIES: Record<string, string[]> = {
+  'finance controller': ['accountant', 'viewer', 'auditor'],
+  'external accountant': ['viewer', 'auditor'],
+  'payroll officer': ['hr'],
+  'payroll approver': ['hr', 'payroll officer'],
+  'warehouse manager': ['shop manager', 'viewer'],
+  'accounts payable clerk': ['viewer'],
+  'accounts receivable clerk': ['viewer'],
+};
 
 // Extend Express Request interface to include user payload
 declare global {
@@ -44,50 +76,51 @@ declare global {
 }
 
 /**
- * Checks if a user's role satisfies at least one of the required roles or hierarchy.
- * Fully supports arbitrary legacy free-text worker job titles predating the
- * closed role list (e.g. "Store Clerk", "Inventory Lead") - "Shop Manager"
- * and "Cashier" are no longer examples of this since they became real
- * scoped roles (see SCOPED_ROLES above).
+ * Returns true when userRole satisfies at least one of the required roles.
+ *
+ * Authorization order:
+ *  1. Admin / Owner → full access (unless the check is Admin-only, then
+ *     Owner is also included but nothing else is).
+ *  2. Exact role match → allowed.
+ *  3. Operational roles (Accountant, Finance Controller) → allowed on any
+ *     non-Admin-only route, matching current Accountant behavior.
+ *  4. Role implication: X implies Y → allowed when Y is in allowedRoles.
+ *  5. Recognized non-operational role not covered above → denied.
+ *  6. Unrecognized role (free-text title, typo) → DENIED (default-deny).
  */
 export function hasRequiredRole(userRole: string, allowedRoles: string[]): boolean {
-  if (!userRole || !allowedRoles || allowedRoles.length === 0) {
-    return false;
-  }
+  if (!userRole || !allowedRoles || allowedRoles.length === 0) return false;
 
-  const uRoleLower = userRole.toLowerCase().trim();
-  const allowedLower = allowedRoles.map(r => r.toLowerCase());
+  const uLower = userRole.toLowerCase().trim();
+  const allowedLower = allowedRoles.map((r) => r.toLowerCase());
 
-  // 1. If Admin role is explicitly required (Admin-only actions like inviting staff, settings, workspace purge)
+  // 1. Admin-only check — Owner is the real-world equivalent of Admin
   if (allowedLower.includes('admin')) {
-    return uRoleLower === 'admin' || uRoleLower === 'owner';
+    return uLower === 'admin' || uLower === 'owner';
   }
 
-  // 2. Exact match check
-  if (allowedLower.includes(uRoleLower)) {
-    return true;
-  }
+  // 2. Exact match
+  if (allowedLower.includes(uLower)) return true;
 
-  // 3. Admin / Owner has full access to all operational routes
-  if (uRoleLower === 'admin' || uRoleLower === 'owner') {
-    return true;
-  }
+  // 3. Admin / Owner always pass non-Admin-only routes
+  if (uLower === 'admin' || uLower === 'owner') return true;
 
-  // 4. Viewer / Auditor / HR / Shop Manager / Cashier - scoped roles, only allowed where explicitly listed
-  if (SCOPED_ROLES.has(uRoleLower)) {
-    return allowedLower.includes(uRoleLower);
-  }
+  // 4. Operational roles pass all non-Admin-only routes
+  if (OPERATIONAL_ROLES.has(uLower)) return true;
 
-  // 5. Legacy free-text worker job titles predating the closed role list
-  // (e.g. "Store Clerk", "Inventory Lead") - have full operational access
-  // to business endpoints (Inventory, Invoices, Bills, Banking, Journals),
-  // matching the behavior every role had before scoped roles existed.
-  return true;
+  // 5. Role implication
+  const implied = ROLE_IMPLIES[uLower];
+  if (implied && implied.some((imp) => allowedLower.includes(imp))) return true;
+
+  // 6. Recognized scoped role not covered above → deny
+  if (ALL_KNOWN_ROLES.has(uLower)) return false;
+
+  // 7. Unrecognized free-text role → default-deny (finance-grade security)
+  return false;
 }
 
 /**
- * Express Middleware to enforce Role-Based Access Control (RBAC).
- * Requires authenticated user (`req.user`) set by authMiddleware.
+ * Express middleware enforcing role-based access control.
  */
 export function requireRole(...allowedRoles: string[]) {
   return (req: Request, res: Response, next: NextFunction): void => {
@@ -110,4 +143,25 @@ export function requireRole(...allowedRoles: string[]) {
 
     next();
   };
+}
+
+/**
+ * Segregation-of-duties guard: rejects a request where the acting user is
+ * the same person who created the record being approved. Call this inside a
+ * route handler after loading the target record:
+ *
+ *   if (noSelfApproval(req, record.createdByUserId, res)) return;
+ *
+ * Returns true (and sends 403) if the check fails, false if it passes.
+ */
+export function noSelfApproval(req: Request, creatorUserId: string | null | undefined, res: Response): boolean {
+  const actorId = req.user?.id;
+  if (actorId && creatorUserId && actorId === creatorUserId) {
+    res.status(403).json({
+      error: 'Forbidden',
+      message: 'Segregation of duties: you cannot approve or post a record you created.',
+    });
+    return true;
+  }
+  return false;
 }

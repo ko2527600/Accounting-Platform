@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { cn } from "../../lib/utils";
 import { useTheme } from "../../contexts/ThemeContext";
 import { useAuth } from "../../contexts/AuthContext";
+import { useWorkspaceMode } from "../../contexts/WorkspaceModeContext";
 import { getVisibleNavGroups, getVisibleHrefs } from "../../lib/navigation";
 
 const ITEM_CLASSNAME =
@@ -15,10 +16,11 @@ export function CommandMenu() {
   const navigate = useNavigate();
   const { setTheme } = useTheme();
   const { user } = useAuth();
+  const { mode } = useWorkspaceMode();
 
-  // Same source of truth (and same role-based filtering) as the sidebar, so
-  // Cmd+K never offers a page a user's own sidebar hides from them.
-  const navGroups = getVisibleNavGroups(user?.role, user?.orgType);
+  // Same source of truth (role + workspace mode filtering) as the sidebar, so
+  // Cmd+K never offers a page the sidebar currently hides from this user.
+  const navGroups = getVisibleNavGroups(user?.role, user?.orgType, mode);
   // "Preferences" (/settings) is blocked for the same roles at the route
   // level (App.tsx's SETTINGS_RESTRICTED_ROLES) - offering it here would be
   // a dead-end navigation that immediately redirects.

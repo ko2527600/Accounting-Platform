@@ -12,7 +12,7 @@ import { syncDb, createInvoiceLocalFirst, payInvoiceLocalFirst, resyncInvoicesFr
 import { useToast } from "../../contexts/ToastContext";
 import { useAuth } from "../../contexts/AuthContext";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
-import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, RefreshCw, History, Mail, ChevronDown, ShieldCheck } from "lucide-react";
+import { Plus, CheckCircle, UserPlus, DollarSign, Clock, Undo2, RefreshCw, History, Mail, ChevronDown, ShieldCheck, Download } from "lucide-react";
 
 // Mirrors rbacMiddleware.ts's SCOPED_ROLES - these actions all backend-gate
 // to requireRole('Accountant') (Email Invoice, Request GRA Clearance, Pay
@@ -33,6 +33,7 @@ interface Customer {
   // GRA TIN, required for real E-VAT clearance (see graEvatService.ts) -
   // null for a customer with no TIN on file (e.g. walk-in/cash customer).
   tin?: string | null;
+  customerType?: string;
 }
 
 interface TaxRate {
@@ -58,6 +59,7 @@ interface InventoryItemOption {
   sku: string;
   name: string;
   sellingPrice: number;
+  wholesalePrice?: number | null;
 }
 
 interface InvoiceItem {
@@ -161,6 +163,7 @@ export function Invoices() {
   const [custEmail, setCustEmail] = useState("");
   const [custCreditLimit, setCustCreditLimit] = useState("");
   const [custTin, setCustTin] = useState("");
+  const [custType, setCustType] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
 
   // Invoice Form
   const [selectedCustomer, setSelectedCustomer] = useState("");
@@ -204,6 +207,7 @@ export function Invoices() {
   const [verifyingPaystackRef, setVerifyingPaystackRef] = useState<string | null>(null);
 
   const [requestingGraClearanceId, setRequestingGraClearanceId] = useState<string | null>(null);
+  const [downloadingPdfId, setDownloadingPdfId] = useState<string | null>(null);
 
   // Once the tenant's real base currency loads, default the new-invoice
   // currency picker to it instead of leaving it pinned to the initial "USD"
@@ -240,6 +244,7 @@ export function Invoices() {
             sku: it.sku,
             name: it.name,
             sellingPrice: Number(it.sellingPrice),
+            wholesalePrice: it.wholesalePrice != null ? Number(it.wholesalePrice) : null,
           }))
         );
       }
@@ -262,12 +267,14 @@ export function Invoices() {
         email: custEmail,
         creditLimit: custCreditLimit.trim() ? Number(custCreditLimit) : null,
         tin: custTin.trim() || null,
+        customerType: custType,
       });
       if (res.data.success) {
         setCustName("");
         setCustEmail("");
         setCustCreditLimit("");
         setCustTin("");
+        setCustType("RETAIL");
         setIsCustomerOpen(false);
         fetchData();
       }
@@ -535,6 +542,26 @@ export function Invoices() {
     }
   };
 
+  const handleDownloadPdf = async (invoiceId: string, isGraCleared: boolean) => {
+    setDownloadingPdfId(invoiceId);
+    setOpenActionsMenuId(null);
+    try {
+      const res = await api.get(`/invoices/${invoiceId}/pdf`, { responseType: "blob" });
+      const url = URL.createObjectURL(new Blob([res.data], { type: "application/pdf" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `invoice-${invoiceId}${isGraCleared ? "-gra-cleared" : ""}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast("Failed to download PDF. Please try again.", "error");
+    } finally {
+      setDownloadingPdfId(null);
+    }
+  };
+
   // Defaults to the tenant's real configured base currency (not a hardcoded
   // "USD") for aggregate figures like the AR/Paid summary tiles that don't
   // pass an explicit currency. Individual invoice rows still pass
@@ -739,6 +766,15 @@ export function Invoices() {
                                 {requestingGraClearanceId === inv.id ? "Requesting..." : "Request GRA Clearance"}
                               </button>
                             )}
+                            <button
+                              onClick={() => handleDownloadPdf(inv.id, inv.graClearanceStatus === 'CLEARED')}
+                              disabled={downloadingPdfId === inv.id}
+                              className="w-full flex items-center px-3 py-2 text-xs text-secondary-700 dark:text-secondary-300 hover:bg-secondary-50 dark:hover:bg-secondary-800 disabled:opacity-50"
+                              title={inv.graClearanceStatus === 'CLEARED' ? 'Download PDF with GRA clearance badge and QR code' : 'Download invoice PDF'}
+                            >
+                              <Download className="mr-2 h-3 w-3" />
+                              {downloadingPdfId === inv.id ? 'Downloading...' : `Download PDF${inv.graClearanceStatus === 'CLEARED' ? ' (GRA Cleared)' : ''}`}
+                            </button>
                             {inv.status !== "PAID" && canRecordPayment && (
                               <button
                                 onClick={() => { setOpenActionsMenuId(null); openPaymentModal(inv); }}
@@ -820,6 +856,20 @@ export function Invoices() {
               Required for GRA E-VAT clearance to identify this customer correctly - leave blank for a walk-in/cash customer.
             </p>
           </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Customer Type</label>
+            <select
+              className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50"
+              value={custType}
+              onChange={(e) => setCustType(e.target.value as "RETAIL" | "WHOLESALE")}
+            >
+              <option value="RETAIL">Retail</option>
+              <option value="WHOLESALE">Wholesale</option>
+            </select>
+            <p className="text-xs text-secondary-500 mt-1">
+              Wholesale customers automatically get wholesale prices on invoices and POS sales when available.
+            </p>
+          </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsCustomerOpen(false)}>Cancel</Button>
             <Button type="submit" variant="primary">Add Customer</Button>
@@ -840,9 +890,16 @@ export function Invoices() {
             >
               <option value="">-- Choose Customer --</option>
               {customers.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.email})</option>
+                <option key={c.id} value={c.id}>
+                  {c.name} ({c.email}){c.customerType === "WHOLESALE" ? " — Wholesale" : ""}
+                </option>
               ))}
             </select>
+            {customers.find((c) => c.id === selectedCustomer)?.customerType === "WHOLESALE" && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                Wholesale customer — line items will default to wholesale prices where available.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
@@ -942,9 +999,14 @@ export function Invoices() {
                       const newIt = [...items];
                       newIt[idx].inventoryItemId = e.target.value || undefined;
                       if (selected) {
+                        const isWholesale = customers.find((c) => c.id === selectedCustomer)?.customerType === "WHOLESALE";
+                        const effectivePrice =
+                          isWholesale && selected.wholesalePrice != null
+                            ? selected.wholesalePrice
+                            : selected.sellingPrice;
                         newIt[idx].description = selected.name;
-                        newIt[idx].unitPrice = selected.sellingPrice;
-                        newIt[idx].amount = newIt[idx].quantity * selected.sellingPrice;
+                        newIt[idx].unitPrice = effectivePrice;
+                        newIt[idx].amount = newIt[idx].quantity * effectivePrice;
                       }
                       setItems(newIt);
                     }}

@@ -11,6 +11,7 @@ import { recordAuditLog, recordAuditLogTx, actorFromRequest, AuditActor } from '
 import { SmsService } from '../services/smsService';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalService from '../services/journalEntryService';
+import { sendWhatsAppReceipt } from '../services/whatsAppReceiptService';
 
 /**
  * Posts the real Cash/Revenue journal entry for a completed POS cash sale
@@ -30,7 +31,28 @@ async function postCashSaleRevenue(
   actor: AuditActor
 ): Promise<string | null> {
   try {
-    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
+    const [accounts, saleLines] = await Promise.all([
+      withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client)),
+      withCurrentTenantDb(prisma, (client) =>
+        (client as any).cashSaleLine.findMany({
+          where: { saleId: sale.id },
+        })
+      ),
+    ]);
+
+    const itemIds: string[] = (saleLines as any[]).map((l: any) => l.itemId).filter(Boolean);
+    const inventoryItems: any[] = itemIds.length > 0
+      ? (await withCurrentTenantDb(prisma, (client) =>
+          (client as any).inventoryItem.findMany({
+            where: { id: { in: itemIds } },
+            select: { id: true, costPrice: true },
+          })
+        ) as any[])
+      : [];
+    const costByItemId = new Map<string, number>(
+      inventoryItems.map((item: any) => [item.id, Number(item.costPrice)])
+    );
+
     const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
     if (!cashAcc || !revenueAcc) {
@@ -39,15 +61,35 @@ async function postCashSaleRevenue(
     }
 
     const amount = Number(sale.amount);
+    const lines: { accountId: string; debit: number; credit: number; description: string }[] = [
+      { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash received - ${sale.receiptNo}` },
+      { accountId: revenueAcc.id, debit: 0, credit: amount, description: `Sales revenue - ${sale.receiptNo}` },
+    ];
+
+    // COGS: Debit Cost of Goods Sold / Credit Inventory Asset for every line
+    // that has a recorded cost price. Only posted when both accounts are
+    // designated — silently omitted otherwise so existing tenants without the
+    // designation don't break.
+    const cogsAcc = accountRepository.resolveDefaultAccount(accounts, 'COGS');
+    const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
+    if (cogsAcc && invAcc && Array.isArray(saleLines) && saleLines.length > 0) {
+      const totalCost = (saleLines as any[]).reduce((sum: number, l: any) => {
+        const cost = costByItemId.get(l.itemId) ?? 0;
+        return sum + cost * Number(l.quantity);
+      }, 0);
+      const cogs = Math.round(totalCost * 100) / 100;
+      if (cogs > 0) {
+        lines.push({ accountId: cogsAcc.id, debit: cogs, credit: 0, description: `COGS - ${sale.receiptNo}` });
+        lines.push({ accountId: invAcc.id, debit: 0, credit: cogs, description: `Inventory - ${sale.receiptNo}` });
+      }
+    }
+
     const journal = await journalService.createJournalEntry(
       {
         description: `POS Cash Sale ${sale.receiptNo}${sale.createdByName ? ` (${sale.createdByName})` : ''}`,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
-        lines: [
-          { accountId: cashAcc.id, debit: amount, credit: 0, description: `Cash received - ${sale.receiptNo}` },
-          { accountId: revenueAcc.id, debit: 0, credit: amount, description: `Sales revenue - ${sale.receiptNo}` },
-        ],
+        lines,
       },
       actor
     );
@@ -191,7 +233,8 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt } = req.body;
+    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt, saleType, customerPhone, customerName } = req.body;
+    const resolvedSaleType = saleType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
 
     if (!tillId || !Array.isArray(items) || items.length === 0 || cashGiven === undefined || cashGiven === null || cashGiven === '') {
       res.status(400).json({ success: false, error: 'Till ID, at least one cart item, and cash given are required.' });
@@ -270,9 +313,16 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
           }
         }
 
+        const effectivePriceFor = (item: any): number => {
+          if (resolvedSaleType === 'WHOLESALE' && item.wholesalePrice !== null && item.wholesalePrice !== undefined) {
+            return Number(item.wholesalePrice);
+          }
+          return Number(item.sellingPrice);
+        };
+
         const totalAmount = items.reduce((sum: number, line: any) => {
           const item = itemsById.get(line.itemId) as any;
-          return sum + Number(item.sellingPrice) * line.quantity;
+          return sum + effectivePriceFor(item) * line.quantity;
         }, 0);
 
         const changeGiven = Number(cashGiven) - totalAmount;
@@ -311,8 +361,21 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
               createdByName: req.user!.name || req.user!.email,
               clientTxnId: clientTxnId || null,
               clientOccurredAt: clientOccurredAt ? new Date(clientOccurredAt) : null,
+              saleType: resolvedSaleType,
             },
           });
+
+          // customer_name / customer_phone were added via raw SQL migration (016)
+          // and are not in schema.prisma, so we save them in a follow-up UPDATE
+          // to avoid Prisma's "Unknown field" runtime error.
+          if (customerName || customerPhone) {
+            await (client as any).$executeRawUnsafe(
+              `UPDATE cash_sales SET customer_name = $1, customer_phone = $2 WHERE id = $3`,
+              customerName ? String(customerName).trim() : null,
+              customerPhone ? String(customerPhone).trim() : null,
+              sale.id
+            );
+          }
         } catch (createError: any) {
           // A concurrent request racing on the SAME clientTxnId can lose this
           // unique-constraint check even after passing the fast-path findFirst
@@ -331,13 +394,14 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
 
         const lines = items.map((line: any) => {
           const item = itemsById.get(line.itemId) as any;
+          const price = effectivePriceFor(item);
           return {
             itemId: line.itemId,
             itemName: item.name as string,
             itemSku: item.sku as string,
             quantity: line.quantity as number,
-            unitPrice: Number(item.sellingPrice),
-            lineTotal: Number(item.sellingPrice) * line.quantity,
+            unitPrice: price,
+            lineTotal: price * line.quantity,
           };
         });
 
@@ -378,6 +442,26 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
     if (!result.sale.journalId) {
       const journalId = await postCashSaleRevenue(result.sale, actorFromRequest(req));
       if (journalId) result.sale.journalId = journalId;
+    }
+
+    // Fire-and-forget WhatsApp receipt if customer phone was provided
+    const phone = result.sale.customerPhone || customerPhone;
+    if (phone && !result.replayed) {
+      const { tenantName } = requireTenantContext();
+      sendWhatsAppReceipt(String(phone), {
+        receiptNo: result.sale.receiptNo,
+        businessName: tenantName || 'Store',
+        items: result.lines.map((l: any) => ({
+          name: l.itemName,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          lineTotal: Number(l.lineTotal),
+        })),
+        totalAmount: result.totalAmount,
+        cashGiven: Number(cashGiven),
+        changeGiven: result.changeGiven,
+        dateTime: new Date().toLocaleString('en-GH', { timeZone: 'Africa/Accra' }),
+      });
     }
 
     res.status(result.replayed ? 200 : 201).json({ success: true, message: 'Cash sale recorded successfully', data: result });
@@ -447,7 +531,28 @@ async function postCashSaleVoidReversal(
   actor: AuditActor
 ): Promise<string | null> {
   try {
-    const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
+    const [accounts, saleLines] = await Promise.all([
+      withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client)),
+      withCurrentTenantDb(prisma, (client) =>
+        (client as any).cashSaleLine.findMany({
+          where: { saleId: sale.id },
+        })
+      ),
+    ]);
+
+    const itemIds: string[] = (saleLines as any[]).map((l: any) => l.itemId).filter(Boolean);
+    const inventoryItems: any[] = itemIds.length > 0
+      ? (await withCurrentTenantDb(prisma, (client) =>
+          (client as any).inventoryItem.findMany({
+            where: { id: { in: itemIds } },
+            select: { id: true, costPrice: true },
+          })
+        ) as any[])
+      : [];
+    const costByItemId = new Map<string, number>(
+      inventoryItems.map((item: any) => [item.id, Number(item.costPrice)])
+    );
+
     const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
     const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
     if (!cashAcc || !revenueAcc) {
@@ -456,15 +561,32 @@ async function postCashSaleVoidReversal(
     }
 
     const amount = Number(sale.amount);
+    const lines: { accountId: string; debit: number; credit: number; description: string }[] = [
+      { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${sale.receiptNo}` },
+      { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash paid out - ${sale.receiptNo}` },
+    ];
+
+    // Reverse COGS: Credit COGS / Debit Inventory (goods returned to stock)
+    const cogsAcc = accountRepository.resolveDefaultAccount(accounts, 'COGS');
+    const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
+    if (cogsAcc && invAcc && Array.isArray(saleLines) && saleLines.length > 0) {
+      const totalCost = (saleLines as any[]).reduce((sum: number, l: any) => {
+        const cost = costByItemId.get(l.itemId) ?? 0;
+        return sum + cost * Number(l.quantity);
+      }, 0);
+      const cogs = Math.round(totalCost * 100) / 100;
+      if (cogs > 0) {
+        lines.push({ accountId: invAcc.id, debit: cogs, credit: 0, description: `Inventory restored - ${sale.receiptNo}` });
+        lines.push({ accountId: cogsAcc.id, debit: 0, credit: cogs, description: `COGS reversal - ${sale.receiptNo}` });
+      }
+    }
+
     const journal = await journalService.createJournalEntry(
       {
         description: `Void reversal for POS Cash Sale ${sale.receiptNo}`,
         entryDate: new Date().toISOString().split('T')[0],
         status: 'POSTED',
-        lines: [
-          { accountId: revenueAcc.id, debit: amount, credit: 0, description: `Revenue reversal - ${sale.receiptNo}` },
-          { accountId: cashAcc.id, debit: 0, credit: amount, description: `Cash paid out - ${sale.receiptNo}` },
-        ],
+        lines,
       },
       actor
     );

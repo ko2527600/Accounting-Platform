@@ -13,6 +13,7 @@ export interface OfflineCatalogItem {
   sku: string;
   name: string;
   sellingPrice: number;
+  wholesalePrice: number | null;
   unitOfMeasure: string;
   stockQty: number;
 }
@@ -38,6 +39,7 @@ export interface OfflinePendingSale {
   warehouseId: string;
   lines: OfflinePendingSaleLine[];
   cashGiven: number;
+  saleType?: "RETAIL" | "WHOLESALE";
   clientOccurredAt: string; // ISO timestamp - when the cashier actually rang this up
   queuedAt: number; // Date.now() - local queue order, distinct from clientOccurredAt
   status: PendingSaleStatus;
@@ -162,4 +164,15 @@ export async function updatePendingSaleStatus(
 export async function removePendingSale(clientTxnId: string): Promise<void> {
   const db = await getDb();
   await db.delete("pendingSales", clientTxnId);
+}
+
+/** Wipes all POS offline stores - called on logout alongside resetLocalSyncData() so a shared device's next user never inherits stale POS data. */
+export async function clearPosOfflineData(): Promise<void> {
+  const db = await getDb();
+  await Promise.all([
+    db.clear("catalogSnapshot"),
+    db.clear("pendingSales"),
+    db.clear("tillSnapshot"),
+    db.clear("warehousesSnapshot"),
+  ]);
 }

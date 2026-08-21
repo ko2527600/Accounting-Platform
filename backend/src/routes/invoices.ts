@@ -24,6 +24,7 @@ import { InvoiceEmailServiceError } from '../services/invoiceEmailService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from '../services/syncChangeLogService';
 import * as graEvatService from '../services/graEvatService';
 import { GraEvatServiceError } from '../services/graEvatService';
+import { generateInvoicePdf } from '../services/pdfGenerationService';
 import * as tenantRepository from '../repository/tenantRepository';
 import { assertWarehouseAccess, WarehouseAccessError } from '../services/warehouseAccessService';
 
@@ -81,7 +82,7 @@ router.get('/customers', async (req: Request, res: Response): Promise<void> => {
 router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { name, email, phone, address, creditLimit, tin } = req.body;
+    const { name, email, phone, address, creditLimit, tin, customerType } = req.body;
     if (!name || !email) {
       res.status(400).json({ success: false, error: 'Customer name and email are required.' });
       return;
@@ -90,6 +91,7 @@ router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req:
       res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
       return;
     }
+    const resolvedType = customerType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
 
     const created = await withCurrentTenantDb(prisma, async (client) => {
       return (client as any).customer.create({
@@ -101,6 +103,7 @@ router.post('/customers', requireRole('Accountant', 'Shop Manager'), async (req:
           address,
           creditLimit: creditLimit ?? null,
           tin: tin ? String(tin).trim() || null : null,
+          customerType: resolvedType,
         },
       });
     });
@@ -120,7 +123,7 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
   try {
     const { tenantId } = requireTenantContext();
     const { id } = req.params;
-    const { name, email, phone, address, creditLimit, tin } = req.body;
+    const { name, email, phone, address, creditLimit, tin, customerType } = req.body;
 
     if (creditLimit !== undefined && creditLimit !== null && (typeof creditLimit !== 'number' || creditLimit < 0)) {
       res.status(400).json({ success: false, error: 'creditLimit must be a non-negative number, or null for no limit.' });
@@ -139,6 +142,7 @@ router.put('/customers/:id', requireRole('Accountant'), async (req: Request, res
           ...(address !== undefined && { address }),
           ...(creditLimit !== undefined && { creditLimit }),
           ...(tin !== undefined && { tin: tin ? String(tin).trim() || null : null }),
+          ...(customerType !== undefined && { customerType: customerType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL' }),
         },
       });
     });
@@ -566,6 +570,59 @@ router.get('/:id/payments', async (req: Request, res: Response): Promise<void> =
   } catch (error: any) {
     console.error('[Invoices] Error listing payments:', error);
     res.status(500).json({ success: false, error: 'Failed to retrieve payment history.' });
+  }
+});
+
+/**
+ * GET /api/v1/invoices/:id/pdf
+ * Streams a PDF of the invoice, including the GRA E-VAT clearance section and
+ * QR code when the invoice has been cleared.
+ */
+router.get('/:id/pdf', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId, tenantName } = requireTenantContext();
+    const invoice = await withCurrentTenantDb(prisma, async (client) => {
+      return (client as any).invoice.findFirst({
+        where: { id: req.params.id, tenantId },
+        include: { customer: true, items: { include: { inventoryItem: true } } },
+      });
+    });
+    if (!invoice) {
+      res.status(404).json({ success: false, error: 'Invoice not found.' });
+      return;
+    }
+
+    const pdfBuffer = await generateInvoicePdf(tenantName || 'Company', {
+      invoiceNumber: invoice.invoiceNumber,
+      issueDateLabel: new Date(invoice.issueDate).toLocaleDateString('en-GH'),
+      dueDateLabel: new Date(invoice.dueDate).toLocaleDateString('en-GH'),
+      currency: invoice.currency || 'GHS',
+      customerName: invoice.customer?.name || '',
+      customerEmail: invoice.customer?.email || '',
+      customerAddress: invoice.customer?.address,
+      items: (invoice.items || []).map((item: any) => ({
+        description: item.description || item.inventoryItem?.name || '',
+        quantity: Number(item.quantity),
+        unitPrice: Number(item.unitPrice),
+        amount: Number(item.amount),
+      })),
+      subtotal: Number(invoice.subtotal),
+      tax: Number(invoice.tax),
+      taxBreakdown: invoice.taxBreakdown ?? null,
+      total: Number(invoice.total),
+      graClearanceStatus: invoice.graClearanceStatus,
+      graQrCodeDataUrl: invoice.graQrCodeData,
+      graVerificationEngineId: invoice.graVerificationEngineId,
+      graClearedAt: invoice.graClearedAt ? String(invoice.graClearedAt) : null,
+    });
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice-${invoice.invoiceNumber}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.end(pdfBuffer);
+  } catch (error: any) {
+    console.error('[Invoices] Error generating invoice PDF:', error);
+    res.status(500).json({ success: false, error: 'Failed to generate invoice PDF.' });
   }
 });
 

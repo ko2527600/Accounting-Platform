@@ -28,7 +28,13 @@ import {
   Wallet2,
   Building2,
   MessageSquare,
+  Store,
+  GitBranch,
+  Anchor,
+  BadgeDollarSign,
 } from "lucide-react";
+
+export type WorkspaceMode = 'operations' | 'business' | 'professional';
 
 export interface NavItem {
   name: string;
@@ -40,6 +46,56 @@ export interface NavGroup {
   sectionTitle: string;
   items: NavItem[];
 }
+
+// Hrefs hidden from unrestricted roles in simplified workspace modes.
+// Operations = small retail starter (7 work areas per the product report).
+// Business  = wholesale/distribution (11 work areas).
+// Professional = unrestricted (full accounting view).
+const OPERATIONS_HIDDEN: ReadonlySet<string> = new Set([
+  '/accounts', '/journals', '/banking',
+  '/settings/tax-rates', '/settings/fiscal-periods', '/settings/recurring-transactions',
+  '/fixed-assets', '/recurring-invoices',
+  '/reports/ledger', '/reports/balance-sheet', '/reports/cash-flow',
+  '/reports/cash-flow-forecast', '/reports/kpis', '/reports/aging',
+  '/reports/landed-costs', '/reports/budgets', '/reports/branch-comparison',
+  '/payroll/employees', '/payroll/runs', '/payroll/loans', '/payroll/leave',
+  '/approvals', '/audit-logs', '/help-assistant/activity', '/import',
+]);
+
+const BUSINESS_HIDDEN: ReadonlySet<string> = new Set([
+  '/settings/fiscal-periods', '/settings/recurring-transactions',
+  '/reports/ledger', '/fixed-assets',
+  '/audit-logs', '/help-assistant/activity', '/import',
+]);
+
+// Per-href display name overrides for each simplified mode.
+const MODE_LABELS: Record<string, Partial<Record<WorkspaceMode, string>>> = {
+  '/invoices':          { operations: 'Credit Sales',            business: 'Invoices & Credit Sales' },
+  '/bills':             { operations: 'Supplier Bills',          business: 'Supplier Bills' },
+  '/purchase-orders':   { operations: 'Restock Orders' },
+  '/inventory':         { operations: 'Products & Stock',        business: 'Stock & Warehouses' },
+  '/pos':               { operations: 'Sell / POS' },
+  '/expenses':          { operations: 'Expenses' },
+  '/petty-cash':        { operations: 'Petty Cash Float' },
+  '/reports/executive': { operations: 'Sales & Profit Reports',  business: 'Business Reports' },
+  '/reports/pnl':       { operations: 'Profit Summary' },
+  '/journals':          { business:   'Finance Adjustments' },
+};
+
+// Per-mode section title overrides (only override what changes).
+const MODE_SECTION_TITLES: Record<WorkspaceMode, Partial<Record<string, string>>> = {
+  operations: {
+    'INVENTORY & GODOWNS':  'PRODUCTS & STOCK',
+    'SALES & PURCHASES':    'SALES & EXPENSES',
+    'REPORTS & ANALYTICS':  'REPORTS',
+    'ADMINISTRATION':       'TEAM',
+  },
+  business: {
+    'INVENTORY & GODOWNS':  'INVENTORY & WAREHOUSES',
+    'ADMINISTRATION':       'ADMIN',
+  },
+  professional: {},
+};
 
 // Single source of truth for "what pages exist" - shared by Sidebar.tsx and
 // CommandMenu.tsx so the two navigation surfaces can never drift apart.
@@ -93,7 +149,19 @@ export const navigationGroups: NavGroup[] = [
       { name: "Cash Flow Forecast", href: "/reports/cash-flow-forecast", icon: TrendingUp },
       { name: "KPI Dashboard", href: "/reports/kpis", icon: Gauge },
       { name: "AP/AR Aging", href: "/reports/aging", icon: Clock },
+      { name: "Sales Channel Report", href: "/reports/sales-channel", icon: Store },
+      { name: "Branch Comparison", href: "/reports/branch-comparison", icon: GitBranch },
+      { name: "Landed Cost", href: "/reports/landed-costs", icon: Anchor },
       { name: "Budgets", href: "/reports/budgets", icon: Target },
+    ],
+  },
+  {
+    sectionTitle: "PAYROLL",
+    items: [
+      { name: "Employees", href: "/payroll/employees", icon: Users },
+      { name: "Payroll Runs", href: "/payroll/runs", icon: BadgeDollarSign },
+      { name: "Employee Loans", href: "/payroll/loans", icon: Landmark },
+      { name: "Leave Management", href: "/payroll/leave", icon: CalendarClock },
     ],
   },
   {
@@ -122,7 +190,38 @@ export const navigationGroups: NavGroup[] = [
 export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
   "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/invoices", "/bills", "/expenses"],
   cashier: ["/dashboard", "/inventory", "/pos", "/expenses"],
-  hr: ["/dashboard", "/team", "/expenses"],
+  "warehouse manager": ["/dashboard", "/inventory", "/analytics/inventory", "/purchase-orders", "/expenses"],
+  hr: ["/dashboard", "/team", "/expenses", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave"],
+  "payroll officer": ["/dashboard", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave", "/expenses"],
+  "payroll approver": ["/dashboard", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave", "/expenses"],
+  "accounts payable clerk": ["/dashboard", "/bills", "/purchase-orders", "/expenses", "/inventory", "/vendors"],
+  "accounts receivable clerk": ["/dashboard", "/invoices", "/recurring-invoices", "/customers", "/expenses"],
+  "external accountant": [
+    "/dashboard",
+    "/accounts",
+    "/journals",
+    "/banking",
+    "/fixed-assets",
+    "/invoices",
+    "/bills",
+    "/expenses",
+    "/reports/executive",
+    "/reports/ledger",
+    "/reports/pnl",
+    "/reports/balance-sheet",
+    "/reports/cash-flow",
+    "/reports/kpis",
+    "/reports/aging",
+    "/reports/budgets",
+  ],
+  viewer: [
+    "/dashboard",
+    "/reports/executive",
+    "/reports/pnl",
+    "/reports/balance-sheet",
+    "/reports/cash-flow",
+    "/reports/kpis",
+  ],
   auditor: [
     "/dashboard",
     "/accounts",
@@ -141,6 +240,9 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
     "/reports/cash-flow-forecast",
     "/reports/kpis",
     "/reports/aging",
+    "/reports/sales-channel",
+    "/reports/branch-comparison",
+    "/reports/landed-costs",
     "/reports/budgets",
     "/audit-logs",
     "/help-assistant/activity",
@@ -153,7 +255,12 @@ export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
 // and any UI entry point into /settings (Header's profile menu, etc.) must
 // check this same set so a restricted role never sees a link that just
 // bounces them back to /dashboard.
-export const SETTINGS_RESTRICTED_ROLES = new Set(["shop manager", "cashier", "hr", "auditor"]);
+export const SETTINGS_RESTRICTED_ROLES = new Set([
+  "shop manager", "cashier", "warehouse manager",
+  "hr", "payroll officer", "payroll approver",
+  "accounts payable clerk", "accounts receivable clerk",
+  "auditor", "external accountant", "viewer",
+]);
 
 export function isSettingsRestricted(role: string | undefined): boolean {
   return SETTINGS_RESTRICTED_ROLES.has((role || "").toLowerCase().trim());
@@ -166,15 +273,22 @@ export function getVisibleHrefs(role: string | undefined): Set<string> | null {
 }
 
 /**
- * Filters navigationGroups down to what a given role/org-type can actually
- * see, dropping any now-empty group. Org-type filtering runs first (a
- * nonprofit tenant never sees POS/Inventory, and gets a Funds item under
- * Finance & Banking), then the existing role-based filtering applies on top
- * of that already-narrowed set - so e.g. a nonprofit's Shop Manager role
- * (an unlikely but plausible mixed-mode org) never sees POS/Inventory items
- * even before role filtering kicks in.
+ * Filters navigationGroups down to what a given role/org-type/mode can
+ * actually see, dropping any now-empty group.
+ *
+ * Priority order:
+ * 1. Org-type filtering (NONPROFIT hides POS/Inventory, adds Funds).
+ * 2. Role-based filtering (restricted roles like Cashier/Shop Manager/HR/
+ *    Auditor see a fixed allowlist from RESTRICTED_ROLE_NAV — workspace mode
+ *    is ignored for these roles since their nav is already minimal).
+ * 3. Workspace mode filtering (Operations → simplified retail; Business →
+ *    wholesale; Professional → full view). Only applies to unrestricted roles.
  */
-export function getVisibleNavGroups(role: string | undefined, orgType?: string): NavGroup[] {
+export function getVisibleNavGroups(
+  role: string | undefined,
+  orgType?: string,
+  mode: WorkspaceMode = 'professional',
+): NavGroup[] {
   let groups = navigationGroups;
 
   if (orgType === "NONPROFIT") {
@@ -192,9 +306,32 @@ export function getVisibleNavGroups(role: string | undefined, orgType?: string):
       .filter((group): group is NavGroup => group !== null);
   }
 
+  // Restricted roles use the existing role allowlist only — mode doesn't apply.
   const visibleHrefs = getVisibleHrefs(role);
-  if (!visibleHrefs) return groups;
-  return groups
-    .map((group) => ({ ...group, items: group.items.filter((item) => visibleHrefs.has(item.href)) }))
-    .filter((group) => group.items.length > 0);
+  if (visibleHrefs) {
+    return groups
+      .map((group) => ({ ...group, items: group.items.filter((item) => visibleHrefs.has(item.href)) }))
+      .filter((group) => group.items.length > 0);
+  }
+
+  // Unrestricted roles: apply workspace mode filtering + label/section overrides.
+  if (mode !== 'professional') {
+    const hidden = mode === 'operations' ? OPERATIONS_HIDDEN : BUSINESS_HIDDEN;
+    const sectionOverrides = MODE_SECTION_TITLES[mode];
+    groups = groups
+      .map((group) => {
+        const items = group.items
+          .filter((item) => !hidden.has(item.href))
+          .map((item) => ({
+            ...item,
+            name: MODE_LABELS[item.href]?.[mode] ?? item.name,
+          }));
+        if (items.length === 0) return null;
+        const sectionTitle = sectionOverrides[group.sectionTitle] ?? group.sectionTitle;
+        return { sectionTitle, items };
+      })
+      .filter((group): group is NavGroup => group !== null);
+  }
+
+  return groups;
 }

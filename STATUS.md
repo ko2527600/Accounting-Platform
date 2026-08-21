@@ -2,6 +2,346 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Onboarding: Simplified Quick-Start Path for Business/Retail Workspaces
+
+**What/Why:** The full 3-step onboarding wizard (Profile → Chart of Accounts → Opening Balances) was blocking business/retail users who just want to start selling. Chart of accounts seeding and opening balance entry are meaningful for accountants and NGOs doing fund accounting, but a retail shop owner just wants to ring up a first sale. Business (non-nonprofit) workspaces now get a 2-step path: Profile → "Ready to Go" with three quick-start action buttons (Make a Sale, Send an Invoice, Add Stock). Nonprofit workspaces still follow the full 3-step wizard (fund accounting requires a proper chart of accounts and verified opening balances). Path is determined by `user?.orgType` from the existing JWT/auth context — no schema migration needed.
+
+**Changes:**
+- **`frontend/src/pages/onboarding/OnboardingWizard.tsx`** — Added `useAuth` import. Added `isNonprofit` flag from `user?.orgType`. Defined `STEPS_FULL` (profile/accounts/balances) and `STEPS_SIMPLE` (profile/ready) constants; `steps` dynamically selects based on `isNonprofit`. Added `"ready"` to `StepKey` type. `handleSaveProfile` now routes to `"accounts"` (nonprofits) or `"ready"` (businesses). Added `"ready"` step panel with 3 quick-start navigation buttons and footer links to dashboard and profile edit. Updated `BUSINESS_TYPES` list to include retail-specific options. Added `ShoppingCart`, `FileText`, `Package`, `Rocket` Lucide imports.
+
+---
+
+## [Date: 2026-08-21] - Registration: Replace Binary Workspace Type with Business Profile Picker
+
+**What/Why:** The registration step 2 showed two toggle buttons — "Business" and "Nonprofit / NGO" — which is too vague for a Ghana SME signing up. A shop owner sees "Business" and has no idea what they're getting. Replaced with five descriptive profile cards (Retail Shop / Boutique, Wholesale / Distributor, Service Business, NGO / School / Church, Other Business), each with an icon and a plain-language subtitle. Cards that map to `orgType=NONPROFIT` (NGO/School/Church) remain, keeping the backend payload identical. A `selectedProfile` state tracks which card is highlighted since multiple cards share `orgType=BUSINESS`.
+
+**Changes:**
+- **`frontend/src/pages/auth/Register.tsx`** — Added `BUSINESS_PROFILES` constant array with 5 profile options (label, sub-description, Lucide icon, orgType value). Added `selectedProfile` state (default: "Retail Shop / Boutique"). Replaced 2-column grid of BUSINESS/NONPROFIT toggles with a 1-column list of 5 descriptive cards. Added `ShoppingBag`, `Package`, `Briefcase`, `Heart`, `Building2` icon imports. Updated CardDescription text for step 2. No backend changes — `orgType` POST payload is identical.
+
+---
+
+## [Date: 2026-08-21] - Frontend Audit: Route Lazy-Loading and Widget Accessibility
+
+**What/Why:** Implemented the two remaining implementable items from the Frontend Audit. (1) Route lazy-loading: App.tsx had 52 static page imports causing the entire app to ship as one large bundle, hurting first-load performance. Converted all page-level imports to `React.lazy()` with a `<Suspense>` fallback spinner wrapping `<Routes>`, so each page becomes its own chunk loaded on first navigation. (2) Accessibility: HelpAssistantWidget and FeedbackWidget were custom `div` panels with no dialog semantics, no focus management, no keyboard trap, and no Escape key handling, failing WCAG 2.1 SC 1.4.13 / 2.1.2 for keyboard users and screen readers. Both widgets now have proper `role="dialog"` semantics, focus-on-open, focus trap, Escape-to-close, `aria-label` on icon buttons, `aria-hidden` on decorative icons. HelpAssistantWidget also gains `aria-live="polite"` on the message container. FeedbackWidget `<select>` is now disabled during submission alongside `<textarea>`.
+
+**Changes:**
+- **`frontend/src/App.tsx`** — All 52 static page/component imports replaced with `React.lazy()` (named-export `.then(m => ({ default: m.X }))` pattern). Added `lazy` and `Suspense` to React import. Wrapped `<Routes>` in `<Suspense fallback={<RouteLoadingFallback />}>`. Added `RouteLoadingFallback` spinner component. Dashboard stays as an inline component.
+- **`frontend/src/components/HelpAssistantWidget.tsx`** — Added `role="dialog"`, `aria-modal="true"`, `aria-labelledby="help-panel-title"` on panel container. Changed title `<span>` to `<h2 id="help-panel-title">`. Added `aria-label` on FAB and close button, replaced `title` attribute. Added `aria-hidden="true"` on all Lucide icons inside buttons. Added `useEffect` for Escape key close. Added `useRef` + `useEffect` to move focus to close button on open and back to FAB on close. Added `onKeyDown` focus trap cycling Tab/Shift+Tab within the panel. Added `aria-live="polite" aria-atomic="false"` on message scroll container. Added `fabRef` for focus restoration.
+- **`frontend/src/components/FeedbackWidget.tsx`** — Same dialog/focus/keyboard fixes as HelpAssistantWidget. Additionally: `<select>` now has `disabled={isSending}` to match `<textarea>` behavior during submission.
+
+---
+
+## [Date: 2026-08-21] - Landing Page Full Redesign & Pricing Alignment
+
+**What/Why:** Full overhaul of LandingPage.tsx — redesigned hero, aligned pricing tier names with the actual backend (`Shop/Business/Enterprise` replacing the old `Starter/Professional/Enterprise` labels), added team seat limits (3/10/unlimited) from `TENANT_PLANS` to each pricing card, introduced a complete feature list per tier matching `requireTier` enforcement in the routes, added an interactive accordion FAQ (replacing static cards), added a final CTA section, and fixed a factual error in the SMS FAQ (alerts are available on all plans, not just Professional+). Step icons in onboarding now use Lucide. Added `mailto` fallback for Enterprise contact CTA.
+
+**Changes:**
+- **`frontend/src/pages/landing/LandingPage.tsx`** — Full rewrite: new hero copy with radial glow, stat strip with correct plan names; pricing section with `PRICING_PLANS` data array (Shop/Business/Enterprise, seats, per-tier feature lists); accordion FAQ with `openFaqIndex` state; added final CTA section; removed unused imports, added `ChevronDown`, `Users`, `Zap`, `Building2`.
+
+---
+
+## [Date: 2026-08-21] - Fix: Invoice PDF Download Now Uses Authenticated Blob Fetch
+
+**What/Why:** Invoice PDF download was broken because it used a direct `<a href>` link to `/api/v1/invoices/:id/pdf`, which cannot send the JWT `Authorization` header. The backend PDF endpoint requires authentication, so unauthenticated direct anchor requests always failed. Fixed by replacing the anchor with a `handleDownloadPdf` async function that fetches the PDF as a blob via the authenticated `api` axios instance, then creates an object URL and triggers a programmatic download — the same pattern already used for audit log CSV export in AdminCoreEngine.
+
+**Changes:**
+- **`frontend/src/pages/invoices/Invoices.tsx`** — Removed `<a href>` anchor for PDF download. Added `downloadingPdfId` state and `handleDownloadPdf(invoiceId, isGraCleared)` function that calls `api.get('/invoices/:id/pdf', { responseType: 'blob' })`, creates an object URL, and clicks a temporary anchor. Replaced anchor element with a `<button>` that calls `handleDownloadPdf`, shows "Downloading..." while in progress, and shows toast on failure.
+
+---
+
+## [Date: 2026-08-21] - Security Hardening: Frontend Audit Fixes (Passcode Headers, WS Tickets, POS Offline Clear, Error Boundary)
+
+**What/Why:** Implemented all high and medium priority findings from the Frontend Security Audit. Four categories of work: (1) admin passcode removed from URL query params, (2) JWT bearer token removed from WebSocket URL, (3) POS offline IndexedDB now cleared on logout, (4) React error boundary added to prevent blank-screen crashes.
+
+**Changes:**
+
+- **`backend/src/routes/sync.ts`** — Added `POST /api/v1/sync/ticket`: exchanges a valid JWT session (already authenticated via `authenticateJwt` + `tenantContextMiddleware`) for a 30-second single-use Redis ticket. Stores `{ tenantId, userId, name, email, role }` in Redis as `ws-ticket:<hex>` with 30s TTL.
+
+- **`backend/src/websocket/syncSocketServer.ts`** — WS connection handler now accepts `?ticket=<ticket>` (preferred) in addition to the legacy `?token=<jwt>` fallback. Ticket is atomically fetched and deleted via a Redis pipeline (one-time use). Added `redis` import.
+
+- **`backend/src/websocket/presenceSocketServer.ts`** — Same ticket-first auth as syncSocketServer. Ticket payload carries user profile fields (`name`, `email`, `role`) needed by `markOnline()`. Added `redis` import.
+
+- **`backend/src/routes/adminBroadcast.ts`** — Both `POST /verify-passcode` and `POST /send` now read passcode from `x-admin-passcode` header first, then `req.body.passcode` as fallback (already committed in prior session).
+
+- **`frontend/src/lib/syncEngine.ts`** — `connectSyncSocket(token)` now fetches a ticket from `POST /sync/ticket` before opening the WebSocket; URL uses `?ticket=` instead of `?token=`. Reconnect logic unchanged (token is retained in closure to fetch a fresh ticket on each reconnect).
+
+- **`frontend/src/lib/presenceSocket.ts`** — Same ticket-first pattern as syncEngine. Added `api` import alongside existing `API_BASE_URL`.
+
+- **`frontend/src/lib/offlineDb.ts`** — Added `clearPosOfflineData()`: clears all four POS offline stores (`catalogSnapshot`, `pendingSales`, `tillSnapshot`, `warehousesSnapshot`) in parallel.
+
+- **`frontend/src/hooks/useSyncEngineLifecycle.ts`** — On logout, now also calls `clearPosOfflineData()` alongside `resetLocalSyncData()`, so both the sync engine DB and POS offline DB are wiped. Fixes the shared-device data leakage gap.
+
+- **`frontend/src/pages/admin/AdminCoreEngine.tsx`** — All admin API calls now send the passcode as `x-admin-passcode` header instead of URL query param (`{ params: { passcode } }` → `{ headers: { 'x-admin-passcode': passcode } }`). Affects: `GET /admin/integrations`, `GET /tenants`, `PUT /tenants/:id/tier`, `GET /admin/audit-logs`, `GET /admin/audit-logs/meta/values`, `GET /admin/audit-logs/export`, `POST /admin/broadcast/verify-passcode`, `POST /admin/broadcast/send`, `POST /tenants/admin-onboard`. `buildAuditLogParams()` no longer injects `passcode` into the params object.
+
+- **`frontend/src/App.tsx`** — Added `ErrorBoundary` class component (React `Component` subclass with `getDerivedStateFromError` + `componentDidCatch`). Wraps the entire `App` render tree so any rendering exception shows a recoverable "Something went wrong" screen with a Reload button instead of a blank page.
+
+## [Date: 2026-08-21] - Registration UX Quick Wins: GHS Default, Company Name First, Visual Org-Type Picker
+
+## [Date: 2026-08-21] - RBAC Hardening: 14-Role Model, Default-Deny, Segregation of Duties
+
+**What/Why:** Implemented the Permissions & RBAC Benchmark recommendations. The existing system had a critical security gap: unrecognized role strings (e.g. "Intern", "Store Clerk", or a typo) fell through to `return true`, giving them full operational access. Expanded from 5 to 14 typed roles with a default-deny policy and role implication for proper segregation of duties.
+
+**Changes:**
+
+- **`backend/src/middleware/rbacMiddleware.ts`** (rewritten) — Expanded `UserRole` type from 5 to 14 roles: Admin, Finance Controller, Accountant, Accounts Payable Clerk, Accounts Receivable Clerk, Payroll Officer, Payroll Approver, HR, Auditor, Warehouse Manager, Shop Manager, Cashier, Viewer, External Accountant. Added `ALL_KNOWN_ROLES` closed set, `OPERATIONAL_ROLES` (Admin/Owner/Accountant/Finance Controller get blanket non-Admin access), `ROLE_IMPLIES` map (Finance Controller implies Accountant; External Accountant implies Viewer/Auditor; Payroll Approver implies Payroll Officer + HR; Warehouse Manager implies Shop Manager + Viewer; AP/AR Clerks imply Viewer). Fixed default-deny: unrecognized role strings now return `false` instead of `true`. Added `noSelfApproval()` SOD helper (returns 403 if actor === creator).
+
+- **`backend/src/routes/payroll.ts`** — Separated preparation from approval: `POST /runs` now also allows `Payroll Officer`; `POST /runs/:id/post` and `POST /runs/:id/void` now also allow `Payroll Approver`. This enforces the maker-checker control: a Payroll Officer cannot release their own payroll run.
+
+- **`backend/src/routes/inventory.ts`** — Added `Warehouse Manager` to all inventory write routes (create items, edit items, bulk import, transfers, adjustments, stock-take).
+
+- **`frontend/src/pages/team/TeamManagement.tsx`** — Replaced `CLOSED_ROLES` string array with `ROLE_OPTIONS` array of `{value, label, description}` objects covering all 14 roles. Role select dropdowns now show the selected role's description beneath the selector. Warehouse Manager added to location-scoped roles (requires warehouse assignment).
+
+- **`frontend/src/lib/navigation.ts`** — Added sidebar nav allowlists for Warehouse Manager, Payroll Officer, Payroll Approver, Accounts Payable Clerk, Accounts Receivable Clerk, External Accountant, and Viewer restricted roles. Expanded `SETTINGS_RESTRICTED_ROLES` to include all scoped roles (AP/AR Clerk, Payroll Officer/Approver, Warehouse Manager, External Accountant, Viewer) — they cannot reach /settings.
+
+**Security impact:** Any tenant user whose role string is not in the recognized 14-role set (free-text job titles, typos) is now denied access to `requireRole()`-protected routes. Previously they received full operational access.
+
+## [Date: 2026-08-21] - Workspace Mode Selector and Guided Daily Operations Panel
+
+**What/Why:** User provided a Business Fit and Usability Report recommending that Ledgio stop presenting every accounting feature to every customer. A retail shop owner or cashier should feel like they bought a simple shop-management tool — not an ERP — while an accountant still sees the full professional workspace. Implemented the report's core UX recommendations as a frontend-only change (no backend changes required).
+
+**Changes:**
+
+- **`frontend/src/contexts/WorkspaceModeContext.tsx`** (new) — `WorkspaceMode` type (`'operations' | 'business' | 'professional'`), React context with `mode`/`setMode`, stored in `localStorage` as `ledgio-workspace-mode`. Auto-defaults by role: Cashier/Shop Manager → Simple (operations), Accountant/Auditor → Full (professional), everyone else → Business.
+
+- **`frontend/src/lib/navigation.ts`** — Added `OPERATIONS_HIDDEN` (24 hrefs hidden in Simple mode: journals, chart of accounts, bank feeds, tax config, fiscal periods, fixed assets, budgets, audit trail, most reports, payroll), `BUSINESS_HIDDEN` (7 hrefs: fiscal periods, recurring transactions, ledger, fixed assets, audit trail, AI activity, bulk import), `MODE_LABELS` (per-href display name overrides: "Invoices (AR)" → "Credit Sales" in Simple, "Supplier Bills" in Simple/Business, "Restock Orders" for purchase orders, etc.), `MODE_SECTION_TITLES` (section header overrides: "INVENTORY & GODOWNS" → "PRODUCTS & STOCK" in Simple). Extended `getVisibleNavGroups()` with optional `mode` parameter; restricted roles (Cashier etc.) bypass mode filtering since their nav is already role-fixed.
+
+- **`frontend/src/components/layout/Sidebar.tsx`** — Consumes `useWorkspaceMode()`; passes mode to `getVisibleNavGroups()`; adds a 3-pill "View" toggle (Simple / Business / Full) above the Settings link in the sidebar footer. Hidden for restricted roles.
+
+- **`frontend/src/components/layout/MainLayout.tsx`** — Wraps layout tree with `WorkspaceModeProvider` (inside `MainLayout` so it has access to `AuthContext` through `ProtectedRoute`).
+
+- **`frontend/src/components/ui/CommandMenu.tsx`** — Passes mode to `getVisibleNavGroups()` so Cmd+K only surfaces pages visible in the current workspace mode, keeping keyboard nav consistent with the sidebar.
+
+- **`frontend/src/App.tsx`** — Added `GuidedOperationsPanel` (the "What happened today?" quick-action grid from the report): 8 colour-coded tiles in Simple mode (Made a sale → /pos, Received stock → /purchase-orders, Paid a supplier → /bills, Customer paid me → /invoices, Paid an expense → /expenses, Moved stock → /inventory, Counted stock → /inventory, View today's sales → /reports/executive), 9 in Business mode (adds Create invoice). Shown on Dashboard for non-restricted roles in Simple and Business modes; hidden in Full mode. Dashboard header subtitle adapts to current mode. "New Voucher" button only appears in Full mode (accounting-centric shortcut irrelevant to retail operators).
+
+**Files affected:** `frontend/src/contexts/WorkspaceModeContext.tsx` (new), `frontend/src/lib/navigation.ts`, `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/components/layout/MainLayout.tsx`, `frontend/src/components/ui/CommandMenu.tsx`, `frontend/src/App.tsx`
+
+---
+
+## [Date: 2026-08-21] - Budget Alerts, GRA E-invoicing PDF, WhatsApp POS Receipt
+
+**What/Why:** Three platform upgrades requested as part of the payroll feature roadmap: (6) in-app budget variance alerts when spend crosses 80%/100% of budget; (7) downloadable GRA-cleared invoice PDFs with embedded QR code and clearance badge; (8) WhatsApp receipt delivery to customers after POS cash sales via Twilio.
+
+**Changes:**
+
+1. **Tenant migration 016** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - New `budget_alert_log` table: records which `(budget_id, fiscal_period_id, threshold_pct)` combos have already fired an alert, preventing duplicate notifications. Unique index enforces at-most-once semantics per period and threshold.
+   - `cash_sales` table gains `customer_name` and `customer_phone` columns (both nullable) to capture optional walk-in customer details at POS for WhatsApp receipt delivery.
+
+2. **Budget alert checker** (`backend/src/services/budgetService.ts`):
+   - New `checkBudgetAlerts()`: after `listBudgets` recomputes actuals, checks each budget against 80% and 100% thresholds. For any new crossing, inserts a row into `budget_alert_log` (unique constraint prevents duplicates in races) then creates a `BUDGET_ALERT` notification in the public `notification` table so the in-app bell displays it immediately.
+   - Fire-and-forget (no `await`) to keep the `/budgets` list response latency unchanged.
+
+3. **Invoice PDF with GRA clearance** (`backend/src/services/pdfGenerationService.ts`, `backend/src/routes/invoices.ts`):
+   - `generateInvoicePdf` now accepts optional `graClearanceStatus`, `graQrCodeDataUrl`, `graVerificationEngineId`, and `graClearedAt` fields. When `graClearanceStatus === 'CLEARED'`, the PDF gains a green banner, the Verification Engine ID, a human-readable cleared timestamp (Africa/Accra timezone), and the GRA QR code image (embedded from the stored base64 data URL).
+   - New `GET /api/v1/invoices/:id/pdf` endpoint streams the PDF directly — attaches the cleared QR block when the invoice is cleared.
+   - Frontend `Invoices.tsx` gains a "Download PDF" action in every invoice's action menu (labeled "Download PDF (GRA Cleared)" when cleared).
+
+4. **WhatsApp receipt service** (`backend/src/services/whatsAppReceiptService.ts`):
+   - New service that POSTs to the Twilio REST API (via existing `axios`) with a formatted WhatsApp message listing all items, totals, cash given, and change. Silently no-ops when `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_WHATSAPP_FROM` are not set.
+   - `backend/.env.example` gains the three Twilio env vars with usage comments.
+
+5. **POS WhatsApp integration** (`backend/src/routes/cashTill.ts`):
+   - `POST /tills/sales` now accepts optional `customerPhone` and `customerName` in the request body, stores them on the `cashSale` row, and fires `sendWhatsAppReceipt()` fire-and-forget after the sale commits.
+
+6. **Frontend** (`frontend/src/pages/pos/PointOfSale.tsx`, `frontend/src/components/layout/Header.tsx`, `frontend/src/pages/invoices/Invoices.tsx`):
+   - POS checkout form: collapsible "Customer details" section for name and WhatsApp phone, sent with the sale but clearing on success.
+   - Header notification bell: `BUDGET_ALERT` type renders a TrendingUp (orange) icon.
+   - Invoices actions menu: "Download PDF" link for every invoice; shows "(GRA Cleared)" suffix and updated tooltip when cleared.
+
+**Files affected:**
+- `backend/src/database/migrations/tenantMigrations.ts`
+- `backend/src/services/budgetService.ts`
+- `backend/src/services/pdfGenerationService.ts`
+- `backend/src/services/whatsAppReceiptService.ts` (new)
+- `backend/src/routes/invoices.ts`
+- `backend/src/routes/cashTill.ts`
+- `backend/.env.example`
+- `frontend/src/pages/pos/PointOfSale.tsx`
+- `frontend/src/pages/invoices/Invoices.tsx`
+- `frontend/src/components/layout/Header.tsx`
+
+## [Date: 2026-08-20] - Ghana Payroll Module (PAYE, SSNIT, Payslips, Journal Posting)
+
+**What/Why:** Greenfield Ghana payroll module covering employee roster management, Ghana PAYE tax computation (2024 GRA income tax bands), SSNIT social security contributions (employee 5.5% + employer 13%), payroll run processing, and automatic double-entry journal posting.
+
+**Changes:**
+
+1. **Tenant migration 012** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - Widens `default_role` CHECK constraint to include 5 new payroll roles: `SALARY_EXPENSE`, `EMPLOYER_SSNIT_EXPENSE`, `PAYE_PAYABLE`, `SSNIT_PAYABLE`, `NET_PAY_PAYABLE`.
+   - New `employees` table: employee roster with gross monthly salary, contact info, department, and joining/leaving dates.
+   - New `payroll_runs` table: one run per month/year with status (DRAFT/POSTED/VOID) and aggregated totals.
+   - New `payslips` table: per-employee breakdowns linked to each payroll run.
+
+2. **Account roles** (`backend/src/repository/accountRepository.ts`, `backend/src/services/accountService.ts`):
+   - Added 5 new `AccountDefaultRole` values with plausible type mappings and `pickAutoDefaultCandidate` logic for auto-designation.
+
+3. **Payroll service** (`backend/src/services/payrollService.ts`):
+   - `computeMonthlyPAYE`: Ghana GRA 2024 six-band progressive tax schedule.
+   - `createPayrollRun`: iterates active employees, computes PAYE + SSNIT for each, inserts payroll run + payslips in one transaction.
+   - `postPayrollJournalEntry`: posts Dr Salary Expense + Dr Employer SSNIT Expense / Cr PAYE Payable + Cr SSNIT Payable + Cr Net Pay Payable; marks run POSTED.
+   - `voidPayrollRun`, `listEmployees`, `createEmployee`, `updateEmployee`, `getEmployee`.
+
+4. **Payroll routes** (`backend/src/routes/payroll.ts`):
+   - `GET/POST /payroll/employees`, `GET/PUT /payroll/employees/:id`
+   - `GET/POST /payroll/runs`, `GET /payroll/runs/:id`, `POST /payroll/runs/:id/post`, `POST /payroll/runs/:id/void`
+   - `POST /payroll/calculate-paye` (utility endpoint)
+   - Gated at Tier 2 (Business). RBAC: Admin/Accountant/HR for writes, Auditor for reads.
+
+5. **Frontend** (`frontend/src/pages/payroll/`):
+   - `Employees.tsx`: employee roster table with add/edit modal.
+   - `PayrollRuns.tsx`: run payroll by month/year, expandable payslip detail view, post-to-GL button.
+   - Navigation (`frontend/src/lib/navigation.ts`): new PAYROLL section with Employees and Payroll Runs links; HR role nav updated.
+   - Routes (`frontend/src/App.tsx`): `/payroll/employees` and `/payroll/runs`.
+
+**Files affected:** `tenantMigrations.ts`, `accountRepository.ts`, `accountService.ts`, `payrollService.ts` (new), `routes/payroll.ts` (new), `app.ts`, `navigation.ts`, `App.tsx`, `pages/payroll/Employees.tsx` (new), `pages/payroll/PayrollRuns.tsx` (new).
+
+---
+
+## [Date: 2026-08-20] - Auto COGS Posting on POS Sales and Invoice Payments
+
+**What/Why:** The platform never posted a Cost of Goods Sold journal entry when inventory items were sold. This was a known accounting-correctness gap (flagged in the competitive benchmark as the highest accounting-correctness priority). Without COGS posting, the P&L showed revenue without the corresponding cost of sales, and the Inventory Asset account never decreased as goods were sold.
+
+**Changes:**
+
+1. **New GL roles: COGS and INVENTORY_ASSET** (`backend/src/repository/accountRepository.ts`):
+   - Extended `AccountDefaultRole` type to include `'COGS'` and `'INVENTORY_ASSET'`.
+   - Extended `PLAUSIBLE_TYPES_FOR_ROLE` and `pickAutoDefaultCandidate` for the two new roles.
+
+2. **Tenant migration 011** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - Drops and recreates the `default_role` CHECK constraint to include `'COGS'` and `'INVENTORY_ASSET'`.
+   - Auto-designates: lowest-code `COST_OF_SALES` account → COGS; best-match non-cash, non-fixed ASSET → INVENTORY_ASSET.
+
+3. **POS Cash Till COGS posting** (`backend/src/routes/cashTill.ts`):
+   - `postCashSaleRevenue`: fetches sale lines with inventory item cost prices; if COGS and Inventory Asset accounts are configured and totalCost > 0, appends Debit COGS / Credit Inventory lines to the cash-sale journal entry.
+   - `postCashSaleVoidReversal`: same pattern in reverse (Debit Inventory / Credit COGS).
+
+4. **Invoice Payment COGS posting** (`backend/src/services/invoicePaymentService.ts`):
+   - Resolves `cogsAcc` and `invAcc` alongside the other GL accounts.
+   - Invoice fetch includes `items: { include: { inventoryItem: true } }` to get cost prices.
+   - COGS lines are scaled by `paymentShare` (proportional for partial payments) and `fxScale` (base-currency conversion). Only items with `inventoryItemId` and a known `costPrice` contribute.
+
+5. **Onboarding wizard** (`backend/src/services/onboardingWizardService.ts`):
+   - `seedChartOfAccounts` now auto-designates `COGS` and `INVENTORY_ASSET` roles alongside `CASH`/`REVENUE`/`EXPENSE` for new tenants during setup.
+
+**Files affected:** `backend/src/database/migrations/tenantMigrations.ts`, `backend/src/repository/accountRepository.ts`, `backend/src/routes/cashTill.ts`, `backend/src/services/invoicePaymentService.ts`, `backend/src/services/onboardingWizardService.ts`
+
+---
+
+## [Date: 2026-08-20] - Wholesalers/Importers: FX Gain/Loss, Multi-Currency Aging, Landed Cost Report
+
+**What/Why:** Three gaps identified for Wholesalers, Distributors & Importers operating in multiple currencies: (1) FX gain/loss was never posted when payments settled at a different rate than originally booked, (2) the AR/AP aging report showed all amounts in native currency with no base-currency conversion, and (3) there was no way to see the all-in landed cost (freight + duty + customs) and how it affects per-unit inventory cost.
+
+**Changes:**
+
+1. **FX Gain/Loss on Invoice Payments** (`backend/src/services/invoicePaymentService.ts`):
+   - At payment time, if the invoice is in a foreign currency and `FX_RATE_API_KEY` is set, the service fetches the current exchange rate via `fxRateService.convertAmount`.
+   - If the current-rate amount differs from the locked rate (stored as `baseCurrencyAmount`), the difference is posted as a separate journal line: FX gain → credit REVENUE; FX loss → debit EXPENSE.
+   - The cash debit uses the current-rate amount; the revenue credit uses the original locked rate. Falls back to locked rate silently if live rate is unavailable.
+
+2. **FX Gain/Loss on Vendor Bill Payments** (`backend/src/services/vendorBillPaymentService.ts`):
+   - Same pattern: expense debit at locked rate, cash credit at current rate, FX gain/loss reconciliation line.
+   - Favorable rate move (less cash than accrued) → FX gain (credit REVENUE); unfavorable → FX loss (debit EXPENSE).
+
+3. **Multi-Currency AR/AP Aging** (`backend/src/services/agingReportService.ts`):
+   - Added `currency` and `nativeBalanceDue` fields to `ArAgingRow` and `ApAgingRow` interfaces.
+   - AR aging: outstanding balance converted to base currency using locked FX rate (`baseCurrencyAmount / total`) for bucket totals; native amount preserved for display.
+   - AP aging: uses `baseCurrencyAmount` for bucket totals if available; excludes `LANDED_COST` bills (freight/customs are not payables to vendors in the same way).
+   - **Frontend** (`frontend/src/pages/reports/AgingReport.tsx`): Added "Currency" and "Native Amount" columns; bucket totals remain in base currency; native amount column shows "-" for same-currency rows.
+
+4. **Landed Cost Report** (`backend/src/routes/reports.ts` + `frontend/src/pages/reports/LandedCostReport.tsx`):
+   - New `GET /reports/landed-costs` endpoint, gated at Business tier (tier 2). Queries primary purchase bills that have at least one `LANDED_COST` bill linked via `landedCostForBillId`. Returns per-shipment: goods cost, all landed cost bills, grand total, and per-item allocation (proportional by line total), including effective unit cost.
+   - New frontend page with date range filter, summary tiles (goods / landed / all-in totals), and an expandable shipment list showing the landed cost breakdown and per-item effective cost.
+   - Navigation entry added to Reports section (`Anchor` icon, route `/reports/landed-costs`).
+
+**Files Affected:**
+- `backend/src/services/invoicePaymentService.ts`
+- `backend/src/services/vendorBillPaymentService.ts`
+- `backend/src/services/agingReportService.ts`
+- `backend/src/routes/reports.ts`
+- `frontend/src/pages/reports/AgingReport.tsx`
+- `frontend/src/pages/reports/LandedCostReport.tsx` (new)
+- `frontend/src/lib/navigation.ts`
+- `frontend/src/App.tsx`
+
+## [Date: 2026-08-18] - Branch Comparison Report (Business Tier)
+
+**What/Why:** Multi-branch businesses (supermarkets, pharmacies, boutiques) need to compare performance across locations. Added a Branch Comparison report gated at Business tier (tier 2) showing per-branch cash revenue, current stock value at cost, and inter-branch transfer counts for a configurable date range.
+
+**Changes:**
+
+1. **Backend** (`backend/src/routes/reports.ts`):
+   - Added `GET /reports/branch-comparison` endpoint.
+   - Gated with `requireTier(2, 'Branch Comparison Report')` and `requireRole('Viewer')`.
+   - Returns per-warehouse: `name`, `location`, `revenue`, `saleCount`, `stockValue`, `transfersIn`, `transfersOut`.
+   - Single query via `Promise.all` — warehouses, grouped cash sales, transfer counts, warehouse stock values.
+   - Added `requireTier` import.
+
+2. **Frontend - Report Page** (`frontend/src/pages/reports/BranchComparisonReport.tsx`):
+   - New page with date range filter (defaults last 30 days).
+   - Summary tiles: total revenue, top branch, total stock value.
+   - Proportional revenue split bar (color-coded per branch).
+   - Branch detail table: revenue, sales count, stock value, transfers in/out.
+
+3. **Frontend - Navigation** (`frontend/src/lib/navigation.ts`):
+   - Added `GitBranch` icon import.
+   - Added `Branch Comparison` nav item under REPORTS & ANALYTICS.
+   - Added `/reports/branch-comparison` to auditor allowed paths.
+
+4. **Frontend - Routing** (`frontend/src/App.tsx`):
+   - Imported `BranchComparisonReport`.
+   - Added route `/reports/branch-comparison`.
+
+---
+
+## [Date: 2026-08-18] - Wholesale / Retail Dual-Pricing Support
+
+**What/Why:** Businesses that serve both retail walk-in customers and bulk wholesale buyers needed a way to manage two price tiers without duplicating inventory or managing separate item catalogs. Implemented a minimal-change, maximum-impact approach: one optional wholesale price field per item, customer type flag, sale-type tagging, and a dedicated sales channel report.
+
+**Changes:**
+
+1. **Database schema** (`backend/prisma/schema.prisma`, migration `20260818000000_wholesale_retail_pricing`):
+   - `InventoryItem`: added `wholesalePrice Decimal?`
+   - `Customer`: added `customerType String @default("RETAIL")`
+   - `CashSale`: added `saleType String @default("RETAIL")`
+
+2. **Backend - Inventory** (`backend/src/routes/inventory.ts`):
+   - POST/PUT `/inventory/items` now accept and persist `wholesalePrice` (optional, nullable).
+
+3. **Backend - Customers** (`backend/src/routes/invoices.ts`):
+   - POST `/invoices/customers` and PUT `/invoices/customers/:id` accept and persist `customerType` (RETAIL/WHOLESALE).
+
+4. **Backend - POS Sales** (`backend/src/routes/cashTill.ts`):
+   - POST `/tills/sales` accepts `saleType`; `effectivePriceFor()` helper selects wholesale price when applicable; `saleType` stamped on `CashSale` record.
+
+5. **Backend - Reports** (`backend/src/routes/reports.ts`):
+   - New `GET /api/v1/reports/sales-channel` endpoint groups `CashSale` records by `saleType` and returns RETAIL/WHOLESALE/TOTAL revenue summaries plus the full sales list.
+
+6. **Frontend - Inventory** (`frontend/src/pages/inventory/WarehouseManagement.tsx`):
+   - Item form: 3-column price grid (Cost / Retail / Wholesale optional). Item card shows wholesale price when set.
+
+7. **Frontend - Invoices/Customers** (`frontend/src/pages/invoices/Invoices.tsx`):
+   - Add Customer modal: new Customer Type dropdown (RETAIL/WHOLESALE).
+   - Create Invoice modal: customer dropdown shows "— Wholesale" label; blue hint appears for wholesale customers; item picker auto-selects `wholesalePrice` on itemized invoice lines when customer is WHOLESALE.
+
+8. **Frontend - POS** (`frontend/src/pages/pos/PointOfSale.tsx`):
+   - Retail / Wholesale Sale toggle above the product search. Product list and cart display effective price (wholesale when selected + available). `saleType` passed in POST `/tills/sales` and offline queue.
+
+9. **Frontend - Offline** (`frontend/src/lib/offlineDb.ts`, `frontend/src/lib/saleSyncQueue.ts`):
+   - `OfflineCatalogItem` and `OfflinePendingSale` types extended with `wholesalePrice` / `saleType`. Sync queue replays include `saleType`.
+
+10. **Frontend - Sales Channel Report** (`frontend/src/pages/reports/SalesChannelReport.tsx`):
+    - New page at `/reports/sales-channel`: date-range filter, retail/wholesale/total summary tiles, visual split bar, and full sales ledger with channel tags.
+
+11. **Navigation** (`frontend/src/lib/navigation.ts`):
+    - "Sales Channel Report" added to REPORTS & ANALYTICS group and to auditor's allowed nav list.
+
+12. **Routing** (`frontend/src/App.tsx`):
+    - Route `/reports/sales-channel` wired to `SalesChannelReport`.
+
+**Verification:** TypeScript compilation clean across all changed files. No existing API contracts changed — all new fields are additive with safe defaults (`RETAIL` for `customerType`/`saleType`, `null` for `wholesalePrice`).
+
+**Files:** `backend/prisma/schema.prisma`, `backend/prisma/migrations/20260818000000_wholesale_retail_pricing/migration.sql`, `backend/src/routes/inventory.ts`, `backend/src/routes/invoices.ts`, `backend/src/routes/cashTill.ts`, `backend/src/routes/reports.ts`, `frontend/src/pages/inventory/WarehouseManagement.tsx`, `frontend/src/pages/invoices/Invoices.tsx`, `frontend/src/pages/pos/PointOfSale.tsx`, `frontend/src/lib/offlineDb.ts`, `frontend/src/lib/saleSyncQueue.ts`, `frontend/src/pages/reports/SalesChannelReport.tsx`, `frontend/src/lib/navigation.ts`, `frontend/src/App.tsx`.
+
 ## [Date: 2026-08-17] - Fixed Invoices Page Showing Accountant-Only Action Buttons to Every Role
 
 **What/Why:** User pasted browser console errors showing repeated `403`s on `POST /invoices/:id/send` and `POST /paystack/invoices/:id/initialize` from the Invoices page (plus benign, already-documented 403s on `/ledgers/summary`/`/reports/profit-loss` - the Dashboard's known and intentionally-swallowed pattern for restricted roles, see the "isRestrictedRole" comment in `App.tsx`). Traced to `Invoices.tsx`'s "Actions" dropdown menu, which had **zero role gating**: every role that can reach the Invoices page (Admin, Accountant, Viewer, Shop Manager, Auditor) sees "Email Invoice," "Request GRA Clearance," "Pay Now Link (Paystack)," and "Credit Note," but the backend gates all four to `requireRole('Accountant')` - only Admin/Accountant can actually use them. A Shop Manager or Auditor clicking any of them always 403s with no explanation, which is exactly what the repeated (4x) `paystack/.../initialize` 403s in the pasted log look like - a user retrying an action that can never succeed. Same bug class as the earlier "ExpenseClaims.tsx decider-button gating" fix.

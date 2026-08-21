@@ -4,6 +4,7 @@ import { requireTenantContext } from '../context/tenantContext';
 import * as journalService from './journalEntryService';
 import * as accountRepository from '../repository/accountRepository';
 import * as approvalWorkflowService from './approvalWorkflowService';
+import * as fxRateService from './fxRateService';
 import { recordAuditLogTx, diffFields, AuditActor } from './auditLogService';
 import { recordChange, notifyChange, invoiceToSyncPayload } from './syncChangeLogService';
 
@@ -53,7 +54,7 @@ export async function recordInvoicePayment(
   const invoice = await withCurrentTenantDb(prisma, async (client) => {
     return (client as any).invoice.findFirst({
       where: { id: invoiceId, tenantId },
-      include: { customer: true, taxRate: true },
+      include: { customer: true, taxRate: true, items: { include: { inventoryItem: true } } },
     });
   });
 
@@ -90,6 +91,9 @@ export async function recordInvoicePayment(
   const accounts = await withCurrentTenantDb(prisma, (client) => accountRepository.listAccounts(client));
   const cashAcc = accountRepository.resolveDefaultAccount(accounts, 'CASH') || accounts[0];
   const revenueAcc = accountRepository.resolveDefaultAccount(accounts, 'REVENUE') || accounts[0];
+  const expenseAcc = accountRepository.resolveDefaultAccount(accounts, 'EXPENSE') || accounts[0];
+  const cogsAcc = accountRepository.resolveDefaultAccount(accounts, 'COGS');
+  const invAcc = accountRepository.resolveDefaultAccount(accounts, 'INVENTORY_ASSET');
   const accountsById = new Map(accounts.map((a: any) => [a.id, a]));
 
   // Same base-currency conversion ratio for the whole invoice, applied to
@@ -103,7 +107,27 @@ export async function recordInvoicePayment(
   // math exactly), less than 1 for a partial one.
   const paymentShare = invoiceTotal !== 0 ? amount / invoiceTotal : 1;
 
+  // Original base-currency amount using the rate locked at invoice creation.
   const postingAmount = Math.round(amount * fxScale * 100) / 100;
+
+  // FX gain/loss: when payment currency differs from base currency and live
+  // rates are available, revalue the cash receipt at today's rate. Any
+  // difference vs. the locked rate is a realized FX gain (credit REVENUE)
+  // or FX loss (debit EXPENSE).
+  const invoiceCurrency = invoice.currency || 'USD';
+  const tenant = await prisma.tenant.findUnique({ where: { id: tenantId } });
+  const baseCurrency = tenant?.baseCurrency || 'USD';
+  let cashPostingAmount = postingAmount; // default: use locked rate
+  let fxGainLoss = 0;
+  if (invoiceCurrency !== baseCurrency && fxRateService.isFxConfigured()) {
+    try {
+      const currentBaseAmount = await fxRateService.convertAmount(amount, invoiceCurrency, baseCurrency);
+      fxGainLoss = Math.round((currentBaseAmount - postingAmount) * 100) / 100;
+      cashPostingAmount = Math.round(currentBaseAmount * 100) / 100;
+    } catch {
+      // If live rate fetch fails, fall back to the locked rate silently.
+    }
+  }
 
   // Determine each levy's destination GL account and its share of this
   // payment's base-currency amount, merging levies that share a
@@ -149,11 +173,33 @@ export async function recordInvoicePayment(
     // whole payment transaction inside one fund by construction, so no
     // separate "guard against cross-fund posting" logic is needed anywhere.
     const lines: { accountId: string; debit: number; credit: number; description: string; fundId?: string }[] = [
-      { accountId: cashAcc.id, debit: postingAmount, credit: 0, description: `Cash Received - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined },
+      { accountId: cashAcc.id, debit: cashPostingAmount, credit: 0, description: `Cash Received - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined },
       ...taxLines,
     ];
     if (revenueAmount > 0.001) {
       lines.push({ accountId: revenueAcc.id, debit: 0, credit: revenueAmount, description: `Revenue - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+    }
+    // FX gain: credit REVENUE; FX loss: debit EXPENSE
+    if (Math.abs(fxGainLoss) > 0.001) {
+      if (fxGainLoss > 0) {
+        lines.push({ accountId: revenueAcc.id, debit: 0, credit: fxGainLoss, description: `FX Gain - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+      } else if (expenseAcc) {
+        lines.push({ accountId: expenseAcc.id, debit: -fxGainLoss, credit: 0, description: `FX Loss - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+      }
+    }
+
+    // COGS: recognize cost proportional to this payment's share of the invoice.
+    // Scaled by fxScale to convert native cost prices into base currency.
+    if (cogsAcc && invAcc && Array.isArray(invoice.items) && invoice.items.length > 0) {
+      const totalNativeCost = (invoice.items as any[]).reduce((sum: number, item: any) => {
+        if (!item.inventoryItemId || item.inventoryItem?.costPrice == null) return sum;
+        return sum + Number(item.inventoryItem.costPrice) * Number(item.quantity);
+      }, 0);
+      const cogsCost = Math.round(totalNativeCost * paymentShare * fxScale * 100) / 100;
+      if (cogsCost > 0.001) {
+        lines.push({ accountId: cogsAcc.id, debit: cogsCost, credit: 0, description: `COGS - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+        lines.push({ accountId: invAcc.id, debit: 0, credit: cogsCost, description: `Inventory - ${invoice.invoiceNumber}`, fundId: invoice.fundId || undefined });
+      }
     }
 
     const journal = await journalService.createJournalEntry(
