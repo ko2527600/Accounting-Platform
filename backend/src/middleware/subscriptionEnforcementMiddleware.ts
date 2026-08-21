@@ -21,6 +21,12 @@ export function computeSubscriptionState(
     return 'ACTIVE';
   }
 
+  // No trial end date set — tenant was created before trial tracking or via direct DB insert;
+  // allow through rather than blocking.
+  if (subscriptionStatus === 'TRIAL' && !trialEndsAt) {
+    return 'TRIAL';
+  }
+
   // Trial still running.
   if (trialEndsAt && trialEndsAt.getTime() > now) {
     return 'TRIAL';
