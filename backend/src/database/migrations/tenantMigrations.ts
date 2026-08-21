@@ -645,67 +645,76 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
     version: 17,
     name: '017_seed_payroll_gl_accounts',
     sql: `
-      -- Insert the four payroll-specific GL accounts that the Ghana SME
-      -- template now includes for new tenants. ON CONFLICT (code) means
-      -- tenants that already have these codes (e.g. after manually adding
-      -- them) are not affected. The fifth payroll account (Salaries & Wages
-      -- Expense, code 6020) was already part of the original template.
-      INSERT INTO accounts (id, code, name, type, is_active, is_cash_equivalent, is_fixed_asset, created_at, updated_at)
-      VALUES
-        (gen_random_uuid(), '2210', 'PAYE Tax Payable',           'LIABILITY', true, false, false, NOW(), NOW()),
-        (gen_random_uuid(), '2220', 'SSNIT Contributions Payable','LIABILITY', true, false, false, NOW(), NOW()),
-        (gen_random_uuid(), '2230', 'Net Pay Payable',            'LIABILITY', true, false, false, NOW(), NOW()),
-        (gen_random_uuid(), '6022', 'Employer SSNIT Contribution','EXPENSE',   true, false, false, NOW(), NOW())
-      ON CONFLICT (code) DO NOTHING;
-
-      -- Auto-designate the five payroll GL roles so postPayrollJournalEntry
-      -- can resolve them without manual setup. Guards skip roles that the
-      -- tenant has already designated (preserving their explicit choice).
+      -- Only backfill tenants who already seeded their chart of accounts.
+      -- Empty schemas (freshly provisioned tenants who haven't run the wizard
+      -- yet) are skipped entirely: they will receive the 4 new payroll accounts
+      -- from the updated Ghana SME template when they run the wizard, and the
+      -- wizard's own auto-designation loop will set the roles at that point.
+      -- This guard prevents migration 017 from pre-populating accounts into an
+      -- otherwise-empty schema, which would incorrectly mark chartOfAccountsReady
+      -- as true and cause the wizard's seed step to report fewer created accounts
+      -- than the template length (those 4 codes would already be occupied).
       DO $$
       BEGIN
-        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'SALARY_EXPENSE') THEN
-          UPDATE accounts SET default_role = 'SALARY_EXPENSE'
-          WHERE id = (
-            SELECT id FROM accounts
-            WHERE type = 'EXPENSE' AND (name ILIKE '%salar%' OR name ILIKE '%wage%' OR name ILIKE '%payroll%')
-            ORDER BY code ASC LIMIT 1
-          );
-        END IF;
+        IF EXISTS (SELECT 1 FROM accounts LIMIT 1) THEN
+          -- Insert the four payroll-specific GL accounts for existing tenants
+          -- that went through the wizard before these accounts were added to the
+          -- template. ON CONFLICT (code) skips any tenant who already has them.
+          INSERT INTO accounts (id, code, name, type, is_active, is_cash_equivalent, is_fixed_asset, created_at, updated_at)
+          VALUES
+            (gen_random_uuid(), '2210', 'PAYE Tax Payable',           'LIABILITY', true, false, false, NOW(), NOW()),
+            (gen_random_uuid(), '2220', 'SSNIT Contributions Payable','LIABILITY', true, false, false, NOW(), NOW()),
+            (gen_random_uuid(), '2230', 'Net Pay Payable',            'LIABILITY', true, false, false, NOW(), NOW()),
+            (gen_random_uuid(), '6022', 'Employer SSNIT Contribution','EXPENSE',   true, false, false, NOW(), NOW())
+          ON CONFLICT (code) DO NOTHING;
 
-        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'EMPLOYER_SSNIT_EXPENSE') THEN
-          UPDATE accounts SET default_role = 'EMPLOYER_SSNIT_EXPENSE'
-          WHERE id = (
-            SELECT id FROM accounts
-            WHERE type = 'EXPENSE' AND (name ILIKE '%ssnit%' OR name ILIKE '%social%' OR name ILIKE '%pension%')
-            ORDER BY code ASC LIMIT 1
-          );
-        END IF;
+          -- Auto-designate the five payroll GL roles so postPayrollJournalEntry
+          -- can resolve them without manual setup. Guards skip roles that the
+          -- tenant has already designated (preserving their explicit choice).
+          IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'SALARY_EXPENSE') THEN
+            UPDATE accounts SET default_role = 'SALARY_EXPENSE'
+            WHERE id = (
+              SELECT id FROM accounts
+              WHERE type = 'EXPENSE' AND (name ILIKE '%salar%' OR name ILIKE '%wage%' OR name ILIKE '%payroll%')
+              ORDER BY code ASC LIMIT 1
+            );
+          END IF;
 
-        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'PAYE_PAYABLE') THEN
-          UPDATE accounts SET default_role = 'PAYE_PAYABLE'
-          WHERE id = (
-            SELECT id FROM accounts
-            WHERE type = 'LIABILITY' AND (name ILIKE '%paye%' OR name ILIKE '%income tax%' OR name ILIKE '%tax payable%')
-            ORDER BY code ASC LIMIT 1
-          );
-        END IF;
+          IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'EMPLOYER_SSNIT_EXPENSE') THEN
+            UPDATE accounts SET default_role = 'EMPLOYER_SSNIT_EXPENSE'
+            WHERE id = (
+              SELECT id FROM accounts
+              WHERE type = 'EXPENSE' AND (name ILIKE '%ssnit%' OR name ILIKE '%social%' OR name ILIKE '%pension%')
+              ORDER BY code ASC LIMIT 1
+            );
+          END IF;
 
-        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'SSNIT_PAYABLE') THEN
-          UPDATE accounts SET default_role = 'SSNIT_PAYABLE'
-          WHERE id = (
-            SELECT id FROM accounts
-            WHERE type = 'LIABILITY' AND (name ILIKE '%ssnit%' OR name ILIKE '%social%' OR name ILIKE '%pension%')
-            ORDER BY code ASC LIMIT 1
-          );
-        END IF;
+          IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'PAYE_PAYABLE') THEN
+            UPDATE accounts SET default_role = 'PAYE_PAYABLE'
+            WHERE id = (
+              SELECT id FROM accounts
+              WHERE type = 'LIABILITY' AND (name ILIKE '%paye%' OR name ILIKE '%income tax%' OR name ILIKE '%tax payable%')
+              ORDER BY code ASC LIMIT 1
+            );
+          END IF;
 
-        IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'NET_PAY_PAYABLE') THEN
-          UPDATE accounts SET default_role = 'NET_PAY_PAYABLE'
-          WHERE id = (
-            SELECT id FROM accounts
-            WHERE type = 'LIABILITY' AND (name ILIKE '%net pay%' OR name ILIKE '%salaries payable%' OR name ILIKE '%wages payable%')
-            ORDER BY code ASC LIMIT 1
-          );
+          IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'SSNIT_PAYABLE') THEN
+            UPDATE accounts SET default_role = 'SSNIT_PAYABLE'
+            WHERE id = (
+              SELECT id FROM accounts
+              WHERE type = 'LIABILITY' AND (name ILIKE '%ssnit%' OR name ILIKE '%social%' OR name ILIKE '%pension%')
+              ORDER BY code ASC LIMIT 1
+            );
+          END IF;
+
+          IF NOT EXISTS (SELECT 1 FROM accounts WHERE default_role = 'NET_PAY_PAYABLE') THEN
+            UPDATE accounts SET default_role = 'NET_PAY_PAYABLE'
+            WHERE id = (
+              SELECT id FROM accounts
+              WHERE type = 'LIABILITY' AND (name ILIKE '%net pay%' OR name ILIKE '%salaries payable%' OR name ILIKE '%wages payable%')
+              ORDER BY code ASC LIMIT 1
+            );
+          END IF;
         END IF;
       END $$;
     `
