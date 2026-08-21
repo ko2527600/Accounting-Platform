@@ -4,9 +4,11 @@ import { tenantContextMiddleware } from '../middleware/tenantContextMiddleware';
 import { requireRole } from '../middleware/rbacMiddleware';
 import { requireTier } from '../middleware/tierEnforcementMiddleware';
 import { actorFromRequest } from '../services/auditLogService';
+import { requireTenantContext } from '../context/tenantContext';
 import * as payrollService from '../services/payrollService';
 import { PayrollServiceError } from '../services/payrollService';
 import { JournalEntryServiceError } from '../services/journalEntryService';
+import { generatePayslipPdf, generatePayrollRunPdf } from '../services/payslipPdfService';
 
 const router = Router();
 router.use(authenticateJwt);
@@ -111,6 +113,42 @@ router.post('/runs/:id/void', requireRole('Admin', 'Accountant'), async (req: Re
     res.json({ success: true });
   } catch (error) {
     handleError(res, error, 'Failed to void payroll run.');
+  }
+});
+
+// ── PDF Generation ────────────────────────────────────────────────────────
+
+/** GET /payroll/runs/:id/pdf  — full payroll run pack (one payslip per page) */
+router.get('/runs/:id/pdf', requireRole('Admin', 'Accountant', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantName } = requireTenantContext();
+    const run = await payrollService.getPayrollRun(req.params.id);
+    const pdfBuffer = await generatePayrollRunPdf(run, tenantName || 'Company');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="payroll-${run.runNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    handleError(res, error, 'Failed to generate payroll PDF.');
+  }
+});
+
+/** GET /payroll/runs/:runId/payslips/:payslipId/pdf  — single employee payslip */
+router.get('/runs/:runId/payslips/:payslipId/pdf', requireRole('Admin', 'Accountant', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantName } = requireTenantContext();
+    const run = await payrollService.getPayrollRun(req.params.runId);
+    const slip = (run.payslips || []).find((s) => s.id === req.params.payslipId);
+    if (!slip || !slip.employee) {
+      res.status(404).json({ success: false, error: 'Payslip not found.' });
+      return;
+    }
+    const pdfBuffer = await generatePayslipPdf(run, slip, slip.employee, tenantName || 'Company');
+    const name = `${slip.employee.firstName}-${slip.employee.lastName}`;
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="payslip-${name}-${run.runNumber}.pdf"`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    handleError(res, error, 'Failed to generate payslip PDF.');
   }
 });
 

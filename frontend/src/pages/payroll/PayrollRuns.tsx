@@ -4,7 +4,7 @@ import { Button } from "../../components/ui/Button";
 import { Modal } from "../../components/ui/Modal";
 import { api } from "../../lib/api";
 import { useToast } from "../../contexts/ToastContext";
-import { BadgeDollarSign, Plus, ChevronDown, ChevronUp, CheckCircle } from "lucide-react";
+import { BadgeDollarSign, Plus, ChevronDown, ChevronUp, CheckCircle, Download } from "lucide-react";
 
 interface Payslip {
   id: string;
@@ -133,6 +133,20 @@ export function PayrollRuns() {
 
   const years = Array.from({ length: 5 }, (_, i) => new Date().getFullYear() - 2 + i);
 
+  async function downloadPdf(url: string, filename: string) {
+    try {
+      const res = await api.get(url, { responseType: "blob" });
+      const blob = new Blob([res.data], { type: "application/pdf" });
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    } catch {
+      showToast("Failed to download PDF.", "error");
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -189,6 +203,14 @@ export function PayrollRuns() {
                         {postingId === run.id ? "Posting…" : "Post"}
                       </Button>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={(e) => { e.stopPropagation(); downloadPdf(`/payroll/runs/${run.id}/pdf`, `payroll-${run.runNumber}.pdf`); }}
+                      title="Download payroll run PDF"
+                    >
+                      <Download className="h-3.5 w-3.5" />
+                    </Button>
                   </div>
 
                   {expandedId === run.id && expandedRun && (
@@ -221,6 +243,7 @@ export function PayrollRuns() {
                             <th className="pb-2 font-semibold text-right">SSNIT (Emp)</th>
                             <th className="pb-2 font-semibold text-right">SSNIT (Er)</th>
                             <th className="pb-2 font-semibold text-right">Net Pay</th>
+                            <th className="pb-2" />
                           </tr>
                         </thead>
                         <tbody>
@@ -239,6 +262,19 @@ export function PayrollRuns() {
                               <td className="py-1.5 text-right font-mono text-secondary-600 dark:text-secondary-400">{fmt(slip.ssnitEmployee)}</td>
                               <td className="py-1.5 text-right font-mono text-secondary-600 dark:text-secondary-400">{fmt(slip.ssnitEmployer)}</td>
                               <td className="py-1.5 text-right font-mono font-semibold text-emerald-700 dark:text-emerald-400">{fmt(slip.netPay)}</td>
+                              <td className="py-1.5 pl-2">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => {
+                                    const name = slip.employee ? `${slip.employee.firstName}-${slip.employee.lastName}` : slip.employeeId;
+                                    downloadPdf(`/payroll/runs/${expandedRun.id}/payslips/${slip.id}/pdf`, `payslip-${name}-${expandedRun.runNumber}.pdf`);
+                                  }}
+                                  title="Download payslip PDF"
+                                >
+                                  <Download className="h-3 w-3" />
+                                </Button>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
