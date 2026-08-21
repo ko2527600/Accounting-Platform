@@ -91,7 +91,7 @@ describe('Account default-role resolution (fixes silent revenue/cash misposting)
   });
 
   describe('Live tenant: wizard-seeded Ghana SME template auto-designates correctly', () => {
-    const runId = Date.now();
+    const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     const tenantSlug = `default-role-corp-${runId}`;
     const tenantSchema = `tenant_default_role_corp_${runId}`;
     const adminEmail = `admin_defaultrole_${runId}@corp.com`;

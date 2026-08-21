@@ -8,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('KPI & Financial Ratio Dashboard', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `kpi-corp-${runId}`;
   const tenantSchema = `tenant_kpi_corp_${runId}`;
   const adminEmail = `admin_kpi_${runId}@corp.com`;

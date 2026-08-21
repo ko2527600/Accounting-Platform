@@ -55,7 +55,7 @@ function mockGraNetworkError() {
 }
 
 describe('GRA E-VAT clearance (real VSDC integration)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `gra-evat-corp-${runId}`;
   const tenantSchema = `tenant_gra_evat_corp_${runId}`;
   const adminEmail = `admin_gra_evat_${runId}@corp.com`;

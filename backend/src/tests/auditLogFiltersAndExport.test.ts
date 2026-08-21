@@ -8,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Audit Logs API - filtering and CSV export', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `audit-filter-corp-1-${runId}`;
   const tenant1Schema = `tenant_audit_filter_corp_1_${runId}`;
   const admin1Email = `admin_auditfilter1_${runId}@corp1.com`;

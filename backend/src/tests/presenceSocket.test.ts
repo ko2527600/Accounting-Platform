@@ -77,7 +77,7 @@ async function openSocketReady(url: string, attempts = 3): Promise<WebSocket> {
 }
 
 describe('Presence WebSocket (GET /ws/presence)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `presence-corp-1-${runId}`;
   const tenant1Schema = `tenant_presence_corp_1_${runId}`;
   const admin1Email = `presence_admin1_${runId}@corp1.com`;

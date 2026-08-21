@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Approval Workflows API (multi-level, opt-in posting/payment gate)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `approval-corp-1-${runId}`;
   const tenant1Schema = `tenant_approval_corp_1_${runId}`;
   const admin1Email = `admin_approval1_${runId}@corp1.com`;

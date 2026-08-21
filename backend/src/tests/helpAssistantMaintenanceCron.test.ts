@@ -9,7 +9,7 @@ import { HelpAssistantMaintenanceCronService } from '../services/helpAssistantMa
  * plain fabricated UUID is a realistic-enough tenantId for this test).
  */
 describe('HelpAssistantMaintenanceCronService.runRetentionJob', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantId = `11111111-1111-4111-8111-${String(runId).padStart(12, '0')}`;
 
   async function cleanup() {

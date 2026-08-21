@@ -8,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Inventory API - concurrent stock transfer safety', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `inv-corp-1-${runId}`;
   const tenantSchema = `tenant_inv_corp_1_${runId}`;
   const adminEmail = `admin_inv_${runId}@corp1.com`;
@@ -151,7 +151,7 @@ describe('Inventory API - concurrent stock transfer safety', () => {
     });
 
     it('reports a per-row failure (duplicate SKU) without discarding the other valid rows', async () => {
-      const dupSku = `DUP-${Date.now()}`;
+      const dupSku = `DUP-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 
       // Seed one item with this SKU first via the single-item endpoint.
       await request(app)

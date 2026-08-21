@@ -8,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Local-first sync pilot: transactional outbox + bootstrap/changes endpoints', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `sync-corp-1-${runId}`;
   const tenantSchema = `tenant_sync_corp_1_${runId}`;
   const adminEmail = `admin_sync_${runId}@corp1.com`;

@@ -28,7 +28,7 @@ function binary(req: request.Test): request.Test {
 }
 
 describe('Stock Take: printable blind-count sheets + reconciliation', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `stock-take-corp-${runId}`;
   const tenantSchema = `tenant_stock_take_corp_${runId}`;
   const adminEmail = `admin_stocktake_${runId}@corp.com`;

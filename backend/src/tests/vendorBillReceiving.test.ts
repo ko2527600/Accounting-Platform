@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Vendor Bills - itemized purchases (goods receipt) and landed cost allocation', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `vb-receiving-corp-${runId}`;
   const tenantSchema = `tenant_vb_receiving_corp_${runId}`;
   const adminEmail = `admin_vbreceiving_${runId}@corp.com`;

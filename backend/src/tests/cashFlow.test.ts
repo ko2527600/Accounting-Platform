@@ -23,7 +23,7 @@ function binary(req: request.Test): request.Test {
 }
 
 describe('Cash Flow Statement (indirect method)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `cashflow-corp-${runId}`;
   const tenantSchema = `tenant_cashflow_corp_${runId}`;
   const adminEmail = `admin_cashflow_${runId}@corp.com`;

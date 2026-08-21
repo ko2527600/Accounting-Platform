@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Funds API (CRUD, tenant isolation, delete-guard against real references)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `fund-corp-1-${runId}`;
   const tenant1Schema = `tenant_fund_corp_1_${runId}`;
   const admin1Email = `admin_fund1_${runId}@corp1.com`;

@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Petty Cash logs', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `pettycash-corp-${runId}`;
   const tenantSchema = `tenant_pettycash_corp_${runId}`;
   const adminEmail = `admin_pettycash_${runId}@corp.com`;

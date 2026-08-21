@@ -10,7 +10,7 @@ import { generateJwtToken } from '../utils/jwt';
 import { hashPassword } from '../utils/password';
 
 describe('Cash Till API - concurrent sale safety', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `till-corp-1-${runId}`;
   const tenantSchema = `tenant_till_corp_1_${runId}`;
   const adminEmail = `admin_till_${runId}@corp1.com`;

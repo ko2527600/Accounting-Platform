@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('AP/AR Aging Analysis', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `aging-corp-${runId}`;
   const tenantSchema = `tenant_aging_corp_${runId}`;
   const adminEmail = `admin_aging_${runId}@corp.com`;

@@ -9,7 +9,7 @@ import { deleteUserByEmail, ensureUserTableExists, createUser } from '../reposit
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('PUT /api/v1/tenants/members/:id/role - change an existing team member role', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `role-change-corp-${runId}`;
   const tenantSchema = `tenant_role_change_corp_${runId}`;
   const adminEmail = `admin_rolechange_${runId}@corp.com`;

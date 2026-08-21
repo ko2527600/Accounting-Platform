@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Feedback (every role can submit, Admin/Auditor review)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `feedback-corp-${runId}`;
   const tenantSchema = `tenant_feedback_corp_${runId}`;
   const adminEmail = `admin_feedback_${runId}@corp.com`;

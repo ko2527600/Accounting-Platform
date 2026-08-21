@@ -17,7 +17,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * filtering every query by it.
  */
 describe('Tenant isolation for business tables (Invoices, Warehouses, Notifications)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `iso-corp-1-${runId}`;
   const tenant1Schema = `tenant_iso_corp_1_${runId}`;
   const admin1Email = `admin_iso1_${runId}@corp1.com`;

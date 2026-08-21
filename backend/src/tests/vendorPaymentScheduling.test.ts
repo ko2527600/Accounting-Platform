@@ -8,7 +8,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
 import { VendorPaymentSchedulingCronService } from '../services/vendorPaymentSchedulingCronService';
 
 describe('Automated vendor payment scheduling', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `vps-corp-${runId}`;
   const tenantSchema = `tenant_vps_corp_${runId}`;
   const adminEmail = `admin_vps_${runId}@corp.com`;

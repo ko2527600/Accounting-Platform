@@ -8,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Expense Claims (submit / approve / reject / reimburse)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `expense-corp-${runId}`;
   const tenantSchema = `tenant_expense_corp_${runId}`;
   const adminEmail = `admin_expense_${runId}@corp.com`;

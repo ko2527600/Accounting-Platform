@@ -19,7 +19,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * returned `suggestion: null`.
  */
 describe('Payment posting & AI categorization - real Chart of Accounts lookup', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `pay-post-corp-${runId}`;
   const tenantSchema = `tenant_pay_post_corp_${runId}`;
   const adminEmail = `admin_paypost_${runId}@corp.com`;

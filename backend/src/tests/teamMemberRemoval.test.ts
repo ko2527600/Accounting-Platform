@@ -9,7 +9,7 @@ import { deleteUserByEmail, ensureUserTableExists, createUser } from '../reposit
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('DELETE /api/v1/tenants/members/:id - remove an existing team member', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `member-removal-corp-${runId}`;
   const tenantSchema = `tenant_member_removal_corp_${runId}`;
   const adminEmail = `admin_removal_${runId}@corp.com`;

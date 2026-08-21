@@ -5,7 +5,7 @@ import { logger } from '../utils/logger';
 import { recordAuditLog, actorFromRequest, diffFields } from '../services/auditLogService';
 
 describe('auditLogService', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantId = `audit-svc-tenant-${runId}`;
 
   afterAll(async () => {

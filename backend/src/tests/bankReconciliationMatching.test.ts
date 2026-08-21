@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Bank reconciliation matching logic (GET suggestions / POST reconcile validation)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `bankrec-corp-${runId}`;
   const tenantSchema = `tenant_bankrec_corp_${runId}`;
   const adminEmail = `admin_bankrec_${runId}@corp.com`;

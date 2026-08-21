@@ -48,7 +48,7 @@ function generateTestTotpCode(secret: string, stepOffset = 0): string {
 }
 
 describe('MFA / TOTP login', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `mfa-corp-${runId}`;
   const tenantSchema = `tenant_mfa_corp_${runId}`;
   const adminEmail = `mfa_admin_${runId}@corp.com`;

@@ -21,7 +21,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * deliberately NOT granted this access - only Shop Manager asked for it.
  */
 describe('Shop Manager: invoice and vendor bill access', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `sm-invoicing-corp-${runId}`;
   const tenantSchema = `tenant_sm_invoicing_corp_${runId}`;
   const adminEmail = `admin_sminv_${runId}@corp.com`;

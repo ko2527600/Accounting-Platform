@@ -8,7 +8,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('GET /api/v1/admin/audit-logs (platform-wide, passcode-gated)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `adminaudit-corp-1-${runId}`;
   const tenant1Schema = `tenant_adminaudit_corp_1_${runId}`;
   const admin1Email = `admin_adminaudit1_${runId}@corp1.com`;

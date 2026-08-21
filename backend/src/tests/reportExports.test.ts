@@ -24,7 +24,7 @@ function binary(req: request.Test): request.Test {
 }
 
 describe('Real PDF/Word/CSV export for reports (replaces window.print() and fake CSV data)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `report-export-corp-${runId}`;
   const tenantSchema = `tenant_report_export_corp_${runId}`;
   const adminEmail = `admin_reportexport_${runId}@corp.com`;

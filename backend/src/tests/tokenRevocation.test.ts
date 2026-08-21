@@ -5,7 +5,7 @@ import { redis } from '../config/redis';
 import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepository';
 
 describe('Token revocation (logout)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const password = 'Password123!';
   const emails: string[] = [];
 

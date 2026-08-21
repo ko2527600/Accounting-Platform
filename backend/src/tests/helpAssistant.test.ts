@@ -17,7 +17,7 @@ const mockedAxios = axios as jest.Mocked<typeof axios>;
  * Anthropic's API. Mirrors paystack.test.ts's mocked-axios pattern.
  */
 describe('Help Assistant (in-app AI help widget)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `help-assistant-corp-${runId}`;
   const tenantSchema = `tenant_help_assistant_corp_${runId}`;
   const adminEmail = `admin_helpassistant_${runId}@corp.com`;

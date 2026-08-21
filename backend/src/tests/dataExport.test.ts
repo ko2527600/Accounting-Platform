@@ -20,7 +20,7 @@ function binary(req: request.Test): request.Test {
 }
 
 describe('Full tenant data export (Phase 2 trust feature - no paywall, no cooldown)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `data-export-corp-${runId}`;
   const tenantSchema = `tenant_data_export_corp_${runId}`;
   const adminEmail = `admin_dataexport_${runId}@corp.com`;

@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Auto-generate Purchase Orders on reorder threshold', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `reorder-corp-${runId}`;
   const tenantSchema = `tenant_reorder_corp_${runId}`;
   const adminEmail = `admin_reorder_${runId}@corp.com`;

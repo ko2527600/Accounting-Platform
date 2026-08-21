@@ -10,7 +10,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Cash Sale Void - manager-authorized void with stock/till reversal', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `void-corp-${runId}`;
   const tenantSchema = `tenant_void_corp_${runId}`;
   const adminEmail = `admin_void_${runId}@corp.com`;

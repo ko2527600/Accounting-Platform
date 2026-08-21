@@ -7,7 +7,7 @@ import { deleteUserByEmail, ensureUserTableExists } from '../repository/userRepo
 import { dropTenantSchema } from '../database/tenantSchemaManager';
 
 describe('Invoices - partial payments (Accounts Receivable)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenantSlug = `ar-partial-corp-${runId}`;
   const tenantSchema = `tenant_ar_partial_corp_${runId}`;
   const adminEmail = `admin_arpartial_${runId}@corp.com`;

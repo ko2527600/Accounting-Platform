@@ -43,7 +43,7 @@ function mockMonoSuccess(monoAccountId: string) {
 }
 
 describe('Banking API (POST /connect via Mono, GET /accounts, GET /transactions, POST /reconcile)', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `bank-corp-1-${runId}`;
   const tenant1Schema = `tenant_bank_corp_1_${runId}`;
   const admin1Email = `admin_bank1_${runId}@corp1.com`;

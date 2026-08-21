@@ -16,7 +16,7 @@ import { dropTenantSchema } from '../database/tenantSchemaManager';
  * Auditor-role user in any tenant.
  */
 describe('Audit Logs API - tenant isolation', () => {
-  const runId = Date.now();
+  const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const tenant1Slug = `audit-corp-1-${runId}`;
   const tenant1Schema = `tenant_audit_corp_1_${runId}`;
   const admin1Email = `admin_audit1_${runId}@corp1.com`;
