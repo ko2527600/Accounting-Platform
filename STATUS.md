@@ -2,6 +2,22 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Advanced Automation: Real Cross-App Search + Receipt OCR
+
+**What/Why:** Closed two automation gaps flagged in the Ghana market research as baseline competitive features: (1) The header search bar's placeholder ("Search accounts, entries, reports…") over-promised relative to what `CommandMenu.tsx` actually did (static navigation shortcuts only — a "copy-honesty issue" the research named explicitly). Built real cross-entity keyword search instead of just fixing the copy. (2) Expense Receipt OCR — `ExpenseClaim` was pure manual data entry with no image-processing capability at all; added Claude vision OCR to pre-fill the expense form from a photo of a receipt. Closes "Implement advanced automation features (w:8)".
+
+**Changes:**
+- **`backend/src/routes/search.ts`** (NEW) — `GET /api/v1/search?q=` endpoint. Returns ≤5 results per entity type: Customers/Invoices/Vendors/InventoryItems from the main schema (tenantId-filtered), Accounts/JournalEntries from per-tenant schemas (via `withCurrentTenantDb`). Minimum 2 chars required. Requires `requireRole('Viewer')`. Results include `type, id, title, subtitle, href` for the frontend to navigate to the right page.
+- **`backend/src/routes/ocr.ts`** (NEW) — `POST /api/v1/ocr/receipt`. Accepts `{ imageBase64, mimeType }`, validates MIME type (JPEG/PNG/GIF/WebP) and size (≤5 MB base64), calls Anthropic claude-haiku-4-5-20251001 vision API with a structured extraction prompt, returns `{ vendor, amount, date, description, category }` (null for any field Claude cannot read). 503 if `ANTHROPIC_API_KEY` not configured; 429 on Anthropic rate limit.
+- **`backend/src/app.ts`** — Mounts `searchRouter` at `/api/v1/search` and `ocrRouter` at `/api/v1/ocr`.
+- **`frontend/src/components/ui/CommandMenu.tsx`** — Extended from navigation-shortcuts-only to real data search. New `useDebounce` hook (280ms); on every input change ≥2 chars fires `GET /api/v1/search?q=`. Results shown in a "SEARCH RESULTS" group above nav shortcuts; each result has a colour-coded type badge (Customer=blue, Invoice=emerald, Vendor=orange, Item=purple, Account=amber, Journal=rose) and its source icon. Spinner shows while fetching. `shouldFilter={!hasQuery}` disables cmdk's own client-side filtering when showing real server results. Menu state (query, results) resets on close.
+- **`frontend/src/pages/expenses/ExpenseClaims.tsx`** — Added "Scan Receipt" button to the "File a New Claim" card. Hidden `<input type="file" accept="image/*">` reads the selected image via `FileReader.readAsDataURL`, strips the data-URL prefix, and POSTs to `/api/v1/ocr/receipt`. On success auto-fills `category` (OCR vendor/category), `description` (OCR vendor + description), `amount`, and `expenseDate`. Loading spinner on the button while OCR is processing; toast on success prompting the user to review the pre-filled values. File input reset after each scan so the same file can be re-scanned.
+- **`frontend/src/components/layout/Header.tsx`** — Search bar placeholder changed from "Quick navigation... (Cmd+K)" to "Search or navigate… (Cmd+K)" to accurately describe the real capability.
+
+**Files changed:** `backend/src/routes/search.ts` (new), `backend/src/routes/ocr.ts` (new), `backend/src/app.ts`, `frontend/src/components/ui/CommandMenu.tsx`, `frontend/src/pages/expenses/ExpenseClaims.tsx`, `frontend/src/components/layout/Header.tsx`
+
+---
+
 ## [Date: 2026-08-21] - Analytics Dashboard (`/reports/analytics`)
 
 **What/Why:** All existing reports were point-in-time or single-period tabular views — no time-series trend visualization, no top-customer/top-item analytics. Closes the final open task "Develop advanced reporting and analytics dashboards" (w:10).
