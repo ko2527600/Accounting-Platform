@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Landing Page Full Redesign & Pricing Alignment
+
+**What/Why:** Full overhaul of LandingPage.tsx — redesigned hero, aligned pricing tier names with the actual backend (`Shop/Business/Enterprise` replacing the old `Starter/Professional/Enterprise` labels), added team seat limits (3/10/unlimited) from `TENANT_PLANS` to each pricing card, introduced a complete feature list per tier matching `requireTier` enforcement in the routes, added an interactive accordion FAQ (replacing static cards), added a final CTA section, and fixed a factual error in the SMS FAQ (alerts are available on all plans, not just Professional+). Step icons in onboarding now use Lucide. Added `mailto` fallback for Enterprise contact CTA.
+
+**Changes:**
+- **`frontend/src/pages/landing/LandingPage.tsx`** — Full rewrite: new hero copy with radial glow, stat strip with correct plan names; pricing section with `PRICING_PLANS` data array (Shop/Business/Enterprise, seats, per-tier feature lists); accordion FAQ with `openFaqIndex` state; added final CTA section; removed unused imports, added `ChevronDown`, `Users`, `Zap`, `Building2`.
+
+---
+
 ## [Date: 2026-08-21] - Fix: Invoice PDF Download Now Uses Authenticated Blob Fetch
 
 **What/Why:** Invoice PDF download was broken because it used a direct `<a href>` link to `/api/v1/invoices/:id/pdf`, which cannot send the JWT `Authorization` header. The backend PDF endpoint requires authentication, so unauthenticated direct anchor requests always failed. Fixed by replacing the anchor with a `handleDownloadPdf` async function that fetches the PDF as a blob via the authenticated `api` axios instance, then creates an object URL and triggers a programmatic download — the same pattern already used for audit log CSV export in AdminCoreEngine.
