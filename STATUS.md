@@ -2,6 +2,28 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Workspace Mode Selector and Guided Daily Operations Panel
+
+**What/Why:** User provided a Business Fit and Usability Report recommending that Ledgio stop presenting every accounting feature to every customer. A retail shop owner or cashier should feel like they bought a simple shop-management tool — not an ERP — while an accountant still sees the full professional workspace. Implemented the report's core UX recommendations as a frontend-only change (no backend changes required).
+
+**Changes:**
+
+- **`frontend/src/contexts/WorkspaceModeContext.tsx`** (new) — `WorkspaceMode` type (`'operations' | 'business' | 'professional'`), React context with `mode`/`setMode`, stored in `localStorage` as `ledgio-workspace-mode`. Auto-defaults by role: Cashier/Shop Manager → Simple (operations), Accountant/Auditor → Full (professional), everyone else → Business.
+
+- **`frontend/src/lib/navigation.ts`** — Added `OPERATIONS_HIDDEN` (24 hrefs hidden in Simple mode: journals, chart of accounts, bank feeds, tax config, fiscal periods, fixed assets, budgets, audit trail, most reports, payroll), `BUSINESS_HIDDEN` (7 hrefs: fiscal periods, recurring transactions, ledger, fixed assets, audit trail, AI activity, bulk import), `MODE_LABELS` (per-href display name overrides: "Invoices (AR)" → "Credit Sales" in Simple, "Supplier Bills" in Simple/Business, "Restock Orders" for purchase orders, etc.), `MODE_SECTION_TITLES` (section header overrides: "INVENTORY & GODOWNS" → "PRODUCTS & STOCK" in Simple). Extended `getVisibleNavGroups()` with optional `mode` parameter; restricted roles (Cashier etc.) bypass mode filtering since their nav is already role-fixed.
+
+- **`frontend/src/components/layout/Sidebar.tsx`** — Consumes `useWorkspaceMode()`; passes mode to `getVisibleNavGroups()`; adds a 3-pill "View" toggle (Simple / Business / Full) above the Settings link in the sidebar footer. Hidden for restricted roles.
+
+- **`frontend/src/components/layout/MainLayout.tsx`** — Wraps layout tree with `WorkspaceModeProvider` (inside `MainLayout` so it has access to `AuthContext` through `ProtectedRoute`).
+
+- **`frontend/src/components/ui/CommandMenu.tsx`** — Passes mode to `getVisibleNavGroups()` so Cmd+K only surfaces pages visible in the current workspace mode, keeping keyboard nav consistent with the sidebar.
+
+- **`frontend/src/App.tsx`** — Added `GuidedOperationsPanel` (the "What happened today?" quick-action grid from the report): 8 colour-coded tiles in Simple mode (Made a sale → /pos, Received stock → /purchase-orders, Paid a supplier → /bills, Customer paid me → /invoices, Paid an expense → /expenses, Moved stock → /inventory, Counted stock → /inventory, View today's sales → /reports/executive), 9 in Business mode (adds Create invoice). Shown on Dashboard for non-restricted roles in Simple and Business modes; hidden in Full mode. Dashboard header subtitle adapts to current mode. "New Voucher" button only appears in Full mode (accounting-centric shortcut irrelevant to retail operators).
+
+**Files affected:** `frontend/src/contexts/WorkspaceModeContext.tsx` (new), `frontend/src/lib/navigation.ts`, `frontend/src/components/layout/Sidebar.tsx`, `frontend/src/components/layout/MainLayout.tsx`, `frontend/src/components/ui/CommandMenu.tsx`, `frontend/src/App.tsx`
+
+---
+
 ## [Date: 2026-08-21] - Budget Alerts, GRA E-invoicing PDF, WhatsApp POS Receipt
 
 **What/Why:** Three platform upgrades requested as part of the payroll feature roadmap: (6) in-app budget variance alerts when spend crosses 80%/100% of budget; (7) downloadable GRA-cleared invoice PDFs with embedded QR code and clearance badge; (8) WhatsApp receipt delivery to customers after POS cash sales via Twilio.
