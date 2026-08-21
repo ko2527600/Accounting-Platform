@@ -50,6 +50,7 @@ const FeedbackInbox = lazy(() => import("./pages/feedback/FeedbackInbox").then(m
 const BulkImportWizard = lazy(() => import("./pages/import/BulkImportWizard").then(m => ({ default: m.BulkImportWizard })));
 const BankReconciliation = lazy(() => import("./pages/banking/BankReconciliation").then(m => ({ default: m.BankReconciliation })));
 const Invoices = lazy(() => import("./pages/invoices/Invoices").then(m => ({ default: m.Invoices })));
+const Customers = lazy(() => import("./pages/customers/Customers").then(m => ({ default: m.Customers })));
 const VendorBills = lazy(() => import("./pages/bills/VendorBills").then(m => ({ default: m.VendorBills })));
 const WarehouseManagement = lazy(() => import("./pages/inventory/WarehouseManagement").then(m => ({ default: m.WarehouseManagement })));
 const PointOfSale = lazy(() => import("./pages/pos/PointOfSale").then(m => ({ default: m.PointOfSale })));

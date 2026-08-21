@@ -46,6 +46,7 @@ import recurringTransactionsRouter from './routes/recurringTransactions';
 import approvalWorkflowsRouter from './routes/approvalWorkflows';
 import adminAuditLogsRouter from './routes/adminAuditLogs';
 import adminIntegrationsRouter from './routes/adminIntegrations';
+import adminFeedbackRouter from './routes/adminFeedback';
 import expenseClaimsRouter from './routes/expenseClaims';
 import syncRouter from './routes/sync';
 import dataExportRouter from './routes/dataExport';
@@ -231,6 +232,7 @@ app.use('/api/v1/recurring-transactions', recurringTransactionsRouter);
 app.use('/api/v1/approval-workflows', approvalWorkflowsRouter);
 app.use('/api/v1/admin/audit-logs', adminAuditLogsRouter);
 app.use('/api/v1/admin/integrations', adminIntegrationsRouter);
+app.use('/api/v1/admin/feedback', adminFeedbackRouter);
 
 // Employee Expense Claims (submit/approve/reimburse) endpoints
 app.use('/api/v1/expense-claims', expenseClaimsRouter);

@@ -90,7 +90,7 @@ export function FeedbackWidget() {
         aria-label={isOpen ? "Close feedback panel" : "Send feedback"}
         aria-expanded={isOpen}
         aria-haspopup="dialog"
-        className="fixed bottom-6 left-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-secondary-800 text-white shadow-lg hover:bg-secondary-900 transition-colors dark:bg-secondary-700 dark:hover:bg-secondary-600"
+        className="fixed bottom-6 left-6 md:left-[17rem] z-40 flex h-14 w-14 items-center justify-center rounded-full bg-secondary-800 text-white shadow-lg hover:bg-secondary-900 transition-colors dark:bg-secondary-700 dark:hover:bg-secondary-600"
       >
         {isOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <MessageSquarePlus className="h-6 w-6" aria-hidden="true" />}
       </button>
@@ -102,7 +102,7 @@ export function FeedbackWidget() {
           aria-modal="true"
           aria-labelledby="feedback-panel-title"
           onKeyDown={handlePanelKeyDown}
-          className="fixed bottom-24 left-6 z-40 flex w-96 max-w-[calc(100vw-3rem)] flex-col rounded-xl border border-secondary-200 bg-white shadow-2xl dark:border-secondary-800 dark:bg-secondary-900"
+          className="fixed bottom-24 left-6 md:left-[17rem] z-40 flex w-96 max-w-[calc(100vw-3rem)] flex-col rounded-xl border border-secondary-200 bg-white shadow-2xl dark:border-secondary-800 dark:bg-secondary-900"
         >
           <div className="flex items-center justify-between border-b border-secondary-200 px-4 py-3 dark:border-secondary-800">
             <h2 id="feedback-panel-title" className="font-semibold text-secondary-900 dark:text-secondary-50">Send Feedback</h2>
