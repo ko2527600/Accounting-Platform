@@ -206,6 +206,11 @@ export async function createJournalEntry(data: CreateJournalEntryInput, actor?: 
     return entry;
   });
 
+  if (entry.status === 'POSTED') {
+    const { tenantId } = requireTenantContext();
+    void invalidateReportCache(tenantId);
+  }
+
   return entry;
 }
 
