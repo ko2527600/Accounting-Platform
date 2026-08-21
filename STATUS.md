@@ -2,6 +2,34 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Security Hardening: Frontend Audit Fixes (Passcode Headers, WS Tickets, POS Offline Clear, Error Boundary)
+
+**What/Why:** Implemented all high and medium priority findings from the Frontend Security Audit. Four categories of work: (1) admin passcode removed from URL query params, (2) JWT bearer token removed from WebSocket URL, (3) POS offline IndexedDB now cleared on logout, (4) React error boundary added to prevent blank-screen crashes.
+
+**Changes:**
+
+- **`backend/src/routes/sync.ts`** — Added `POST /api/v1/sync/ticket`: exchanges a valid JWT session (already authenticated via `authenticateJwt` + `tenantContextMiddleware`) for a 30-second single-use Redis ticket. Stores `{ tenantId, userId, name, email, role }` in Redis as `ws-ticket:<hex>` with 30s TTL.
+
+- **`backend/src/websocket/syncSocketServer.ts`** — WS connection handler now accepts `?ticket=<ticket>` (preferred) in addition to the legacy `?token=<jwt>` fallback. Ticket is atomically fetched and deleted via a Redis pipeline (one-time use). Added `redis` import.
+
+- **`backend/src/websocket/presenceSocketServer.ts`** — Same ticket-first auth as syncSocketServer. Ticket payload carries user profile fields (`name`, `email`, `role`) needed by `markOnline()`. Added `redis` import.
+
+- **`backend/src/routes/adminBroadcast.ts`** — Both `POST /verify-passcode` and `POST /send` now read passcode from `x-admin-passcode` header first, then `req.body.passcode` as fallback (already committed in prior session).
+
+- **`frontend/src/lib/syncEngine.ts`** — `connectSyncSocket(token)` now fetches a ticket from `POST /sync/ticket` before opening the WebSocket; URL uses `?ticket=` instead of `?token=`. Reconnect logic unchanged (token is retained in closure to fetch a fresh ticket on each reconnect).
+
+- **`frontend/src/lib/presenceSocket.ts`** — Same ticket-first pattern as syncEngine. Added `api` import alongside existing `API_BASE_URL`.
+
+- **`frontend/src/lib/offlineDb.ts`** — Added `clearPosOfflineData()`: clears all four POS offline stores (`catalogSnapshot`, `pendingSales`, `tillSnapshot`, `warehousesSnapshot`) in parallel.
+
+- **`frontend/src/hooks/useSyncEngineLifecycle.ts`** — On logout, now also calls `clearPosOfflineData()` alongside `resetLocalSyncData()`, so both the sync engine DB and POS offline DB are wiped. Fixes the shared-device data leakage gap.
+
+- **`frontend/src/pages/admin/AdminCoreEngine.tsx`** — All admin API calls now send the passcode as `x-admin-passcode` header instead of URL query param (`{ params: { passcode } }` → `{ headers: { 'x-admin-passcode': passcode } }`). Affects: `GET /admin/integrations`, `GET /tenants`, `PUT /tenants/:id/tier`, `GET /admin/audit-logs`, `GET /admin/audit-logs/meta/values`, `GET /admin/audit-logs/export`, `POST /admin/broadcast/verify-passcode`, `POST /admin/broadcast/send`, `POST /tenants/admin-onboard`. `buildAuditLogParams()` no longer injects `passcode` into the params object.
+
+- **`frontend/src/App.tsx`** — Added `ErrorBoundary` class component (React `Component` subclass with `getDerivedStateFromError` + `componentDidCatch`). Wraps the entire `App` render tree so any rendering exception shows a recoverable "Something went wrong" screen with a Reload button instead of a blank page.
+
+## [Date: 2026-08-21] - Registration UX Quick Wins: GHS Default, Company Name First, Visual Org-Type Picker
+
 ## [Date: 2026-08-21] - RBAC Hardening: 14-Role Model, Default-Deny, Segregation of Duties
 
 **What/Why:** Implemented the Permissions & RBAC Benchmark recommendations. The existing system had a critical security gap: unrecognized role strings (e.g. "Intern", "Store Clerk", or a typo) fell through to `return true`, giving them full operational access. Expanded from 5 to 14 typed roles with a default-deny policy and role implication for proper segregation of duties.

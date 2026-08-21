@@ -9,7 +9,7 @@ const router = Router();
  */
 router.post('/verify-passcode', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { passcode } = req.body;
+    const passcode = (req.headers['x-admin-passcode'] as string | undefined) || req.body?.passcode;
 
     if (!passcode) {
       res.status(400).json({ success: false, error: 'Master passcode is required.' });
@@ -35,7 +35,8 @@ router.post('/verify-passcode', async (req: Request, res: Response): Promise<voi
  */
 router.post('/send', async (req: Request, res: Response): Promise<void> => {
   try {
-    const { passcode, subject, message, channel, targetTier } = req.body;
+    const passcode = (req.headers['x-admin-passcode'] as string | undefined) || req.body?.passcode;
+    const { subject, message, channel, targetTier } = req.body;
 
     if (!passcode || !subject || !message) {
       res.status(400).json({ success: false, error: 'Passcode, subject, and message are required.' });

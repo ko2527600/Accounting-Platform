@@ -229,50 +229,57 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 let reconnectDelayMs = 1000;
 const MAX_RECONNECT_DELAY_MS = 30000;
 
-function wsUrl(token: string): string {
+function wsUrl(ticket: string): string {
   const httpUrl = new URL(API_BASE_URL);
   const wsProtocol = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${wsProtocol}//${httpUrl.host}/ws/sync?token=${encodeURIComponent(token)}`;
+  return `${wsProtocol}//${httpUrl.host}/ws/sync?ticket=${encodeURIComponent(ticket)}`;
 }
 
-/** Opens (or re-opens) the live push connection for the given session - call on login and whenever the token changes; disconnectSyncSocket() tears it down on logout. */
+/** Opens (or re-opens) the live push connection for the given session - call on login and whenever the token changes; disconnectSyncSocket() tears it down on logout. Fetches a short-lived single-use ticket first so the bearer token never appears in the WS URL (and therefore never in server/proxy logs). */
 export function connectSyncSocket(token: string): void {
   disconnectSyncSocket();
 
-  try {
-    socket = new WebSocket(wsUrl(token));
-  } catch {
-    scheduleReconnect(token);
-    return;
-  }
+  api.post('/sync/ticket')
+    .then((res) => {
+      const ticket = res.data?.data?.ticket as string | undefined;
+      if (!ticket) { scheduleReconnect(token); return; }
 
-  socket.onopen = () => {
-    reconnectDelayMs = 1000;
-    // A message could have been missed between the last known sequence and
-    // this connection actually establishing - always catch up on connect,
-    // not just on the very first bootstrap.
-    catchUpSync().catch(() => {});
-    flushOutbox().catch(() => {});
-  };
+      try {
+        socket = new WebSocket(wsUrl(ticket));
+      } catch {
+        scheduleReconnect(token);
+        return;
+      }
 
-  socket.onmessage = (event) => {
-    try {
-      const entry = JSON.parse(event.data);
-      applyChangeEntry(entry).catch(() => {});
-    } catch {
-      // Malformed push - ignore it, the next /sync/changes catch-up will
-      // still pick up the real state.
-    }
-  };
+      socket.onopen = () => {
+        reconnectDelayMs = 1000;
+        // A message could have been missed between the last known sequence and
+        // this connection actually establishing - always catch up on connect,
+        // not just on the very first bootstrap.
+        catchUpSync().catch(() => {});
+        flushOutbox().catch(() => {});
+      };
 
-  socket.onclose = () => {
-    socket = null;
-    scheduleReconnect(token);
-  };
+      socket.onmessage = (event) => {
+        try {
+          const entry = JSON.parse(event.data);
+          applyChangeEntry(entry).catch(() => {});
+        } catch {
+          // Malformed push - ignore it, the next /sync/changes catch-up will
+          // still pick up the real state.
+        }
+      };
 
-  socket.onerror = () => {
-    socket?.close();
-  };
+      socket.onclose = () => {
+        socket = null;
+        scheduleReconnect(token);
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    })
+    .catch(() => scheduleReconnect(token));
 }
 
 function scheduleReconnect(token: string): void {

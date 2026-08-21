@@ -96,23 +96,43 @@ export function initSyncSocketServer(httpServer: HttpServer): void {
 
   wss.on('connection', async (socket: WebSocket, request) => {
     const url = new URL(request.url || '', 'http://localhost');
-    const token = url.searchParams.get('token');
+    const ticket = url.searchParams.get('ticket');
+    const tokenParam = url.searchParams.get('token');
 
-    if (!token) {
-      socket.close(4001, 'Missing token');
+    if (!ticket && !tokenParam) {
+      socket.close(4001, 'Missing credentials');
       return;
     }
 
     let tenantId: string;
     try {
-      const payload = await verifyJwtToken(token);
-      if (!payload.tenantId) {
-        socket.close(4003, 'Token has no tenant');
-        return;
+      if (ticket) {
+        // One-time ticket: atomically fetch+delete so each ticket works once.
+        const pipeline = redis.pipeline();
+        pipeline.get(`ws-ticket:${ticket}`);
+        pipeline.del(`ws-ticket:${ticket}`);
+        const results = await pipeline.exec();
+        const raw = results?.[0]?.[1] as string | null;
+        if (!raw) {
+          socket.close(4001, 'Invalid or expired ticket');
+          return;
+        }
+        const data = JSON.parse(raw);
+        if (!data.tenantId) {
+          socket.close(4003, 'Ticket has no tenant');
+          return;
+        }
+        tenantId = data.tenantId;
+      } else {
+        const payload = await verifyJwtToken(tokenParam!);
+        if (!payload.tenantId) {
+          socket.close(4003, 'Token has no tenant');
+          return;
+        }
+        tenantId = payload.tenantId;
       }
-      tenantId = payload.tenantId;
     } catch {
-      socket.close(4001, 'Invalid or expired token');
+      socket.close(4001, 'Invalid or expired credentials');
       return;
     }
 

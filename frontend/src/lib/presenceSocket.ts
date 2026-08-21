@@ -1,4 +1,4 @@
-import { API_BASE_URL } from './api';
+import { api, API_BASE_URL } from './api';
 
 export interface OnlineUser {
   userId: string;
@@ -22,10 +22,10 @@ function notifyListeners(): void {
   for (const listener of listeners) listener(latestRoster);
 }
 
-function wsUrl(token: string): string {
+function wsUrl(ticket: string): string {
   const httpUrl = new URL(API_BASE_URL);
   const wsProtocol = httpUrl.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${wsProtocol}//${httpUrl.host}/ws/presence?token=${encodeURIComponent(token)}`;
+  return `${wsProtocol}//${httpUrl.host}/ws/presence?ticket=${encodeURIComponent(ticket)}`;
 }
 
 /**
@@ -36,43 +36,52 @@ function wsUrl(token: string): string {
  * protocol (no offline queue, no catch-up endpoint needed) - the server
  * rebroadcasts the full online roster on every connect/disconnect, so a
  * client that missed a message just gets the next one.
+ * Fetches a short-lived single-use ticket first so the bearer token never
+ * appears in the WS URL (and therefore never in server/proxy logs).
  */
 export function connectPresenceSocket(token: string): void {
   disconnectPresenceSocket();
 
-  try {
-    socket = new WebSocket(wsUrl(token));
-  } catch {
-    scheduleReconnect(token);
-    return;
-  }
+  api.post('/sync/ticket')
+    .then((res) => {
+      const ticket = res.data?.data?.ticket as string | undefined;
+      if (!ticket) { scheduleReconnect(token); return; }
 
-  socket.onopen = () => {
-    reconnectDelayMs = 1000;
-  };
-
-  socket.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (Array.isArray(data.online)) {
-        latestRoster = data.online;
-        notifyListeners();
+      try {
+        socket = new WebSocket(wsUrl(ticket));
+      } catch {
+        scheduleReconnect(token);
+        return;
       }
-    } catch {
-      // Malformed push - ignore it, the next broadcast will self-correct.
-    }
-  };
 
-  socket.onclose = () => {
-    socket = null;
-    latestRoster = [];
-    notifyListeners();
-    scheduleReconnect(token);
-  };
+      socket.onopen = () => {
+        reconnectDelayMs = 1000;
+      };
 
-  socket.onerror = () => {
-    socket?.close();
-  };
+      socket.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (Array.isArray(data.online)) {
+            latestRoster = data.online;
+            notifyListeners();
+          }
+        } catch {
+          // Malformed push - ignore it, the next broadcast will self-correct.
+        }
+      };
+
+      socket.onclose = () => {
+        socket = null;
+        latestRoster = [];
+        notifyListeners();
+        scheduleReconnect(token);
+      };
+
+      socket.onerror = () => {
+        socket?.close();
+      };
+    })
+    .catch(() => scheduleReconnect(token));
 }
 
 function scheduleReconnect(token: string): void {
