@@ -2,7 +2,20 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
-<<<<<<< Updated upstream
+## [Date: 2026-08-21] - Subscription-Gated VIEW Toggle, Feedback in Admin Console, Widget Overlap Fix
+
+**What/Why:** Three UX issues resolved. (1) Shop tenants (tier 1) could freely switch the sidebar VIEW toggle to Business or Full view and browse payroll, bank reconciliation, and approvals nav items that the backend rejects — the UI filter had no tie to the subscription tier. (2) The FeedbackWidget FAB (`fixed bottom-6 left-6`) visually overlapped the sidebar's Upgrade section on desktop. (3) Feedback submitted by tenants had no platform-level visibility — admins had to query the DB directly.
+
+**Changes:**
+- **`frontend/src/components/layout/Sidebar.tsx`** — Added `useTenantSettings`, `TIER_NAMES`, `TenantTier`, `Lock`, `X`, `Mail` imports. Added `upgradePanelFor` state, `TIER_MAX_MODE`, `TIER_BADGE_CLASS` constants. Computes `effectiveMode` clamped to tenant tier so stored localStorage preference cannot exceed the plan. Uses `effectiveMode` for `getVisibleNavGroups`. Renamed VIEW section to "Upgrade" with current plan badge above mode buttons. Locked modes show a Lock icon; clicking opens an inline upgrade panel with a `mailto:support@ledgio.app` CTA (different subject for Business vs Enterprise).
+- **`frontend/src/components/FeedbackWidget.tsx`** — FAB class changed from `fixed bottom-6 left-6` to `fixed bottom-6 left-6 md:left-[17rem]`; panel class changed similarly. On desktop the FAB sits 272px from the left edge (16px past the 256px sidebar), clearing the sidebar footprint. Mobile keeps `left-6`.
+- **`frontend/src/lib/navigation.ts`** — Removed "Feedback Inbox" nav entry (href `/feedback`) from the ADMINISTRATION section. Removed unused `MessageSquare` import. Feedback is now admin-console-only.
+- **`backend/src/routes/adminFeedback.ts`** — New file. `GET /api/v1/admin/feedback` queries `prisma.feedback.findMany()` across all tenants, gated by master passcode (`x-admin-passcode` header or `passcode` query param). Supports filters: `tenantId`, `category`, `status`, `dateFrom`, `dateTo`, `page`, `limit` (max 200). Joins tenant name/slug in application code. Returns `{ items, pagination }`.
+- **`backend/src/app.ts`** — Added import and route mount `app.use('/api/v1/admin/feedback', adminFeedbackRouter)`.
+- **`frontend/src/pages/admin/AdminCoreEngine.tsx`** — Added `MessageSquare` icon import. Extended active-tab union with `"feedback"`. Added feedback state variables and `fetchFeedback` callback (GET `/api/v1/admin/feedback` with passcode header, re-runs on filter change). Added "Feedback" tab button. Added Feedback panel with filter bar (category, status, tenantId) and table (Date, Tenant, User, Role, Category badge, Status badge, expandable Message column).
+
+---
+
 ## [Date: 2026-08-21] - Onboarding: Simplified Quick-Start Path for Business/Retail Workspaces
 
 **What/Why:** The full 3-step onboarding wizard (Profile → Chart of Accounts → Opening Balances) was blocking business/retail users who just want to start selling. Chart of accounts seeding and opening balance entry are meaningful for accountants and NGOs doing fund accounting, but a retail shop owner just wants to ring up a first sale. Business (non-nonprofit) workspaces now get a 2-step path: Profile → "Ready to Go" with three quick-start action buttons (Make a Sale, Send an Invoice, Add Stock). Nonprofit workspaces still follow the full 3-step wizard (fund accounting requires a proper chart of accounts and verified opening balances). Path is determined by `user?.orgType` from the existing JWT/auth context — no schema migration needed.
