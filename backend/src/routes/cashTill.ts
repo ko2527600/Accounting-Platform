@@ -11,6 +11,7 @@ import { recordAuditLog, recordAuditLogTx, actorFromRequest, AuditActor } from '
 import { SmsService } from '../services/smsService';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalService from '../services/journalEntryService';
+import { sendWhatsAppReceipt } from '../services/whatsAppReceiptService';
 
 /**
  * Posts the real Cash/Revenue journal entry for a completed POS cash sale
@@ -232,7 +233,7 @@ router.post('/open', async (req: Request, res: Response): Promise<void> => {
 router.post('/sales', async (req: Request, res: Response): Promise<void> => {
   try {
     const { tenantId } = requireTenantContext();
-    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt, saleType } = req.body;
+    const { tillId, items, cashGiven, clientTxnId, clientOccurredAt, saleType, customerPhone, customerName } = req.body;
     const resolvedSaleType = saleType === 'WHOLESALE' ? 'WHOLESALE' : 'RETAIL';
 
     if (!tillId || !Array.isArray(items) || items.length === 0 || cashGiven === undefined || cashGiven === null || cashGiven === '') {
@@ -361,6 +362,8 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
               clientTxnId: clientTxnId || null,
               clientOccurredAt: clientOccurredAt ? new Date(clientOccurredAt) : null,
               saleType: resolvedSaleType,
+              customerName: customerName ? String(customerName).trim() : null,
+              customerPhone: customerPhone ? String(customerPhone).trim() : null,
             },
           });
         } catch (createError: any) {
@@ -429,6 +432,26 @@ router.post('/sales', async (req: Request, res: Response): Promise<void> => {
     if (!result.sale.journalId) {
       const journalId = await postCashSaleRevenue(result.sale, actorFromRequest(req));
       if (journalId) result.sale.journalId = journalId;
+    }
+
+    // Fire-and-forget WhatsApp receipt if customer phone was provided
+    const phone = result.sale.customerPhone || customerPhone;
+    if (phone && !result.replayed) {
+      const { tenantName } = requireTenantContext();
+      sendWhatsAppReceipt(String(phone), {
+        receiptNo: result.sale.receiptNo,
+        businessName: tenantName || 'Store',
+        items: result.lines.map((l: any) => ({
+          name: l.itemName,
+          quantity: Number(l.quantity),
+          unitPrice: Number(l.unitPrice),
+          lineTotal: Number(l.lineTotal),
+        })),
+        totalAmount: result.totalAmount,
+        cashGiven: Number(cashGiven),
+        changeGiven: result.changeGiven,
+        dateTime: new Date().toLocaleString('en-GH', { timeZone: 'Africa/Accra' }),
+      });
     }
 
     res.status(result.replayed ? 200 : 201).json({ success: true, message: 'Cash sale recorded successfully', data: result });

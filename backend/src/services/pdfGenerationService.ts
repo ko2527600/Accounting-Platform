@@ -435,6 +435,10 @@ export function generateInvoicePdf(
     tax: number;
     taxBreakdown: { name: string; rate: number; amount: number }[] | null;
     total: number;
+    graClearanceStatus?: string | null;
+    graQrCodeDataUrl?: string | null;
+    graVerificationEngineId?: string | null;
+    graClearedAt?: string | null;
   }
 ): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -485,6 +489,42 @@ export function generateInvoicePdf(
       doc.text(formatMoney(data.tax, data.currency), { align: 'right' });
     }
     drawTotalRow(doc, 'Total Due', formatMoney(data.total, data.currency), { color: BRAND_GREEN });
+
+    // GRA E-VAT clearance section
+    if (data.graClearanceStatus === 'CLEARED') {
+      doc.moveDown(1.2);
+      const leftX = doc.page.margins.left;
+      const rightX = doc.page.width - doc.page.margins.right;
+      const sectionWidth = rightX - leftX;
+
+      // Green clearance banner
+      doc.rect(leftX, doc.y, sectionWidth, 28).fillColor('#dcfce7').fill();
+      doc.fillColor('#15803d').font('Helvetica-Bold').fontSize(10)
+         .text('✓  GRA E-VAT CLEARED', leftX + 8, doc.y - 22, { width: sectionWidth - 16 });
+      if (data.graVerificationEngineId) {
+        doc.fillColor('#166534').font('Helvetica').fontSize(8)
+           .text(`Verification Engine ID: ${data.graVerificationEngineId}`, leftX + 8, doc.y - 8, { width: sectionWidth - 16 });
+      }
+      if (data.graClearedAt) {
+        const clearedLabel = new Date(data.graClearedAt).toLocaleString('en-GH', { timeZone: 'Africa/Accra' });
+        doc.fillColor('#166534').font('Helvetica').fontSize(8)
+           .text(`Cleared: ${clearedLabel}`, leftX + 8, doc.y, { width: sectionWidth - 120 });
+      }
+
+      // QR code (right-aligned in the clearance block)
+      if (data.graQrCodeDataUrl) {
+        try {
+          const base64 = data.graQrCodeDataUrl.replace(/^data:image\/\w+;base64,/, '');
+          const imgBuf = Buffer.from(base64, 'base64');
+          doc.image(imgBuf, rightX - 80, doc.y - 48, { width: 72, height: 72 });
+          doc.moveDown(2.4);
+        } catch {
+          doc.moveDown(0.5);
+        }
+      } else {
+        doc.moveDown(0.5);
+      }
+    }
 
     doc.end();
   });

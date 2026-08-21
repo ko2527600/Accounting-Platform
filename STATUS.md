@@ -2,6 +2,49 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Budget Alerts, GRA E-invoicing PDF, WhatsApp POS Receipt
+
+**What/Why:** Three platform upgrades requested as part of the payroll feature roadmap: (6) in-app budget variance alerts when spend crosses 80%/100% of budget; (7) downloadable GRA-cleared invoice PDFs with embedded QR code and clearance badge; (8) WhatsApp receipt delivery to customers after POS cash sales via Twilio.
+
+**Changes:**
+
+1. **Tenant migration 016** (`backend/src/database/migrations/tenantMigrations.ts`):
+   - New `budget_alert_log` table: records which `(budget_id, fiscal_period_id, threshold_pct)` combos have already fired an alert, preventing duplicate notifications. Unique index enforces at-most-once semantics per period and threshold.
+   - `cash_sales` table gains `customer_name` and `customer_phone` columns (both nullable) to capture optional walk-in customer details at POS for WhatsApp receipt delivery.
+
+2. **Budget alert checker** (`backend/src/services/budgetService.ts`):
+   - New `checkBudgetAlerts()`: after `listBudgets` recomputes actuals, checks each budget against 80% and 100% thresholds. For any new crossing, inserts a row into `budget_alert_log` (unique constraint prevents duplicates in races) then creates a `BUDGET_ALERT` notification in the public `notification` table so the in-app bell displays it immediately.
+   - Fire-and-forget (no `await`) to keep the `/budgets` list response latency unchanged.
+
+3. **Invoice PDF with GRA clearance** (`backend/src/services/pdfGenerationService.ts`, `backend/src/routes/invoices.ts`):
+   - `generateInvoicePdf` now accepts optional `graClearanceStatus`, `graQrCodeDataUrl`, `graVerificationEngineId`, and `graClearedAt` fields. When `graClearanceStatus === 'CLEARED'`, the PDF gains a green banner, the Verification Engine ID, a human-readable cleared timestamp (Africa/Accra timezone), and the GRA QR code image (embedded from the stored base64 data URL).
+   - New `GET /api/v1/invoices/:id/pdf` endpoint streams the PDF directly — attaches the cleared QR block when the invoice is cleared.
+   - Frontend `Invoices.tsx` gains a "Download PDF" action in every invoice's action menu (labeled "Download PDF (GRA Cleared)" when cleared).
+
+4. **WhatsApp receipt service** (`backend/src/services/whatsAppReceiptService.ts`):
+   - New service that POSTs to the Twilio REST API (via existing `axios`) with a formatted WhatsApp message listing all items, totals, cash given, and change. Silently no-ops when `TWILIO_ACCOUNT_SID`/`TWILIO_AUTH_TOKEN`/`TWILIO_WHATSAPP_FROM` are not set.
+   - `backend/.env.example` gains the three Twilio env vars with usage comments.
+
+5. **POS WhatsApp integration** (`backend/src/routes/cashTill.ts`):
+   - `POST /tills/sales` now accepts optional `customerPhone` and `customerName` in the request body, stores them on the `cashSale` row, and fires `sendWhatsAppReceipt()` fire-and-forget after the sale commits.
+
+6. **Frontend** (`frontend/src/pages/pos/PointOfSale.tsx`, `frontend/src/components/layout/Header.tsx`, `frontend/src/pages/invoices/Invoices.tsx`):
+   - POS checkout form: collapsible "Customer details" section for name and WhatsApp phone, sent with the sale but clearing on success.
+   - Header notification bell: `BUDGET_ALERT` type renders a TrendingUp (orange) icon.
+   - Invoices actions menu: "Download PDF" link for every invoice; shows "(GRA Cleared)" suffix and updated tooltip when cleared.
+
+**Files affected:**
+- `backend/src/database/migrations/tenantMigrations.ts`
+- `backend/src/services/budgetService.ts`
+- `backend/src/services/pdfGenerationService.ts`
+- `backend/src/services/whatsAppReceiptService.ts` (new)
+- `backend/src/routes/invoices.ts`
+- `backend/src/routes/cashTill.ts`
+- `backend/.env.example`
+- `frontend/src/pages/pos/PointOfSale.tsx`
+- `frontend/src/pages/invoices/Invoices.tsx`
+- `frontend/src/components/layout/Header.tsx`
+
 ## [Date: 2026-08-20] - Ghana Payroll Module (PAYE, SSNIT, Payslips, Journal Posting)
 
 **What/Why:** Greenfield Ghana payroll module covering employee roster management, Ghana PAYE tax computation (2024 GRA income tax bands), SSNIT social security contributions (employee 5.5% + employer 13%), payroll run processing, and automatic double-entry journal posting.
