@@ -20,6 +20,10 @@ import {
   Building2,
   Plug,
   MessageSquare,
+  BarChart2,
+  Globe,
+  Monitor,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -50,7 +54,7 @@ export function AdminCoreEngine() {
   const [authError, setAuthError] = useState<string | null>(null);
 
   // Active Hub Tab
-  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "integrations" | "schemas" | "audit" | "onboard" | "feedback">("broadcast");
+  const [activeTab, setActiveTab] = useState<"broadcast" | "health" | "integrations" | "schemas" | "audit" | "onboard" | "feedback" | "analytics">("broadcast");
 
   // Platform-wide Feedback state
   const [feedbackItems, setFeedbackItems] = useState<{
@@ -71,6 +75,41 @@ export function AdminCoreEngine() {
   const [feedbackStatusFilter, setFeedbackStatusFilter] = useState("");
   const [feedbackTenantFilter, setFeedbackTenantFilter] = useState("");
   const [expandedFeedbackId, setExpandedFeedbackId] = useState<string | null>(null);
+
+  // Google Analytics State
+  const [analyticsData, setAnalyticsData] = useState<{
+    configured: boolean;
+    dateRange: string;
+    totalUsers: number;
+    newUsers: number;
+    sessions: number;
+    pageViews: number;
+    avgSessionDuration: number;
+    bounceRate: number;
+    topPages: { page: string; views: number }[];
+    topCountries: { country: string; users: number }[];
+    topDevices: { device: string; sessions: number }[];
+    activeUsers: number;
+  } | null>(null);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [isLoadingAnalytics, setIsLoadingAnalytics] = useState(false);
+  const [analyticsDays, setAnalyticsDays] = useState(28);
+
+  const fetchAnalytics = useCallback((days: number = analyticsDays) => {
+    setIsLoadingAnalytics(true);
+    setAnalyticsError(null);
+    return api
+      .get("/admin/analytics", { params: { days }, headers: { 'x-admin-passcode': passcode } })
+      .then((res) => setAnalyticsData(res.data.data))
+      .catch(() => setAnalyticsError("Failed to load analytics data."))
+      .finally(() => setIsLoadingAnalytics(false));
+  }, [passcode, analyticsDays]);
+
+  useEffect(() => {
+    if (!isUnlocked || activeTab !== "analytics") return;
+    fetchAnalytics();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isUnlocked, activeTab, analyticsDays]);
 
   // Engine Diagnostics State
   const [healthData, setHealthData] = useState<{
@@ -688,6 +727,15 @@ export function AdminCoreEngine() {
               >
                 <MessageSquare className="h-4 w-4" />
                 <span>Feedback</span>
+              </button>
+              <button
+                onClick={() => setActiveTab("analytics")}
+                className={`pb-3 flex items-center space-x-2 border-b-2 transition-colors ${
+                  activeTab === "analytics" ? "border-amber-400 text-amber-400" : "border-transparent text-secondary-400 hover:text-white"
+                }`}
+              >
+                <BarChart2 className="h-4 w-4" />
+                <span>Analytics</span>
               </button>
             </div>
 
@@ -1419,6 +1467,201 @@ export function AdminCoreEngine() {
                   </form>
                 </CardContent>
               </Card>
+            )}
+
+            {/* Tab 8: Google Analytics */}
+            {activeTab === "analytics" && (
+              <div className="space-y-6">
+                {/* Header + controls */}
+                <div className="flex flex-wrap items-center justify-between gap-4">
+                  <div>
+                    <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                      <BarChart2 className="h-5 w-5 text-amber-400" />
+                      Platform Traffic Analytics
+                    </h2>
+                    <p className="text-xs text-secondary-400 mt-0.5">
+                      Real-time + historical data from Google Analytics 4 — all Ledgio tenants combined.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <select
+                      value={analyticsDays}
+                      onChange={(e) => setAnalyticsDays(Number(e.target.value))}
+                      className="h-9 px-3 rounded-lg border border-secondary-700 bg-secondary-950 text-white text-xs"
+                    >
+                      <option value={7}>Last 7 days</option>
+                      <option value={14}>Last 14 days</option>
+                      <option value={28}>Last 28 days</option>
+                      <option value={90}>Last 90 days</option>
+                    </select>
+                    <button
+                      onClick={() => fetchAnalytics(analyticsDays)}
+                      disabled={isLoadingAnalytics}
+                      className="h-9 px-3 rounded-lg bg-secondary-800 hover:bg-secondary-700 border border-secondary-700 text-xs font-medium flex items-center gap-1.5 transition-colors"
+                    >
+                      <RefreshCw className={`h-3.5 w-3.5 ${isLoadingAnalytics ? "animate-spin" : ""}`} />
+                      Refresh
+                    </button>
+                  </div>
+                </div>
+
+                {isLoadingAnalytics && !analyticsData && (
+                  <div className="flex items-center justify-center py-16 text-secondary-400 gap-2">
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    Fetching analytics…
+                  </div>
+                )}
+
+                {analyticsError && (
+                  <div className="p-4 bg-red-950/30 border border-red-900 rounded-lg text-red-300 text-xs">
+                    {analyticsError}
+                  </div>
+                )}
+
+                {analyticsData && !analyticsData.configured && (
+                  <Card className="bg-secondary-900 border-secondary-800 text-white">
+                    <CardContent className="p-6 text-center space-y-3">
+                      <BarChart2 className="h-10 w-10 text-secondary-600 mx-auto" />
+                      <p className="text-secondary-300 text-sm font-semibold">Google Analytics not configured</p>
+                      <p className="text-secondary-500 text-xs max-w-md mx-auto">
+                        Set <code className="text-amber-400">GA_PROPERTY_ID</code>,{" "}
+                        <code className="text-amber-400">GOOGLE_SERVICE_ACCOUNT_EMAIL</code>, and{" "}
+                        <code className="text-amber-400">GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY</code> on the backend, and{" "}
+                        <code className="text-amber-400">VITE_GA_MEASUREMENT_ID</code> on the frontend to enable tracking.
+                      </p>
+                    </CardContent>
+                  </Card>
+                )}
+
+                {analyticsData && analyticsData.configured && (
+                  <>
+                    {/* Realtime pill */}
+                    <div className="flex items-center gap-2">
+                      <span className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-950 border border-emerald-800 text-emerald-400 text-xs font-bold">
+                        <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
+                        {analyticsData.activeUsers} active right now
+                      </span>
+                    </div>
+
+                    {/* Core metrics */}
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                      {[
+                        { label: "Total Users", value: analyticsData.totalUsers.toLocaleString(), icon: Users },
+                        { label: "New Users", value: analyticsData.newUsers.toLocaleString(), icon: Users },
+                        { label: "Sessions", value: analyticsData.sessions.toLocaleString(), icon: Activity },
+                        { label: "Page Views", value: analyticsData.pageViews.toLocaleString(), icon: Monitor },
+                        {
+                          label: "Avg Session",
+                          value: `${Math.floor(analyticsData.avgSessionDuration / 60)}m ${analyticsData.avgSessionDuration % 60}s`,
+                          icon: Activity,
+                        },
+                        {
+                          label: "Bounce Rate",
+                          value: `${analyticsData.bounceRate.toFixed(1)}%`,
+                          icon: BarChart2,
+                        },
+                      ].map(({ label, value }) => (
+                        <Card key={label} className="bg-secondary-900 border-secondary-800 text-white">
+                          <CardContent className="p-4">
+                            <div className="text-[11px] text-secondary-400 mb-1">{label}</div>
+                            <div className="text-xl font-extrabold text-white">{value}</div>
+                          </CardContent>
+                        </Card>
+                      ))}
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      {/* Top pages */}
+                      <Card className="bg-secondary-900 border-secondary-800 text-white lg:col-span-1">
+                        <CardHeader>
+                          <CardTitle className="text-sm font-bold flex items-center gap-2">
+                            <Monitor className="h-4 w-4 text-amber-400" />
+                            Top Pages
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {analyticsData.topPages.map((p, i) => {
+                            const max = analyticsData.topPages[0]?.views || 1;
+                            return (
+                              <div key={i}>
+                                <div className="flex justify-between items-center text-xs mb-0.5">
+                                  <span className="text-secondary-300 truncate max-w-[180px]" title={p.page}>{p.page || '/'}</span>
+                                  <span className="text-secondary-400 font-mono ml-2 flex-shrink-0">{p.views.toLocaleString()}</span>
+                                </div>
+                                <div className="w-full bg-secondary-800 h-1 rounded-full overflow-hidden">
+                                  <div className="h-full bg-amber-400" style={{ width: `${(p.views / max) * 100}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {analyticsData.topPages.length === 0 && (
+                            <p className="text-xs text-secondary-500">No data yet.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Top countries */}
+                      <Card className="bg-secondary-900 border-secondary-800 text-white">
+                        <CardHeader>
+                          <CardTitle className="text-sm font-bold flex items-center gap-2">
+                            <Globe className="h-4 w-4 text-amber-400" />
+                            Top Countries
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-2">
+                          {analyticsData.topCountries.map((c, i) => {
+                            const max = analyticsData.topCountries[0]?.users || 1;
+                            return (
+                              <div key={i}>
+                                <div className="flex justify-between items-center text-xs mb-0.5">
+                                  <span className="text-secondary-300">{c.country}</span>
+                                  <span className="text-secondary-400 font-mono">{c.users.toLocaleString()}</span>
+                                </div>
+                                <div className="w-full bg-secondary-800 h-1 rounded-full overflow-hidden">
+                                  <div className="h-full bg-blue-400" style={{ width: `${(c.users / max) * 100}%` }} />
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {analyticsData.topCountries.length === 0 && (
+                            <p className="text-xs text-secondary-500">No data yet.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+
+                      {/* Devices */}
+                      <Card className="bg-secondary-900 border-secondary-800 text-white">
+                        <CardHeader>
+                          <CardTitle className="text-sm font-bold flex items-center gap-2">
+                            <Monitor className="h-4 w-4 text-amber-400" />
+                            Devices
+                          </CardTitle>
+                        </CardHeader>
+                        <CardContent className="space-y-3">
+                          {analyticsData.topDevices.map((d, i) => {
+                            const total = analyticsData.topDevices.reduce((s, x) => s + x.sessions, 0) || 1;
+                            const pct = Math.round((d.sessions / total) * 100);
+                            return (
+                              <div key={i} className="flex items-center justify-between text-xs">
+                                <span className="text-secondary-300 capitalize">{d.device}</span>
+                                <div className="flex items-center gap-2">
+                                  <div className="w-20 bg-secondary-800 h-1.5 rounded-full overflow-hidden">
+                                    <div className="h-full bg-purple-400" style={{ width: `${pct}%` }} />
+                                  </div>
+                                  <span className="text-secondary-400 font-mono w-8 text-right">{pct}%</span>
+                                </div>
+                              </div>
+                            );
+                          })}
+                          {analyticsData.topDevices.length === 0 && (
+                            <p className="text-xs text-secondary-500">No data yet.</p>
+                          )}
+                        </CardContent>
+                      </Card>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
 
             {/* Tab 7: Platform-wide Feedback */}
