@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { HelpCircle, X, Send, Loader2 } from "lucide-react";
 import { api } from "../lib/api";
 
@@ -6,6 +6,8 @@ interface ChatMessage {
   role: "user" | "assistant";
   content: string;
 }
+
+const FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 // Mounted once in MainLayout.tsx so it's available on every authenticated
 // page. Read-only by design - the backend's tools only ever look things up
@@ -19,6 +21,8 @@ export function HelpAssistantWidget() {
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     if (isOpen && configured === null) {
@@ -32,6 +36,46 @@ export function HelpAssistantWidget() {
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, isSending]);
+
+  // Move focus into panel when it opens; restore to FAB when it closes.
+  const fabRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (isOpen) {
+      closeButtonRef.current?.focus();
+    } else {
+      fabRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  // Close on Escape.
+  useEffect(() => {
+    if (!isOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setIsOpen(false);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [isOpen]);
+
+  // Focus trap: cycle Tab/Shift+Tab within the panel.
+  const handlePanelKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !panelRef.current) return;
+    const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+  }, []);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,24 +103,45 @@ export function HelpAssistantWidget() {
   return (
     <>
       <button
+        ref={fabRef}
         type="button"
         onClick={() => setIsOpen((v) => !v)}
+        aria-label={isOpen ? "Close help panel" : "Open help panel"}
+        aria-expanded={isOpen}
+        aria-haspopup="dialog"
         className="fixed bottom-6 right-6 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-primary-600 text-white shadow-lg hover:bg-primary-700 transition-colors"
-        title="Help"
       >
-        {isOpen ? <X className="h-6 w-6" /> : <HelpCircle className="h-6 w-6" />}
+        {isOpen ? <X className="h-6 w-6" aria-hidden="true" /> : <HelpCircle className="h-6 w-6" aria-hidden="true" />}
       </button>
 
       {isOpen && (
-        <div className="fixed bottom-24 right-6 z-40 flex h-[32rem] w-96 max-w-[calc(100vw-3rem)] flex-col rounded-xl border border-secondary-200 bg-white shadow-2xl dark:border-secondary-800 dark:bg-secondary-900">
+        <div
+          ref={panelRef}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="help-panel-title"
+          onKeyDown={handlePanelKeyDown}
+          className="fixed bottom-24 right-6 z-40 flex h-[32rem] w-96 max-w-[calc(100vw-3rem)] flex-col rounded-xl border border-secondary-200 bg-white shadow-2xl dark:border-secondary-800 dark:bg-secondary-900"
+        >
           <div className="flex items-center justify-between border-b border-secondary-200 px-4 py-3 dark:border-secondary-800">
-            <span className="font-semibold text-secondary-900 dark:text-secondary-50">Ledgio Help</span>
-            <button type="button" onClick={() => setIsOpen(false)} className="text-secondary-400 hover:text-secondary-600" title="Close">
-              <X className="h-4 w-4" />
+            <h2 id="help-panel-title" className="font-semibold text-secondary-900 dark:text-secondary-50">Ledgio Help</h2>
+            <button
+              ref={closeButtonRef}
+              type="button"
+              onClick={() => setIsOpen(false)}
+              aria-label="Close help panel"
+              className="text-secondary-400 hover:text-secondary-600"
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
             </button>
           </div>
 
-          <div ref={scrollRef} className="flex-1 space-y-3 overflow-y-auto px-4 py-3">
+          <div
+            ref={scrollRef}
+            className="flex-1 space-y-3 overflow-y-auto px-4 py-3"
+            aria-live="polite"
+            aria-atomic="false"
+          >
             {configured === false ? (
               <p className="text-sm text-secondary-500">
                 Help Assistant isn't set up for this workspace yet. Contact your administrator.
@@ -89,7 +154,7 @@ export function HelpAssistantWidget() {
                 ))}
                 {isSending && (
                   <div className="flex items-center gap-2 text-xs text-secondary-400">
-                    <Loader2 className="h-3 w-3 animate-spin" /> Thinking...
+                    <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" /> Thinking...
                   </div>
                 )}
               </>
@@ -108,10 +173,10 @@ export function HelpAssistantWidget() {
               <button
                 type="submit"
                 disabled={isSending || !input.trim()}
+                aria-label="Send message"
                 className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-md bg-primary-600 text-white disabled:opacity-50"
-                title="Send"
               >
-                <Send className="h-4 w-4" />
+                <Send className="h-4 w-4" aria-hidden="true" />
               </button>
             </form>
           )}

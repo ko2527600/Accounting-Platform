@@ -2,6 +2,17 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Frontend Audit: Route Lazy-Loading and Widget Accessibility
+
+**What/Why:** Implemented the two remaining implementable items from the Frontend Audit. (1) Route lazy-loading: App.tsx had 52 static page imports causing the entire app to ship as one large bundle, hurting first-load performance. Converted all page-level imports to `React.lazy()` with a `<Suspense>` fallback spinner wrapping `<Routes>`, so each page becomes its own chunk loaded on first navigation. (2) Accessibility: HelpAssistantWidget and FeedbackWidget were custom `div` panels with no dialog semantics, no focus management, no keyboard trap, and no Escape key handling, failing WCAG 2.1 SC 1.4.13 / 2.1.2 for keyboard users and screen readers. Both widgets now have proper `role="dialog"` semantics, focus-on-open, focus trap, Escape-to-close, `aria-label` on icon buttons, `aria-hidden` on decorative icons. HelpAssistantWidget also gains `aria-live="polite"` on the message container. FeedbackWidget `<select>` is now disabled during submission alongside `<textarea>`.
+
+**Changes:**
+- **`frontend/src/App.tsx`** — All 52 static page/component imports replaced with `React.lazy()` (named-export `.then(m => ({ default: m.X }))` pattern). Added `lazy` and `Suspense` to React import. Wrapped `<Routes>` in `<Suspense fallback={<RouteLoadingFallback />}>`. Added `RouteLoadingFallback` spinner component. Dashboard stays as an inline component.
+- **`frontend/src/components/HelpAssistantWidget.tsx`** — Added `role="dialog"`, `aria-modal="true"`, `aria-labelledby="help-panel-title"` on panel container. Changed title `<span>` to `<h2 id="help-panel-title">`. Added `aria-label` on FAB and close button, replaced `title` attribute. Added `aria-hidden="true"` on all Lucide icons inside buttons. Added `useEffect` for Escape key close. Added `useRef` + `useEffect` to move focus to close button on open and back to FAB on close. Added `onKeyDown` focus trap cycling Tab/Shift+Tab within the panel. Added `aria-live="polite" aria-atomic="false"` on message scroll container. Added `fabRef` for focus restoration.
+- **`frontend/src/components/FeedbackWidget.tsx`** — Same dialog/focus/keyboard fixes as HelpAssistantWidget. Additionally: `<select>` now has `disabled={isSending}` to match `<textarea>` behavior during submission.
+
+---
+
 ## [Date: 2026-08-21] - Landing Page Full Redesign & Pricing Alignment
 
 **What/Why:** Full overhaul of LandingPage.tsx — redesigned hero, aligned pricing tier names with the actual backend (`Shop/Business/Enterprise` replacing the old `Starter/Professional/Enterprise` labels), added team seat limits (3/10/unlimited) from `TENANT_PLANS` to each pricing card, introduced a complete feature list per tier matching `requireTier` enforcement in the routes, added an interactive accordion FAQ (replacing static cards), added a final CTA section, and fixed a factual error in the SMS FAQ (alerts are available on all plans, not just Professional+). Step icons in onboarding now use Lucide. Added `mailto` fallback for Enterprise contact CTA.
