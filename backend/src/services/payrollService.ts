@@ -3,6 +3,7 @@ import { withCurrentTenantDb } from '../database/tenantClient';
 import * as accountRepository from '../repository/accountRepository';
 import * as journalEntryService from './journalEntryService';
 import { applyLoanDeductions } from './loanService';
+import { computeUnpaidLeaveDeduction } from './leaveService';
 import { AuditActor } from './auditLogService';
 
 export class PayrollServiceError extends Error {
@@ -99,6 +100,7 @@ export interface PayslipRecord {
   ssnitEmployee: number;
   ssnitEmployer: number;
   loanDeduction: number;
+  unpaidLeaveDeduction: number;
   netPay: number;
   createdAt: string;
 }
@@ -117,6 +119,7 @@ function mapPayslip(row: any): PayslipRecord {
     ssnitEmployee: Number(row.ssnit_employee),
     ssnitEmployer: Number(row.ssnit_employer),
     loanDeduction: Number(row.loan_deduction ?? 0),
+    unpaidLeaveDeduction: Number(row.unpaid_leave_deduction ?? 0),
     netPay: Number(row.net_pay),
     createdAt: row.created_at,
   };
@@ -369,15 +372,17 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
   let totalSsnitEmployer = 0;
   let totalNetPay = 0;
 
-  const payslipData = employees.map((emp) => {
+  const payslipData = await Promise.all(employees.map(async (emp) => {
     const foreignGross = emp.grossSalary;
     const rate = emp.salaryExchangeRate || 1;
     const currency = emp.salaryCurrency || 'GHS';
     const gross = Math.round(foreignGross * rate * 100) / 100;
-    const paye = computeMonthlyPAYE(gross);
-    const ssnitEmp = Math.round(gross * SSNIT_EMPLOYEE_RATE * 100) / 100;
-    const ssnitEr = Math.round(gross * SSNIT_EMPLOYER_RATE * 100) / 100;
-    const net = Math.round((gross - paye - ssnitEmp) * 100) / 100;
+    const unpaidDed = await computeUnpaidLeaveDeduction(emp.id, gross, periodMonth, periodYear);
+    const taxableGross = Math.max(0, gross - unpaidDed);
+    const paye = computeMonthlyPAYE(taxableGross);
+    const ssnitEmp = Math.round(taxableGross * SSNIT_EMPLOYEE_RATE * 100) / 100;
+    const ssnitEr = Math.round(taxableGross * SSNIT_EMPLOYER_RATE * 100) / 100;
+    const net = Math.round((gross - unpaidDed - paye - ssnitEmp) * 100) / 100;
 
     totalGross += gross;
     totalPaye += paye;
@@ -385,8 +390,8 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
     totalSsnitEmployer += ssnitEr;
     totalNetPay += net;
 
-    return { employeeId: emp.id, gross, foreignGross, currency, rate, paye, ssnitEmp, ssnitEr, net };
-  });
+    return { employeeId: emp.id, gross, foreignGross, currency, rate, unpaidDed, paye, ssnitEmp, ssnitEr, net };
+  }));
 
   totalGross = Math.round(totalGross * 100) / 100;
   totalPaye = Math.round(totalPaye * 100) / 100;
@@ -405,9 +410,9 @@ export async function createPayrollRun(data: RunPayrollInput, _actor?: AuditActo
     const runId = runs[0].id;
     for (const s of payslipData) {
       const slipRows: any[] = await (client as any).$queryRawUnsafe(
-        `INSERT INTO payslips (payroll_run_id, employee_id, gross_salary, gross_salary_foreign, salary_currency, exchange_rate, paye, ssnit_employee, ssnit_employer, net_pay)
-         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
-        runId, s.employeeId, s.gross, s.foreignGross, s.currency, s.rate, s.paye, s.ssnitEmp, s.ssnitEr, s.net
+        `INSERT INTO payslips (payroll_run_id, employee_id, gross_salary, gross_salary_foreign, salary_currency, exchange_rate, unpaid_leave_deduction, paye, ssnit_employee, ssnit_employer, net_pay)
+         VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
+        runId, s.employeeId, s.gross, s.foreignGross, s.currency, s.rate, s.unpaidDed, s.paye, s.ssnitEmp, s.ssnitEr, s.net
       );
       // Apply any active loan deductions for this employee
       await applyLoanDeductions(s.employeeId, slipRows[0].id);

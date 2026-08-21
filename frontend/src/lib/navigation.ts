@@ -109,6 +109,7 @@ export const navigationGroups: NavGroup[] = [
       { name: "Employees", href: "/payroll/employees", icon: Users },
       { name: "Payroll Runs", href: "/payroll/runs", icon: BadgeDollarSign },
       { name: "Employee Loans", href: "/payroll/loans", icon: Landmark },
+      { name: "Leave Management", href: "/payroll/leave", icon: CalendarClock },
     ],
   },
   {
@@ -137,7 +138,7 @@ export const navigationGroups: NavGroup[] = [
 export const RESTRICTED_ROLE_NAV: Record<string, string[]> = {
   "shop manager": ["/dashboard", "/inventory", "/analytics/inventory", "/pos", "/invoices", "/bills", "/expenses"],
   cashier: ["/dashboard", "/inventory", "/pos", "/expenses"],
-  hr: ["/dashboard", "/team", "/expenses", "/payroll/employees", "/payroll/runs", "/payroll/loans"],
+  hr: ["/dashboard", "/team", "/expenses", "/payroll/employees", "/payroll/runs", "/payroll/loans", "/payroll/leave"],
   auditor: [
     "/dashboard",
     "/accounts",

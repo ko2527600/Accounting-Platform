@@ -12,6 +12,8 @@ import { generatePayslipPdf, generatePayrollRunPdf } from '../services/payslipPd
 import { buildRemittanceReport, generateRemittancePdf } from '../services/remittanceReportService';
 import * as loanService from '../services/loanService';
 import { LoanServiceError } from '../services/loanService';
+import * as leaveService from '../services/leaveService';
+import { LeaveServiceError } from '../services/leaveService';
 
 const router = Router();
 router.use(authenticateJwt);
@@ -19,7 +21,7 @@ router.use(tenantContextMiddleware);
 router.use(requireTier(2, 'Payroll'));
 
 function handleError(res: Response, error: any, fallback: string): void {
-  if (error instanceof PayrollServiceError || error instanceof JournalEntryServiceError || error instanceof LoanServiceError) {
+  if (error instanceof PayrollServiceError || error instanceof JournalEntryServiceError || error instanceof LoanServiceError || error instanceof LeaveServiceError) {
     res.status(error.statusCode).json({ success: false, error: error.message });
     return;
   }
@@ -240,6 +242,78 @@ router.put('/loans/:id', requireRole('Admin', 'HR'), async (req: Request, res: R
     res.json({ success: true, data: { loan } });
   } catch (error) {
     handleError(res, error, 'Failed to update loan.');
+  }
+});
+
+// ── Leave Management ──────────────────────────────────────────────────────────
+
+router.get('/leave/types', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const activeOnly = req.query.activeOnly !== 'false';
+    const leaveTypes = await leaveService.listLeaveTypes(activeOnly);
+    res.json({ success: true, data: { leaveTypes } });
+  } catch (error) {
+    handleError(res, error, 'Failed to list leave types.');
+  }
+});
+
+router.post('/leave/types', requireRole('Admin', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const leaveType = await leaveService.createLeaveType(req.body, actor);
+    res.status(201).json({ success: true, data: { leaveType } });
+  } catch (error) {
+    handleError(res, error, 'Failed to create leave type.');
+  }
+});
+
+router.put('/leave/types/:id', requireRole('Admin', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const leaveType = await leaveService.updateLeaveType(req.params.id, req.body, actor);
+    res.json({ success: true, data: { leaveType } });
+  } catch (error) {
+    handleError(res, error, 'Failed to update leave type.');
+  }
+});
+
+router.get('/leave/requests', requireRole('Admin', 'Accountant', 'Auditor', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const filters = {
+      employeeId: req.query.employeeId as string | undefined,
+      status: req.query.status as string | undefined,
+    };
+    const leaveRequests = await leaveService.listLeaveRequests(filters);
+    res.json({ success: true, data: { leaveRequests } });
+  } catch (error) {
+    handleError(res, error, 'Failed to list leave requests.');
+  }
+});
+
+router.post('/leave/requests', requireRole('Admin', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const leaveRequest = await leaveService.createLeaveRequest(req.body, actor);
+    res.status(201).json({ success: true, data: { leaveRequest } });
+  } catch (error) {
+    handleError(res, error, 'Failed to create leave request.');
+  }
+});
+
+router.patch('/leave/requests/:id/status', requireRole('Admin', 'HR'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const actor = actorFromRequest(req);
+    const { status } = req.body;
+    if (!['APPROVED', 'REJECTED', 'CANCELLED'].includes(status)) {
+      res.status(400).json({ success: false, error: 'status must be APPROVED, REJECTED, or CANCELLED.' });
+      return;
+    }
+    const leaveRequest = await leaveService.updateLeaveRequestStatus(
+      req.params.id, status, actor?.userId, actor
+    );
+    res.json({ success: true, data: { leaveRequest } });
+  } catch (error) {
+    handleError(res, error, 'Failed to update leave request status.');
   }
 });
 

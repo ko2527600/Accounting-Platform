@@ -86,6 +86,10 @@ function renderPayslip(
     ? `Basic Salary (${slip.salaryCurrency} ${fmt(slip.grossSalaryForeign)} @ ${slip.exchangeRate})`
     : 'Basic Salary';
   tableRow(basicLabel, slip.grossSalary, col1);
+  if (slip.unpaidLeaveDeduction > 0) {
+    tableRow('Unpaid Leave Deduction', slip.unpaidLeaveDeduction, col1);
+    y += rowH;
+  }
   tableRow('PAYE Income Tax', slip.paye, col2);
   y += rowH;
   if (slip.loanDeduction > 0) {
@@ -104,7 +108,7 @@ function renderPayslip(
      .text(`GHS ${fmt(slip.grossSalary)}`, col1, y + 1, { align: 'right', width: contentWidth / 2 - 10 });
 
   doc.fillColor('#444444').fontSize(8).font('Helvetica').text('Total Deductions', col2, y);
-  const totalDed = slip.paye + slip.ssnitEmployee + slip.loanDeduction;
+  const totalDed = slip.paye + slip.ssnitEmployee + slip.loanDeduction + slip.unpaidLeaveDeduction;
   doc.fillColor('#111111').fontSize(10).font('Helvetica-Bold')
      .text(`GHS ${fmt(totalDed)}`, col2, y + 1, { align: 'right', width: contentWidth / 2 - 10 });
 

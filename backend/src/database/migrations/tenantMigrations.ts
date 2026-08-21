@@ -566,6 +566,56 @@ export const TENANT_MIGRATIONS: TenantMigration[] = [
         ADD COLUMN IF NOT EXISTS exchange_rate NUMERIC(18, 6) NOT NULL DEFAULT 1.000000,
         ADD COLUMN IF NOT EXISTS gross_salary_foreign NUMERIC(15, 2) NOT NULL DEFAULT 0.00;
     `
+  },
+  {
+    version: 15,
+    name: '015_leave_management',
+    sql: `
+      -- Leave type catalogue (configurable per tenant).
+      CREATE TABLE IF NOT EXISTS leave_types (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        name VARCHAR(100) NOT NULL,
+        is_paid BOOLEAN NOT NULL DEFAULT true,
+        max_days_per_year INTEGER,
+        is_active BOOLEAN NOT NULL DEFAULT true,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Seed common leave types for every new tenant.
+      INSERT INTO leave_types (name, is_paid, max_days_per_year) VALUES
+        ('Annual Leave', true, 21),
+        ('Sick Leave', true, 14),
+        ('Maternity Leave', true, 84),
+        ('Paternity Leave', true, 5),
+        ('Unpaid Leave', false, NULL),
+        ('Study Leave', false, NULL)
+      ON CONFLICT DO NOTHING;
+
+      -- Leave requests submitted by HR/Admin on behalf of employees.
+      CREATE TABLE IF NOT EXISTS leave_requests (
+        id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        employee_id UUID NOT NULL REFERENCES employees(id) ON DELETE CASCADE,
+        leave_type_id UUID NOT NULL REFERENCES leave_types(id) ON DELETE RESTRICT,
+        start_date DATE NOT NULL,
+        end_date DATE NOT NULL,
+        days_requested NUMERIC(5, 1) NOT NULL CHECK (days_requested > 0),
+        reason TEXT,
+        status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING','APPROVED','REJECTED','CANCELLED')),
+        approved_by TEXT,
+        approved_at TIMESTAMPTZ,
+        created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
+      );
+
+      -- Track how much unpaid leave was deducted per payslip so auditors can trace it.
+      ALTER TABLE payslips
+        ADD COLUMN IF NOT EXISTS unpaid_leave_deduction NUMERIC(15, 2) NOT NULL DEFAULT 0.00;
+
+      CREATE INDEX IF NOT EXISTS idx_leave_requests_employee ON leave_requests(employee_id);
+      CREATE INDEX IF NOT EXISTS idx_leave_requests_status ON leave_requests(status);
+      CREATE INDEX IF NOT EXISTS idx_leave_requests_dates ON leave_requests(start_date, end_date);
+    `
   }
 ];
 
