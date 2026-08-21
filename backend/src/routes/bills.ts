@@ -89,7 +89,7 @@ router.get('/', async (req: Request, res: Response): Promise<void> => {
         select: {
           id: true, billNumber: true, amount: true, currency: true,
           status: true, dueDate: true, createdAt: true, billType: true,
-          scheduledPaymentDate: true, landedCostForBillId: true,
+          scheduledPaymentDate: true, landedCostForBillId: true, journalId: true,
           vendor: { select: { id: true, name: true, email: true } },
           lines: {
             select: {
