@@ -89,6 +89,9 @@ describe('Tenant Context Middleware', () => {
       tenantName: 'Acme Corp',
       tenantSlug: 'acme-corp',
       tenantTier: 1,
+      tenantSubscriptionStatus: 'TRIAL',
+      tenantTrialEndsAt: null,
+      tenantSubscriptionPaidUntil: null,
     });
     expect(response.body.asyncContext).toEqual({
       tenantId: tenant1Id,
@@ -96,6 +99,9 @@ describe('Tenant Context Middleware', () => {
       tenantName: 'Acme Corp',
       tenantSlug: 'acme-corp',
       tenantTier: 1,
+      tenantSubscriptionStatus: 'TRIAL',
+      tenantTrialEndsAt: null,
+      tenantSubscriptionPaidUntil: null,
     });
   });
 
