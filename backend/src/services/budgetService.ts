@@ -49,7 +49,7 @@ async function checkBudgetAlerts(tenantId: string, budgets: BudgetRecord[]): Pro
           data: {
             tenantId,
             title: `Budget Alert: ${threshold}% ${threshold === 100 ? 'Reached' : 'Warning'}`,
-            message: `Spend on account ${budget.accountName ?? budget.accountId} has ${overLabel} its budget (GHS ${Number(budget.actualAmount ?? 0).toFixed(2)} of GHS ${budgetAmt.toFixed(2)}).`,
+            message: `Spend on account ${budget.accountId} has ${overLabel} its budget (GHS ${Number(budget.actualAmount ?? 0).toFixed(2)} of GHS ${budgetAmt.toFixed(2)}).`,
             type: 'BUDGET_ALERT',
             link: '/reports/budgets',
           },
