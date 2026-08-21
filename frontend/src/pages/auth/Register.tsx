@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
@@ -18,7 +18,7 @@ export function Register() {
     password: "",
     tenantName: "",
     tenantSlug: "",
-    baseCurrency: "USD",
+    baseCurrency: "GHS",
     orgType: "BUSINESS"
   });
   const [termsAccepted, setTermsAccepted] = useState(false);
@@ -32,13 +32,6 @@ export function Register() {
   
   const navigate = useNavigate();
   const { login } = useAuth();
-  const tenantNameInputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => {
-    if (step === "tenant" && tenantNameInputRef.current) {
-      tenantNameInputRef.current.focus();
-    }
-  }, [step]);
 
   const fetchLegalDoc = async (policyName: "terms-and-conditions" | "privacy-policy") => {
     setActiveLegalDoc(policyName);
@@ -66,8 +59,8 @@ export function Register() {
   const handleAccountSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!formData.email || !formData.password || !formData.adminName || !formData.phone) {
-      setError("Please fill in your name, email, mobile phone number, and password.");
+    if (!formData.email || !formData.password || !formData.adminName || !formData.phone || !formData.tenantName) {
+      setError("Please fill in all required fields.");
       return;
     }
     setStep("tenant");
@@ -75,7 +68,7 @@ export function Register() {
 
   const handleTenantSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!formData.tenantName || !formData.tenantSlug) return;
+    if (!formData.tenantName) return;
     
     if (!termsAccepted) {
       setError("You must accept the Terms and Conditions to onboard your business workspace.");
@@ -138,11 +131,11 @@ export function Register() {
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <Card className="border-none shadow-xl sm:rounded-2xl">
           <CardHeader>
-            <CardTitle>{step === "account" ? "Administrator Account" : "Business Workspace Setup"}</CardTitle>
+            <CardTitle>{step === "account" ? "Create your account" : "Almost done"}</CardTitle>
             <CardDescription>
-              {step === "account" 
-                ? "First, set up your workspace administrator credentials." 
-                : "Now, enter your company details to provision your isolated workspace."}
+              {step === "account"
+                ? "Enter your business name and contact details to get started."
+                : "Choose your currency and workspace type — you can adjust settings later."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -155,6 +148,27 @@ export function Register() {
             {step === "account" ? (
               <form onSubmit={handleAccountSubmit} className="space-y-4">
                 <div>
+                  <label htmlFor="tenantName" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
+                    Business / Company Name
+                  </label>
+                  <Input
+                    id="tenantName"
+                    type="text"
+                    required
+                    autoFocus
+                    placeholder="Acme Retail Ltd"
+                    value={formData.tenantName}
+                    onChange={(e) => {
+                      const name = e.target.value;
+                      setFormData({
+                        ...formData,
+                        tenantName: name,
+                        tenantSlug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, ''),
+                      });
+                    }}
+                  />
+                </div>
+                <div>
                   <label htmlFor="adminName" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
                     Your Full Name
                   </label>
@@ -162,7 +176,6 @@ export function Register() {
                     id="adminName"
                     type="text"
                     required
-                    autoFocus
                     placeholder="Jane Doe"
                     value={formData.adminName}
                     onChange={(e) => setFormData({ ...formData, adminName: e.target.value })}
@@ -170,20 +183,20 @@ export function Register() {
                 </div>
                 <div>
                   <label htmlFor="email" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                    Admin Email Address
+                    Email Address
                   </label>
                   <Input
                     id="email"
                     type="email"
                     required
-                    placeholder="admin@company.com"
+                    placeholder="jane@acme.com"
                     value={formData.email}
                     onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   />
                 </div>
                 <div>
                   <label htmlFor="phone" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                    Owner Alert Mobile Phone Number (For Instant SMS Alerts & Verification)
+                    Mobile Phone Number
                   </label>
                   <Input
                     id="phone"
@@ -194,7 +207,7 @@ export function Register() {
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                   />
                   <p className="text-[11px] text-secondary-500 mt-1">
-                    Instant till shortage warning SMS alerts & account 4-digit verification codes will be sent to this mobile number.
+                    Used for SMS verification and instant till shortage alerts.
                   </p>
                 </div>
                 <div>
@@ -211,54 +224,14 @@ export function Register() {
                   />
                 </div>
                 <Button type="submit" className="w-full">
-                  Continue to Workspace Setup
+                  Continue
                 </Button>
               </form>
             ) : (
               <form onSubmit={handleTenantSubmit} className="space-y-4 animate-in slide-in-from-right-4 duration-300 fade-in">
                 <div>
-                  <label htmlFor="tenantName" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                    Company / Business Name
-                  </label>
-                  <Input
-                    id="tenantName"
-                    type="text"
-                    required
-                    ref={tenantNameInputRef}
-                    placeholder="Acme Enterprises"
-                    value={formData.tenantName}
-                    onChange={(e) => {
-                      const name = e.target.value;
-                      setFormData({ 
-                        ...formData, 
-                        tenantName: name,
-                        tenantSlug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-')
-                      });
-                    }}
-                  />
-                </div>
-                <div>
-                  <label htmlFor="tenantSlug" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                    Workspace URL Slug
-                  </label>
-                  <div className="flex items-center">
-                    <span className="inline-flex h-10 items-center px-3 rounded-l-md border border-r-0 border-secondary-300 bg-secondary-50 text-secondary-500 sm:text-sm dark:bg-secondary-800 dark:border-secondary-700">
-                      ledgiobusinessaccountingsoftware.com/
-                    </span>
-                    <Input
-                      id="tenantSlug"
-                      type="text"
-                      required
-                      className="rounded-l-none"
-                      placeholder="acme-enterprises"
-                      value={formData.tenantSlug}
-                      onChange={(e) => setFormData({ ...formData, tenantSlug: e.target.value.toLowerCase().replace(/[^a-z0-9-]+/g, '') })}
-                    />
-                  </div>
-                </div>
-                <div>
                   <label htmlFor="baseCurrency" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                    Base Operating Currency
+                    Currency
                   </label>
                   <select
                     id="baseCurrency"
@@ -266,28 +239,39 @@ export function Register() {
                     value={formData.baseCurrency}
                     onChange={(e) => setFormData({ ...formData, baseCurrency: e.target.value })}
                   >
-                    <option value="USD">USD - US Dollar ($)</option>
-                    <option value="GHS">GHS - Ghanaian Cedi (GH₵)</option>
-                    <option value="EUR">EUR - Euro (€)</option>
-                    <option value="GBP">GBP - British Pound (£)</option>
-                    <option value="NGN">NGN - Nigerian Naira (₦)</option>
+                    <option value="GHS">GHS — Ghanaian Cedi (GH₵)</option>
+                    <option value="NGN">NGN — Nigerian Naira (₦)</option>
+                    <option value="USD">USD — US Dollar ($)</option>
+                    <option value="GBP">GBP — British Pound (£)</option>
+                    <option value="EUR">EUR — Euro (€)</option>
                   </select>
                 </div>
                 <div>
-                  <label htmlFor="orgType" className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-1">
-                    Organization Type
+                  <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
+                    Workspace Type
                   </label>
-                  <select
-                    id="orgType"
-                    className="w-full h-10 px-3 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-sm"
-                    value={formData.orgType}
-                    onChange={(e) => setFormData({ ...formData, orgType: e.target.value })}
-                  >
-                    <option value="BUSINESS">Business</option>
-                    <option value="NONPROFIT">Nonprofit / Church / NGO / School</option>
-                  </select>
-                  <p className="text-[11px] text-secondary-500 mt-1">
-                    Nonprofit workspaces get a Funds tab for tracking restricted vs. unrestricted donor funds, and hide Point of Sale/Inventory. This can't be changed later, so pick carefully.
+                  <div className="grid grid-cols-2 gap-3">
+                    {[
+                      { value: "BUSINESS", label: "Business", sub: "Retail, wholesale, services, hospitality" },
+                      { value: "NONPROFIT", label: "Nonprofit / NGO", sub: "Churches, schools, NGOs, donor-funded orgs" },
+                    ].map((opt) => (
+                      <button
+                        key={opt.value}
+                        type="button"
+                        onClick={() => setFormData({ ...formData, orgType: opt.value })}
+                        className={`text-left p-3 rounded-lg border-2 transition-colors ${
+                          formData.orgType === opt.value
+                            ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                            : "border-secondary-200 dark:border-secondary-700 hover:border-secondary-400 dark:hover:border-secondary-500"
+                        }`}
+                      >
+                        <div className="text-sm font-semibold text-secondary-900 dark:text-secondary-100">{opt.label}</div>
+                        <div className="text-[11px] text-secondary-500 mt-0.5">{opt.sub}</div>
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-[11px] text-secondary-500 mt-1.5">
+                    Nonprofit workspaces include fund tracking and hide point-of-sale features.
                   </p>
                 </div>
 
