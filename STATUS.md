@@ -2,6 +2,15 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Fix: Invoice PDF Download Now Uses Authenticated Blob Fetch
+
+**What/Why:** Invoice PDF download was broken because it used a direct `<a href>` link to `/api/v1/invoices/:id/pdf`, which cannot send the JWT `Authorization` header. The backend PDF endpoint requires authentication, so unauthenticated direct anchor requests always failed. Fixed by replacing the anchor with a `handleDownloadPdf` async function that fetches the PDF as a blob via the authenticated `api` axios instance, then creates an object URL and triggers a programmatic download — the same pattern already used for audit log CSV export in AdminCoreEngine.
+
+**Changes:**
+- **`frontend/src/pages/invoices/Invoices.tsx`** — Removed `<a href>` anchor for PDF download. Added `downloadingPdfId` state and `handleDownloadPdf(invoiceId, isGraCleared)` function that calls `api.get('/invoices/:id/pdf', { responseType: 'blob' })`, creates an object URL, and clicks a temporary anchor. Replaced anchor element with a `<button>` that calls `handleDownloadPdf`, shows "Downloading..." while in progress, and shows toast on failure.
+
+---
+
 ## [Date: 2026-08-21] - Security Hardening: Frontend Audit Fixes (Passcode Headers, WS Tickets, POS Offline Clear, Error Boundary)
 
 **What/Why:** Implemented all high and medium priority findings from the Frontend Security Audit. Four categories of work: (1) admin passcode removed from URL query params, (2) JWT bearer token removed from WebSocket URL, (3) POS offline IndexedDB now cleared on logout, (4) React error boundary added to prevent blank-screen crashes.
