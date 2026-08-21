@@ -179,6 +179,7 @@ export function Invoices() {
   const [isItemizedInvoice, setIsItemizedInvoice] = useState(false);
   const [selectedWarehouseId, setSelectedWarehouseId] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAddingCustomer, setIsAddingCustomer] = useState(false);
 
   // Credit Note modal
   const [creditNoteInvoice, setCreditNoteInvoice] = useState<Invoice | null>(null);
@@ -261,6 +262,7 @@ export function Invoices() {
 
   const handleAddCustomer = async (e: React.FormEvent) => {
     e.preventDefault();
+    setIsAddingCustomer(true);
     try {
       const res = await api.post("/invoices/customers", {
         name: custName,
@@ -280,6 +282,8 @@ export function Invoices() {
       }
     } catch (err: any) {
       showToast(err.response?.data?.error || "Failed to add customer.", "error");
+    } finally {
+      setIsAddingCustomer(false);
     }
   };
 
@@ -872,7 +876,7 @@ export function Invoices() {
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsCustomerOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="primary">Add Customer</Button>
+            <Button type="submit" variant="primary" disabled={isAddingCustomer}>{isAddingCustomer ? "Adding..." : "Add Customer"}</Button>
           </div>
         </form>
       </Modal>

@@ -878,7 +878,7 @@ export function WarehouseManagement() {
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsWarehouseModalOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={isSubmitting}>Create Location</Button>
+            <Button type="submit" variant="primary" disabled={isSubmitting}>{isSubmitting ? "Creating..." : "Create Location"}</Button>
           </div>
         </form>
       </Modal>
@@ -955,7 +955,7 @@ export function WarehouseManagement() {
           </div>
           <div className="flex justify-end space-x-3 pt-2">
             <Button type="button" variant="outline" onClick={() => setIsItemModalOpen(false)}>Cancel</Button>
-            <Button type="submit" variant="primary" disabled={isSubmitting}>Save Product</Button>
+            <Button type="submit" variant="primary" disabled={isSubmitting}>{isSubmitting ? "Saving..." : "Save Product"}</Button>
           </div>
         </form>
       </Modal>
