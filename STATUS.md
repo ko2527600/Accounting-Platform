@@ -2,6 +2,24 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Onboarding: Simplified Quick-Start Path for Business/Retail Workspaces
+
+**What/Why:** The full 3-step onboarding wizard (Profile → Chart of Accounts → Opening Balances) was blocking business/retail users who just want to start selling. Chart of accounts seeding and opening balance entry are meaningful for accountants and NGOs doing fund accounting, but a retail shop owner just wants to ring up a first sale. Business (non-nonprofit) workspaces now get a 2-step path: Profile → "Ready to Go" with three quick-start action buttons (Make a Sale, Send an Invoice, Add Stock). Nonprofit workspaces still follow the full 3-step wizard (fund accounting requires a proper chart of accounts and verified opening balances). Path is determined by `user?.orgType` from the existing JWT/auth context — no schema migration needed.
+
+**Changes:**
+- **`frontend/src/pages/onboarding/OnboardingWizard.tsx`** — Added `useAuth` import. Added `isNonprofit` flag from `user?.orgType`. Defined `STEPS_FULL` (profile/accounts/balances) and `STEPS_SIMPLE` (profile/ready) constants; `steps` dynamically selects based on `isNonprofit`. Added `"ready"` to `StepKey` type. `handleSaveProfile` now routes to `"accounts"` (nonprofits) or `"ready"` (businesses). Added `"ready"` step panel with 3 quick-start navigation buttons and footer links to dashboard and profile edit. Updated `BUSINESS_TYPES` list to include retail-specific options. Added `ShoppingCart`, `FileText`, `Package`, `Rocket` Lucide imports.
+
+---
+
+## [Date: 2026-08-21] - Registration: Replace Binary Workspace Type with Business Profile Picker
+
+**What/Why:** The registration step 2 showed two toggle buttons — "Business" and "Nonprofit / NGO" — which is too vague for a Ghana SME signing up. A shop owner sees "Business" and has no idea what they're getting. Replaced with five descriptive profile cards (Retail Shop / Boutique, Wholesale / Distributor, Service Business, NGO / School / Church, Other Business), each with an icon and a plain-language subtitle. Cards that map to `orgType=NONPROFIT` (NGO/School/Church) remain, keeping the backend payload identical. A `selectedProfile` state tracks which card is highlighted since multiple cards share `orgType=BUSINESS`.
+
+**Changes:**
+- **`frontend/src/pages/auth/Register.tsx`** — Added `BUSINESS_PROFILES` constant array with 5 profile options (label, sub-description, Lucide icon, orgType value). Added `selectedProfile` state (default: "Retail Shop / Boutique"). Replaced 2-column grid of BUSINESS/NONPROFIT toggles with a 1-column list of 5 descriptive cards. Added `ShoppingBag`, `Package`, `Briefcase`, `Heart`, `Building2` icon imports. Updated CardDescription text for step 2. No backend changes — `orgType` POST payload is identical.
+
+---
+
 ## [Date: 2026-08-21] - Frontend Audit: Route Lazy-Loading and Widget Accessibility
 
 **What/Why:** Implemented the two remaining implementable items from the Frontend Audit. (1) Route lazy-loading: App.tsx had 52 static page imports causing the entire app to ship as one large bundle, hurting first-load performance. Converted all page-level imports to `React.lazy()` with a `<Suspense>` fallback spinner wrapping `<Routes>`, so each page becomes its own chunk loaded on first navigation. (2) Accessibility: HelpAssistantWidget and FeedbackWidget were custom `div` panels with no dialog semantics, no focus management, no keyboard trap, and no Escape key handling, failing WCAG 2.1 SC 1.4.13 / 2.1.2 for keyboard users and screen readers. Both widgets now have proper `role="dialog"` semantics, focus-on-open, focus trap, Escape-to-close, `aria-label` on icon buttons, `aria-hidden` on decorative icons. HelpAssistantWidget also gains `aria-live="polite"` on the message container. FeedbackWidget `<select>` is now disabled during submission alongside `<textarea>`.

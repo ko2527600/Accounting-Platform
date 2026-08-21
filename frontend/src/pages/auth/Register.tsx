@@ -6,8 +6,41 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Modal } from "../../components/ui/Modal";
 import { useAuth } from "../../contexts/AuthContext";
 import { api } from "../../lib/api";
-import { FileText } from "lucide-react";
+import { FileText, ShoppingBag, Package, Briefcase, Heart, Building2 } from "lucide-react";
 import { AuthSplitLayout } from "../../components/layout/AuthSplitLayout";
+
+const BUSINESS_PROFILES = [
+  {
+    value: "BUSINESS" as const,
+    label: "Retail Shop / Boutique",
+    sub: "Physical store, kiosk, market stall",
+    icon: ShoppingBag,
+  },
+  {
+    value: "BUSINESS" as const,
+    label: "Wholesale / Distributor",
+    sub: "Bulk sales, invoices, credit terms",
+    icon: Package,
+  },
+  {
+    value: "BUSINESS" as const,
+    label: "Service Business",
+    sub: "Agency, freelancer, professional firm",
+    icon: Briefcase,
+  },
+  {
+    value: "NONPROFIT" as const,
+    label: "NGO / School / Church",
+    sub: "Fund accounting, donor tracking",
+    icon: Heart,
+  },
+  {
+    value: "BUSINESS" as const,
+    label: "Other Business",
+    sub: "Manufacturing, logistics, e-commerce",
+    icon: Building2,
+  },
+];
 
 export function Register() {
   const [step, setStep] = useState<"account" | "tenant">("account");
@@ -19,8 +52,11 @@ export function Register() {
     tenantName: "",
     tenantSlug: "",
     baseCurrency: "GHS",
-    orgType: "BUSINESS"
+    orgType: "BUSINESS",
   });
+  // Tracks which profile card is highlighted — multiple cards share orgType=BUSINESS
+  // so we can't use orgType alone to identify the selected card.
+  const [selectedProfile, setSelectedProfile] = useState<string>("Retail Shop / Boutique");
   const [termsAccepted, setTermsAccepted] = useState(false);
   const [isTermsModalOpen, setIsTermsModalOpen] = useState(false);
   const [activeLegalDoc, setActiveLegalDoc] = useState<"terms-and-conditions" | "privacy-policy">("terms-and-conditions");
@@ -135,7 +171,7 @@ export function Register() {
             <CardDescription>
               {step === "account"
                 ? "Enter your business name and contact details to get started."
-                : "Choose your currency and workspace type — you can adjust settings later."}
+                : "Choose your currency and business type to finish setting up."}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -248,30 +284,34 @@ export function Register() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-secondary-700 dark:text-secondary-300 mb-2">
-                    Workspace Type
+                    What kind of business is this?
                   </label>
-                  <div className="grid grid-cols-2 gap-3">
-                    {[
-                      { value: "BUSINESS", label: "Business", sub: "Retail, wholesale, services, hospitality" },
-                      { value: "NONPROFIT", label: "Nonprofit / NGO", sub: "Churches, schools, NGOs, donor-funded orgs" },
-                    ].map((opt) => (
-                      <button
-                        key={opt.value}
-                        type="button"
-                        onClick={() => setFormData({ ...formData, orgType: opt.value })}
-                        className={`text-left p-3 rounded-lg border-2 transition-colors ${
-                          formData.orgType === opt.value
-                            ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
-                            : "border-secondary-200 dark:border-secondary-700 hover:border-secondary-400 dark:hover:border-secondary-500"
-                        }`}
-                      >
-                        <div className="text-sm font-semibold text-secondary-900 dark:text-secondary-100">{opt.label}</div>
-                        <div className="text-[11px] text-secondary-500 mt-0.5">{opt.sub}</div>
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-1 gap-2">
+                    {BUSINESS_PROFILES.map((opt) => {
+                      const Icon = opt.icon;
+                      const isSelected = selectedProfile === opt.label;
+                      return (
+                        <button
+                          key={opt.label}
+                          type="button"
+                          onClick={() => { setSelectedProfile(opt.label); setFormData({ ...formData, orgType: opt.value }); }}
+                          className={`flex items-center gap-3 text-left px-3 py-2.5 rounded-lg border-2 transition-colors ${
+                            isSelected
+                              ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20"
+                              : "border-secondary-200 dark:border-secondary-700 hover:border-secondary-400 dark:hover:border-secondary-500"
+                          }`}
+                        >
+                          <Icon className={`h-5 w-5 flex-shrink-0 ${isSelected ? "text-primary-600 dark:text-primary-400" : "text-secondary-400"}`} aria-hidden="true" />
+                          <div>
+                            <div className="text-sm font-semibold text-secondary-900 dark:text-secondary-100">{opt.label}</div>
+                            <div className="text-[11px] text-secondary-500">{opt.sub}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
                   </div>
                   <p className="text-[11px] text-secondary-500 mt-1.5">
-                    Nonprofit workspaces include fund tracking and hide point-of-sale features.
+                    NGO/School/Church workspaces include fund accounting. All others get POS and inventory.
                   </p>
                 </div>
 
