@@ -2,6 +2,25 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-21] - Analytics Dashboard (`/reports/analytics`)
+
+**What/Why:** All existing reports were point-in-time or single-period tabular views — no time-series trend visualization, no top-customer/top-item analytics. Closes the final open task "Develop advanced reporting and analytics dashboards" (w:10).
+
+**Changes:**
+- **`backend/src/routes/reports.ts`** — Three new endpoints:
+  - `GET /reports/analytics/trends?months=3|6|12` — loops over N months, calls the existing `getProfitAndLoss` service per month, returns `[{ month, label, revenue, cogs, expenses, netProfit }]`. Numbers are guaranteed to match the P&L report exactly.
+  - `GET /reports/analytics/top-customers?startDate=&endDate=&limit=10` — queries invoices with `amountPaid > 0` grouped by customer, returns ranked by total revenue with customer type.
+  - `GET /reports/analytics/top-items?startDate=&endDate=&limit=10` — queries COMPLETED POS `cashSaleLines` grouped by itemId, returns ranked by total line revenue.
+- **`frontend/src/pages/reports/AnalyticsDashboard.tsx`** — new page at `/reports/analytics`:
+  - 3M/6M/12M period selector (pill toggle), drives both trend and top-N queries.
+  - 3 KPI summary tiles: Total Revenue (with half-period trend delta), Total Costs, Net Profit (with margin %).
+  - Month-by-month SVG bar chart — Revenue (green) and Total Costs (orange) bars per month, Net Profit dot per month, Y-axis grid with compact currency labels, accessible with `<title>` tooltips per element.
+  - Top 5 Customers: ranked list with proportional share bars, customer type badge, invoice count.
+  - Top 5 Items: ranked list with proportional share bars, units sold, SKU.
+  - No external chart library — pure inline SVG, no CDN dependency.
+- **`frontend/src/lib/navigation.ts`** — Added `LineChart` import; added `{ name: "Analytics Dashboard", href: "/reports/analytics", icon: LineChart }` after Budgets in the REPORTS & ANALYTICS section; added `/reports/analytics` to `OPERATIONS_HIDDEN` (hidden from Simple mode, visible in Business/Professional); added to auditor role's allowed nav.
+- **`frontend/src/App.tsx`** — Added lazy import and `<Route path="/reports/analytics">` alongside other report routes.
+
 ## [Date: 2026-08-21] - Onboarding: Simplified Quick-Start Path for Business/Retail Workspaces
 
 **What/Why:** The full 3-step onboarding wizard (Profile → Chart of Accounts → Opening Balances) was blocking business/retail users who just want to start selling. Chart of accounts seeding and opening balance entry are meaningful for accountants and NGOs doing fund accounting, but a retail shop owner just wants to ring up a first sale. Business (non-nonprofit) workspaces now get a 2-step path: Profile → "Ready to Go" with three quick-start action buttons (Make a Sale, Send an Invoice, Add Stock). Nonprofit workspaces still follow the full 3-step wizard (fund accounting requires a proper chart of accounts and verified opening balances). Path is determined by `user?.orgType` from the existing JWT/auth context — no schema migration needed.

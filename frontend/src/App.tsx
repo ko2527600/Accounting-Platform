@@ -68,6 +68,7 @@ const AgingReport = lazy(() => import("./pages/reports/AgingReport").then(m => (
 const SalesChannelReport = lazy(() => import("./pages/reports/SalesChannelReport").then(m => ({ default: m.SalesChannelReport })));
 const BranchComparisonReport = lazy(() => import("./pages/reports/BranchComparisonReport").then(m => ({ default: m.BranchComparisonReport })));
 const LandedCostReport = lazy(() => import("./pages/reports/LandedCostReport").then(m => ({ default: m.LandedCostReport })));
+const AnalyticsDashboard = lazy(() => import("./pages/reports/AnalyticsDashboard").then(m => ({ default: m.AnalyticsDashboard })));
 const PettyCash = lazy(() => import("./pages/pettycash/PettyCash").then(m => ({ default: m.PettyCash })));
 const PurchaseOrders = lazy(() => import("./pages/purchaseorders/PurchaseOrders").then(m => ({ default: m.PurchaseOrders })));
 const RecurringInvoices = lazy(() => import("./pages/recurringinvoices/RecurringInvoices").then(m => ({ default: m.RecurringInvoices })));
@@ -425,6 +426,7 @@ function App() {
               <Route path="/reports/sales-channel" element={<ProtectedRoute><MainLayout><SalesChannelReport /></MainLayout></ProtectedRoute>} />
               <Route path="/reports/branch-comparison" element={<ProtectedRoute><MainLayout><BranchComparisonReport /></MainLayout></ProtectedRoute>} />
               <Route path="/reports/landed-costs" element={<ProtectedRoute><MainLayout><LandedCostReport /></MainLayout></ProtectedRoute>} />
+              <Route path="/reports/analytics" element={<ProtectedRoute><MainLayout><AnalyticsDashboard /></MainLayout></ProtectedRoute>} />
               <Route path="/petty-cash" element={<ProtectedRoute><MainLayout><PettyCash /></MainLayout></ProtectedRoute>} />
               <Route path="/purchase-orders" element={<ProtectedRoute><MainLayout><PurchaseOrders /></MainLayout></ProtectedRoute>} />
               <Route path="/recurring-invoices" element={<ProtectedRoute><MainLayout><RecurringInvoices /></MainLayout></ProtectedRoute>} />

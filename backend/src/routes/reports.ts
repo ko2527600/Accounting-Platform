@@ -687,4 +687,168 @@ router.get(
   }
 );
 
+/**
+ * GET /reports/analytics/trends?months=12
+ * Monthly revenue / expenses / net-profit trend for the last N months.
+ * Reuses getProfitAndLoss per month so the numbers are identical to the P&L
+ * the accountant already trusts. months: 3 | 6 | 12 (default 12, max 24).
+ * Access: Viewer role or higher.
+ */
+router.get('/analytics/trends', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const months = Math.min(24, Math.max(1, parseInt((req.query.months as string) || '12', 10) || 12));
+
+    const now = new Date();
+    const series: Array<{
+      month: string;
+      label: string;
+      revenue: number;
+      cogs: number;
+      expenses: number;
+      netProfit: number;
+    }> = [];
+
+    for (let i = months - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const startDate = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`;
+      const last = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      const endDate = `${last.getFullYear()}-${String(last.getMonth() + 1).padStart(2, '0')}-${String(last.getDate()).padStart(2, '0')}`;
+
+      const pnl = await reportingService.getProfitAndLoss(startDate, endDate, undefined, undefined);
+      series.push({
+        month: startDate.slice(0, 7),
+        label: d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }),
+        revenue: pnl.totalRevenue,
+        cogs: pnl.totalCostOfSales,
+        expenses: pnl.totalExpenses,
+        netProfit: pnl.netProfit,
+      });
+    }
+
+    res.json({ success: true, data: { series } });
+  } catch (error: any) {
+    console.error('[Reports] Analytics trends error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate analytics trends.' });
+  }
+});
+
+/**
+ * GET /reports/analytics/top-customers?startDate=&endDate=&limit=10
+ * Top customers ranked by total invoiced-and-paid revenue in the date range.
+ * Access: Viewer role or higher.
+ */
+router.get('/analytics/top-customers', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { startDate, endDate } = req.query;
+    const limit = Math.min(25, Math.max(1, parseInt((req.query.limit as string) || '10', 10) || 10));
+
+    const dateFilter: any = {};
+    if (startDate) dateFilter.gte = new Date(startDate as string);
+    if (endDate) {
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      dateFilter.lte = end;
+    }
+
+    // Sum amountPaid on invoices per customer within the date range.
+    const invoices = await withCurrentTenantDb(prisma, (client) =>
+      (client as any).invoice.findMany({
+        where: {
+          tenantId,
+          customerId: { not: null },
+          amountPaid: { gt: 0 },
+          ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
+        },
+        select: {
+          customerId: true,
+          amountPaid: true,
+          customer: { select: { id: true, name: true, email: true, customerType: true } },
+        },
+      })
+    ) as any[];
+
+    const byCustomer: Record<string, { id: string; name: string; email: string; customerType: string; revenue: number; invoiceCount: number }> = {};
+    for (const inv of invoices) {
+      if (!inv.customerId || !inv.customer) continue;
+      const key = inv.customerId;
+      if (!byCustomer[key]) {
+        byCustomer[key] = {
+          id: inv.customer.id,
+          name: inv.customer.name,
+          email: inv.customer.email ?? '',
+          customerType: inv.customer.customerType ?? 'RETAIL',
+          revenue: 0,
+          invoiceCount: 0,
+        };
+      }
+      byCustomer[key].revenue += Number(inv.amountPaid ?? 0);
+      byCustomer[key].invoiceCount += 1;
+    }
+
+    const customers = Object.values(byCustomer)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, limit);
+
+    res.json({ success: true, data: { customers } });
+  } catch (error: any) {
+    console.error('[Reports] Top customers error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate top customers report.' });
+  }
+});
+
+/**
+ * GET /reports/analytics/top-items?startDate=&endDate=&limit=10
+ * Top-selling items ranked by total POS line revenue in the date range.
+ * Access: Viewer role or higher.
+ */
+router.get('/analytics/top-items', requireRole('Viewer'), async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { tenantId } = requireTenantContext();
+    const { startDate, endDate } = req.query;
+    const limit = Math.min(25, Math.max(1, parseInt((req.query.limit as string) || '10', 10) || 10));
+
+    const dateFilter: any = {};
+    if (startDate) dateFilter.gte = new Date(startDate as string);
+    if (endDate) {
+      const end = new Date(endDate as string);
+      end.setHours(23, 59, 59, 999);
+      dateFilter.lte = end;
+    }
+
+    const lines = await withCurrentTenantDb(prisma, (client) =>
+      (client as any).cashSaleLine.findMany({
+        where: {
+          tenantId,
+          sale: {
+            status: 'COMPLETED',
+            ...(Object.keys(dateFilter).length ? { createdAt: dateFilter } : {}),
+          },
+        },
+        select: { itemId: true, itemName: true, itemSku: true, quantity: true, lineTotal: true },
+      })
+    ) as any[];
+
+    const byItem: Record<string, { itemId: string; itemName: string; itemSku: string; revenue: number; quantity: number; txnCount: number }> = {};
+    for (const l of lines) {
+      const key = l.itemId;
+      if (!byItem[key]) {
+        byItem[key] = { itemId: l.itemId, itemName: l.itemName, itemSku: l.itemSku, revenue: 0, quantity: 0, txnCount: 0 };
+      }
+      byItem[key].revenue += Number(l.lineTotal ?? 0);
+      byItem[key].quantity += Number(l.quantity ?? 0);
+      byItem[key].txnCount += 1;
+    }
+
+    const items = Object.values(byItem)
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, limit);
+
+    res.json({ success: true, data: { items } });
+  } catch (error: any) {
+    console.error('[Reports] Top items error:', error);
+    res.status(500).json({ success: false, error: error.message || 'Failed to generate top items report.' });
+  }
+});
+
 export default router;
