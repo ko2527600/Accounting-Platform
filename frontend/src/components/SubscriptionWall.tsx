@@ -142,7 +142,7 @@ export function SubscriptionWall({ currentTier, onSubscribed }: Props) {
             <div>
               <p className="font-semibold">Payment unavailable</p>
               <p>{error}</p>
-              <p className="mt-1 text-xs opacity-75">Contact <a href="mailto:support@ledgio.app" className="underline">support@ledgio.app</a> if this persists.</p>
+              <p className="mt-1 text-xs opacity-75">Contact <a href="mailto:developershub26@gmail.com" className="underline">developershub26@gmail.com</a> if this persists.</p>
             </div>
           </div>
         )}
@@ -182,8 +182,8 @@ export function SubscriptionWall({ currentTier, onSubscribed }: Props) {
 
         <p className="text-center text-xs text-gray-400 dark:text-gray-500 mt-6">
           Need help? Email{" "}
-          <a href="mailto:support@ledgio.app" className="underline hover:text-gray-600 dark:hover:text-gray-300">
-            support@ledgio.app
+          <a href="mailto:developershub26@gmail.com" className="underline hover:text-gray-600 dark:hover:text-gray-300">
+            developershub26@gmail.com
           </a>
         </p>
       </div>

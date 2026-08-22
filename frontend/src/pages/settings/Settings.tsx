@@ -152,7 +152,7 @@ function SubscriptionTab() {
               <div>
                 <p className="font-semibold">Payment unavailable</p>
                 <p>{error}</p>
-                <p className="mt-1 text-xs opacity-75">Contact <a href="mailto:support@ledgio.app" className="underline">support@ledgio.app</a> if this persists.</p>
+                <p className="mt-1 text-xs opacity-75">Contact <a href="mailto:developershub26@gmail.com" className="underline">developershub26@gmail.com</a> if this persists.</p>
               </div>
             </div>
           )}
