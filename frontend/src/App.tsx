@@ -1,4 +1,4 @@
-import { Component, lazy, Suspense, useEffect, useRef } from "react";
+import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { initAnalytics, trackPageView } from "./lib/analytics";
 import type { ErrorInfo, ReactNode } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useNavigate, useLocation, Link } from "react-router-dom";
@@ -18,7 +18,7 @@ import { CommandMenu } from "./components/ui/CommandMenu";
 import {
   ShoppingCart, Package, FileText as FileTextIcon, DollarSign,
   Wallet as WalletIcon, ArrowLeftRight, ClipboardList, BarChart2,
-  Receipt as ReceiptIcon,
+  Receipt as ReceiptIcon, Store, AlertTriangle, CheckCircle2, TrendingUp,
 } from "lucide-react";
 import { useProfitAndLoss } from "./hooks/useProfitAndLoss";
 import { useAccounts } from "./hooks/useAccounts";
@@ -267,9 +267,140 @@ const Dashboard = () => {
           </Card>
         </div>
       )}
+
+      {isRestrictedRole && <ShopManagerDashboard />}
     </div>
   );
 };
+
+function ShopManagerDashboard() {
+  const { settings } = useTenantSettings();
+  const [tillStatus, setTillStatus] = useState<{ status: string; cashSalesTotal: number } | null>(null);
+  const [todaySales, setTodaySales] = useState<{ total: number; count: number } | null>(null);
+  const [lowStockCount, setLowStockCount] = useState<number | null>(null);
+  const [lastDiscrepancy, setLastDiscrepancy] = useState<number | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  const fmt = (n: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: settings.baseCurrency }).format(n);
+
+  useEffect(() => {
+    setLoading(true);
+    const today = new Date().toISOString().slice(0, 10);
+
+    Promise.allSettled([
+      api.get('/tills/current'),
+      api.get(`/tills/closeouts?startDate=${today}&endDate=${today}&limit=50`),
+      api.get('/inventory/warehouses'),
+    ]).then(([tillRes, closeoutRes, whRes]) => {
+      if (tillRes.status === 'fulfilled') {
+        const t = tillRes.value.data?.data?.till;
+        setTillStatus(t ? { status: t.status, cashSalesTotal: Number(t.cashSalesTotal ?? 0) } : null);
+      }
+      if (closeoutRes.status === 'fulfilled') {
+        const rows: any[] = closeoutRes.value.data?.data?.closeouts ?? [];
+        const total = rows.reduce((s: number, r: any) => s + Number(r.cashSalesTotal ?? 0), 0);
+        setTodaySales({ total, count: rows.reduce((s: number, r: any) => s + (r.totalTransactions ?? 0), 0) });
+        if (rows.length > 0) setLastDiscrepancy(Number(rows[0].discrepancy ?? 0));
+      }
+      if (whRes.status === 'fulfilled') {
+        const warehouses: any[] = whRes.value.data?.data?.warehouses ?? [];
+        let low = 0;
+        for (const wh of warehouses) {
+          for (const s of (wh.stocks ?? [])) {
+            if (s.quantityOnHand <= (s.reorderLevel ?? 0)) low++;
+          }
+        }
+        setLowStockCount(low);
+      }
+    }).finally(() => setLoading(false));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  if (loading) {
+    return <div className="grid gap-4 grid-cols-2 md:grid-cols-4 animate-pulse">{[...Array(4)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-secondary-100 dark:bg-secondary-800" />)}</div>;
+  }
+
+  const tillOpen = tillStatus?.status === 'OPEN';
+
+  return (
+    <div className="space-y-4">
+      <div className="grid gap-4 grid-cols-2 md:grid-cols-4">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Till Status</CardTitle>
+            <Store className="h-4 w-4 text-secondary-400" aria-hidden />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-xl font-bold ${tillOpen ? 'text-emerald-600 dark:text-emerald-400' : 'text-secondary-500'}`}>
+              {tillStatus ? (tillOpen ? 'OPEN' : 'CLOSED') : 'No Till'}
+            </div>
+            {tillOpen && (
+              <p className="text-xs text-secondary-500 mt-1">Sales today: {fmt(tillStatus!.cashSalesTotal)}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Today's Sales</CardTitle>
+            <TrendingUp className="h-4 w-4 text-secondary-400" aria-hidden />
+          </CardHeader>
+          <CardContent>
+            <div className="text-xl font-bold text-emerald-600 dark:text-emerald-400">
+              {todaySales ? fmt(todaySales.total) : fmt(0)}
+            </div>
+            {todaySales && (
+              <p className="text-xs text-secondary-500 mt-1">{todaySales.count} transaction{todaySales.count !== 1 ? 's' : ''}</p>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Low Stock Items</CardTitle>
+            <AlertTriangle className="h-4 w-4 text-secondary-400" aria-hidden />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-xl font-bold ${(lowStockCount ?? 0) > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-secondary-900 dark:text-secondary-50'}`}>
+              {lowStockCount ?? 0}
+            </div>
+            <p className="text-xs text-secondary-500 mt-1">
+              {(lowStockCount ?? 0) > 0 ? 'Items at or below reorder level' : 'All items stocked'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Last Closeout</CardTitle>
+            <CheckCircle2 className="h-4 w-4 text-secondary-400" aria-hidden />
+          </CardHeader>
+          <CardContent>
+            <div className={`text-xl font-bold ${lastDiscrepancy !== null && lastDiscrepancy !== 0 ? 'text-red-600 dark:text-red-400' : 'text-emerald-600 dark:text-emerald-400'}`}>
+              {lastDiscrepancy !== null ? (lastDiscrepancy === 0 ? 'Balanced' : fmt(lastDiscrepancy)) : '—'}
+            </div>
+            <p className="text-xs text-secondary-500 mt-1">
+              {lastDiscrepancy !== null && lastDiscrepancy !== 0 ? 'Discrepancy detected' : 'No discrepancy'}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        {[
+          { label: 'Open / Close Till', href: '/pos', icon: Store, color: 'emerald' },
+          { label: 'Make a Sale', href: '/pos', icon: ShoppingCart, color: 'blue' },
+          { label: 'View Inventory', href: '/inventory', icon: Package, color: 'purple' },
+        ].map(({ label, href, icon: Icon, color }) => (
+          <Link key={label} to={href} className={`flex flex-col items-center gap-2 rounded-xl p-4 text-center text-xs font-medium transition-all duration-150 ${ACTION_COLOR_CLASSES[color] ?? ACTION_COLOR_CLASSES.blue}`}>
+            <Icon className="h-6 w-6 flex-shrink-0" />
+            {label}
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function ProtectedRoute({ children, blockedRoles }: { children: React.ReactNode; blockedRoles?: Set<string> }) {
   const { token, isLoading, user } = useAuth();

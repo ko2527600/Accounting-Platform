@@ -173,6 +173,9 @@ export function Invoices() {
   const [items, setItems] = useState<InvoiceItem[]>([
     { description: "Software Consulting", quantity: 10, unitPrice: 150, amount: 1500 },
   ]);
+  // Per-line search text for the itemized item combobox (parallel array to items).
+  const [itemSearches, setItemSearches] = useState<string[]>(['']);
+  const [openItemPickerIdx, setOpenItemPickerIdx] = useState<number | null>(null);
   // Simple Invoice (no stock effect, the long-standing default) vs.
   // Itemized Invoice (deducts real stock at issue time) - mirrors
   // VendorBills' Simple Bill / Itemized Purchase toggle on the buying side.
@@ -995,31 +998,60 @@ export function Invoices() {
             {items.map((it, idx) => (
               <div key={idx} className="flex gap-2 mb-2">
                 {isItemizedInvoice && (
-                  <select
-                    className="w-40 h-9 px-2 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-xs"
-                    value={it.inventoryItemId || ""}
-                    onChange={(e) => {
-                      const selected = inventoryItems.find((inv) => inv.id === e.target.value);
-                      const newIt = [...items];
-                      newIt[idx].inventoryItemId = e.target.value || undefined;
-                      if (selected) {
-                        const isWholesale = customers.find((c) => c.id === selectedCustomer)?.customerType === "WHOLESALE";
-                        const effectivePrice =
-                          isWholesale && selected.wholesalePrice != null
-                            ? selected.wholesalePrice
-                            : selected.sellingPrice;
-                        newIt[idx].description = selected.name;
-                        newIt[idx].unitPrice = effectivePrice;
-                        newIt[idx].amount = newIt[idx].quantity * effectivePrice;
-                      }
-                      setItems(newIt);
-                    }}
-                  >
-                    <option value="">-- Stock Item --</option>
-                    {inventoryItems.map((inv) => (
-                      <option key={inv.id} value={inv.id}>{inv.name} ({inv.sku})</option>
-                    ))}
-                  </select>
+                  <div className="relative w-44">
+                    <input
+                      type="text"
+                      className="w-full h-9 px-2 rounded-md border border-secondary-300 bg-white dark:bg-secondary-800 text-secondary-900 dark:text-secondary-50 text-xs placeholder-secondary-400"
+                      placeholder={it.inventoryItemId ? (inventoryItems.find(i => i.id === it.inventoryItemId)?.name ?? 'Search items…') : 'Search items…'}
+                      value={openItemPickerIdx === idx ? (itemSearches[idx] ?? '') : (it.inventoryItemId ? (inventoryItems.find(i => i.id === it.inventoryItemId)?.name ?? '') : '')}
+                      onFocus={() => {
+                        setOpenItemPickerIdx(idx);
+                        setItemSearches(prev => { const n = [...prev]; n[idx] = ''; return n; });
+                      }}
+                      onChange={(e) => {
+                        setOpenItemPickerIdx(idx);
+                        setItemSearches(prev => { const n = [...prev]; n[idx] = e.target.value; return n; });
+                      }}
+                      onBlur={() => setTimeout(() => setOpenItemPickerIdx(null), 150)}
+                    />
+                    {openItemPickerIdx === idx && (
+                      <ul className="absolute z-50 top-full left-0 mt-1 w-64 max-h-52 overflow-y-auto rounded-md border border-secondary-200 dark:border-secondary-700 bg-white dark:bg-secondary-800 shadow-lg text-xs">
+                        {inventoryItems
+                          .filter(inv => {
+                            const q = (itemSearches[idx] ?? '').toLowerCase();
+                            return !q || inv.name.toLowerCase().includes(q) || (inv.sku ?? '').toLowerCase().includes(q);
+                          })
+                          .slice(0, 30)
+                          .map(inv => (
+                            <li
+                              key={inv.id}
+                              className="px-3 py-2 cursor-pointer hover:bg-secondary-100 dark:hover:bg-secondary-700 text-secondary-900 dark:text-secondary-50"
+                              onMouseDown={() => {
+                                const isWholesale = customers.find((c) => c.id === selectedCustomer)?.customerType === "WHOLESALE";
+                                const effectivePrice = isWholesale && inv.wholesalePrice != null ? inv.wholesalePrice : inv.sellingPrice;
+                                const newIt = [...items];
+                                newIt[idx].inventoryItemId = inv.id;
+                                newIt[idx].description = inv.name;
+                                newIt[idx].unitPrice = effectivePrice;
+                                newIt[idx].amount = newIt[idx].quantity * effectivePrice;
+                                setItems(newIt);
+                                setOpenItemPickerIdx(null);
+                              }}
+                            >
+                              <span className="font-medium">{inv.name}</span>
+                              {inv.sku && <span className="ml-1 text-secondary-400">({inv.sku})</span>}
+                            </li>
+                          ))
+                        }
+                        {inventoryItems.filter(inv => {
+                          const q = (itemSearches[idx] ?? '').toLowerCase();
+                          return !q || inv.name.toLowerCase().includes(q) || (inv.sku ?? '').toLowerCase().includes(q);
+                        }).length === 0 && (
+                          <li className="px-3 py-2 text-secondary-400 italic">No items found</li>
+                        )}
+                      </ul>
+                    )}
+                  </div>
                 )}
                 <Input
                   className="flex-1"

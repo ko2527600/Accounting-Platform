@@ -472,9 +472,14 @@ export function WarehouseManagement() {
   };
 
   const openBulkModal = () => {
+    const hasData = bulkRows.some(
+      (r) => r.name.trim() || r.sku.trim() || r.costPrice || r.sellingPrice
+    );
+    if (!hasData) {
+      setBulkRows([{ ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }]);
+      setBulkResult(null);
+    }
     setBulkTab("table");
-    setBulkRows([{ ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }, { ...EMPTY_BULK_ROW }]);
-    setBulkResult(null);
     setIsBulkModalOpen(true);
   };
 
@@ -961,7 +966,7 @@ export function WarehouseManagement() {
       </Modal>
 
       {/* Bulk Add Products Modal */}
-      <Modal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} title="Bulk Add Products" className="max-w-5xl">
+      <Modal isOpen={isBulkModalOpen} onClose={() => setIsBulkModalOpen(false)} title="Bulk Add Products" className="max-w-5xl" preventEasyClose>
         <div className="space-y-4">
           <div className="flex space-x-4 border-b border-secondary-200 dark:border-secondary-800">
             <button

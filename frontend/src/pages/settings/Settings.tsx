@@ -146,7 +146,16 @@ function SubscriptionTab() {
             ))}
           </div>
 
-          {error && <p className="text-red-600 dark:text-red-400 text-sm">{error}</p>}
+          {error && (
+            <div role="alert" className="flex items-start gap-3 rounded-lg border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 px-4 py-3 text-amber-800 dark:text-amber-300 text-sm">
+              <AlertTriangle className="h-4 w-4 mt-0.5 flex-shrink-0" aria-hidden />
+              <div>
+                <p className="font-semibold">Payment unavailable</p>
+                <p>{error}</p>
+                <p className="mt-1 text-xs opacity-75">Contact <a href="mailto:support@ledgio.app" className="underline">support@ledgio.app</a> if this persists.</p>
+              </div>
+            </div>
+          )}
           {successMsg && <p className="text-green-600 dark:text-green-400 text-sm">{successMsg}</p>}
 
           {!pendingRef ? (

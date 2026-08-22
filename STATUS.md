@@ -2,6 +2,44 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-22] - User-Reported UX & Bug Fixes (KANESHIE OIL SHOP)
+
+**What/Why:** Five real support tickets from live users addressed:
+
+1. **Subscription upgrade appears to do nothing** — When `PAYSTACK_SECRET_KEY` is not set the backend returns 503 and the frontend rendered the error as small text below the button (easy to miss). Replaced with a prominent amber `<div role="alert">` banner above the plan cards in both `SubscriptionWall.tsx` and `Settings.tsx` (SubscriptionTab). No env var change — operator must still configure Paystack.
+
+2. **Shop Manager mobile dashboard is empty** — All KPI cards were gated behind `!isRestrictedRole`, leaving Shop Managers with just a heading. Added a `ShopManagerDashboard` component in `App.tsx` that renders when `isRestrictedRole === true`: four stat tiles (Till Status, Today's Sales, Low Stock Items, Last Closeout Discrepancy) fetched from existing endpoints (`/tills/current`, `/tills/closeouts`, `/inventory/warehouses`) that already scope correctly to the user's assigned warehouses. Three quick-action links below the tiles (Make a Sale, Open/Close Till, View Inventory).
+
+3. **Invoice item picker requires scrolling the entire catalog** — Replaced the plain `<select>` in the Itemized Invoice line-item row with a searchable combobox (`<input>` + floating `<ul>` of filtered matches, max 30, closes on selection or blur). Search filters by name and SKU (case-insensitive substring). No backend change — items already loaded in state.
+
+4. **Bulk product card loses typed data on accidental Escape/backdrop click** — Two fixes: (a) `openBulkModal()` in `WarehouseManagement.tsx` now only resets rows to blank when all rows are actually empty — re-opening after an accidental Escape restores the typed data; (b) `Modal.tsx` gained a `preventEasyClose` prop that suppresses the native `<dialog>` cancel event and backdrop-click handler; the bulk modal passes this prop.
+
+5. **Welcome email with PDF not received after signup** — The root cause is an env var / credentials issue (`EMAIL_USER`/`EMAIL_PASS` not set or expired), but the symptom was invisible: the frontend showed "Welcome email sent" regardless. Fixed: `POST /auth/verify` now returns `emailSent: boolean` (true only when `EmailService.isConfigured()` is true at send time); `Verification.tsx` reads this flag and shows a fallback message instructing the user to contact support when email delivery is unavailable. Operator must still set `EMAIL_USER`/`EMAIL_PASS` in Render.
+
+**Files changed:**
+`frontend/src/App.tsx`, `frontend/src/components/SubscriptionWall.tsx`, `frontend/src/pages/settings/Settings.tsx`, `frontend/src/components/ui/Modal.tsx`, `frontend/src/pages/inventory/WarehouseManagement.tsx`, `frontend/src/pages/invoices/Invoices.tsx`, `backend/src/routes/auth.ts`, `frontend/src/pages/auth/Verification.tsx`
+
+---
+
+## [Date: 2026-08-21] - CI Test Reliability Fixes (PR #86)
+
+**What/Why:** Four targeted fixes to resolve flaky/failing CI tests that had accumulated across the backend Jest suite. All failures were test-infrastructure issues, not production bugs. CI is now green (all suites passing) on commit `2ea5088`.
+
+**Changes:**
+
+- **`backend/src/tests/` (67 files)** — Replaced `const runId = Date.now()` with `` const runId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`; `` in every test file that used a timestamp-based runId. Jest parallel workers can start within the same millisecond and collide on unique-constraint columns (tenant slugs, emails, SKUs, invoice numbers). The added hex suffix makes each worker's namespace unique even at identical wall-clock milliseconds.
+
+- **`backend/src/routes/cashTill.ts`** — `GET /tills/current` Prisma select for sale lines was missing `lineTotal` and `unitPrice`. `posCart.test.ts:122` asserted `Number(breadLine.lineTotal).toBe(10)` and received `NaN` (undefined field). Added both fields to the `lines` select.
+
+- **`backend/src/services/pdfGenerationService.ts`** — Stock blind-count sheet SKU column was 28% of tableWidth (~123 pt), too narrow for the 24-character runId-derived SKUs the test generates. `truncateToWidth` was silently ellipsizing them, so `expect(text).toContain(skuA)` failed. Widened SKU column to 38% (~171 pt), reduced the always-blank "Counted Qty" column from 28% to 20% to compensate.
+
+- **`backend/src/tests/stockTake.test.ts`** and **`backend/src/tests/reportExports.test.ts`** — `inventory.ts:190` uppercases all incoming SKUs on create (`sku.trim().toUpperCase()`). Tests generated SKU variables with lowercase hex suffixes (e.g., `STA-...-8r1prm`) but the stored and PDF-rendered values are uppercase (`STA-...-8R1PRM`). Added `.toUpperCase()` to the `skuA`/`skuB` declarations in `stockTake.test.ts` and to `sku` in `reportExports.test.ts`.
+
+**Files affected:**
+`backend/src/tests/` (67 test files), `backend/src/routes/cashTill.ts`, `backend/src/services/pdfGenerationService.ts`, `backend/src/tests/stockTake.test.ts`, `backend/src/tests/reportExports.test.ts`
+
+---
+
 ## [Date: 2026-08-21] - Backend API Execution-Time Improvements
 
 **What/Why:** Six targeted performance fixes to reduce API response times across the most expensive endpoints. No schema or API contract changes that break existing behaviour.
