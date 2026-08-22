@@ -2,6 +2,25 @@
 
 This file records all significant changes, decisions, and progress made on the Multi-Tenant Web-Based Accounting Platform project. Entries are in reverse-chronological order.
 
+## [Date: 2026-08-22] - User-Reported UX & Bug Fixes (KANESHIE OIL SHOP)
+
+**What/Why:** Five real support tickets from live users addressed:
+
+1. **Subscription upgrade appears to do nothing** — When `PAYSTACK_SECRET_KEY` is not set the backend returns 503 and the frontend rendered the error as small text below the button (easy to miss). Replaced with a prominent amber `<div role="alert">` banner above the plan cards in both `SubscriptionWall.tsx` and `Settings.tsx` (SubscriptionTab). No env var change — operator must still configure Paystack.
+
+2. **Shop Manager mobile dashboard is empty** — All KPI cards were gated behind `!isRestrictedRole`, leaving Shop Managers with just a heading. Added a `ShopManagerDashboard` component in `App.tsx` that renders when `isRestrictedRole === true`: four stat tiles (Till Status, Today's Sales, Low Stock Items, Last Closeout Discrepancy) fetched from existing endpoints (`/tills/current`, `/tills/closeouts`, `/inventory/warehouses`) that already scope correctly to the user's assigned warehouses. Three quick-action links below the tiles (Make a Sale, Open/Close Till, View Inventory).
+
+3. **Invoice item picker requires scrolling the entire catalog** — Replaced the plain `<select>` in the Itemized Invoice line-item row with a searchable combobox (`<input>` + floating `<ul>` of filtered matches, max 30, closes on selection or blur). Search filters by name and SKU (case-insensitive substring). No backend change — items already loaded in state.
+
+4. **Bulk product card loses typed data on accidental Escape/backdrop click** — Two fixes: (a) `openBulkModal()` in `WarehouseManagement.tsx` now only resets rows to blank when all rows are actually empty — re-opening after an accidental Escape restores the typed data; (b) `Modal.tsx` gained a `preventEasyClose` prop that suppresses the native `<dialog>` cancel event and backdrop-click handler; the bulk modal passes this prop.
+
+5. **Welcome email with PDF not received after signup** — The root cause is an env var / credentials issue (`EMAIL_USER`/`EMAIL_PASS` not set or expired), but the symptom was invisible: the frontend showed "Welcome email sent" regardless. Fixed: `POST /auth/verify` now returns `emailSent: boolean` (true only when `EmailService.isConfigured()` is true at send time); `Verification.tsx` reads this flag and shows a fallback message instructing the user to contact support when email delivery is unavailable. Operator must still set `EMAIL_USER`/`EMAIL_PASS` in Render.
+
+**Files changed:**
+`frontend/src/App.tsx`, `frontend/src/components/SubscriptionWall.tsx`, `frontend/src/pages/settings/Settings.tsx`, `frontend/src/components/ui/Modal.tsx`, `frontend/src/pages/inventory/WarehouseManagement.tsx`, `frontend/src/pages/invoices/Invoices.tsx`, `backend/src/routes/auth.ts`, `frontend/src/pages/auth/Verification.tsx`
+
+---
+
 ## [Date: 2026-08-21] - CI Test Reliability Fixes (PR #86)
 
 **What/Why:** Four targeted fixes to resolve flaky/failing CI tests that had accumulated across the backend Jest suite. All failures were test-infrastructure issues, not production bugs. CI is now green (all suites passing) on commit `2ea5088`.

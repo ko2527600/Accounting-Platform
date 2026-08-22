@@ -204,8 +204,10 @@ router.post('/verify', authRateLimiter, async (req: Request, res: Response): Pro
     });
 
     // If account was just fully verified, send Welcome Package with Quick Start Guide PDF
+    let emailSent = false;
     if (isFullyVerified && (!user.isEmailVerified || !user.isPhoneVerified)) {
       const { EmailService } = require('../services/EmailService');
+      emailSent = EmailService.isConfigured();
       EmailService.sendWelcomePackage(updatedUser.email, updatedUser.name, user.tenant?.name).catch((err: any) => {
         console.error('[AuthVerify] Error sending welcome package:', err);
       });
@@ -219,6 +221,7 @@ router.post('/verify', authRateLimiter, async (req: Request, res: Response): Pro
         isEmailVerified: updatedUser.isEmailVerified,
         isPhoneVerified: updatedUser.isPhoneVerified,
         isActive: updatedUser.isActive,
+        emailSent,
       },
     });
   } catch (error: any) {

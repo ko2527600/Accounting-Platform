@@ -10,9 +10,11 @@ interface ModalProps {
   description?: string;
   children: ReactNode;
   className?: string;
+  /** When true, Escape key and backdrop click do not close the modal (prevents accidental data loss). */
+  preventEasyClose?: boolean;
 }
 
-export function Modal({ isOpen, onClose, title, description, children, className }: ModalProps) {
+export function Modal({ isOpen, onClose, title, description, children, className, preventEasyClose }: ModalProps) {
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function Modal({ isOpen, onClose, title, description, children, className
   }, [isOpen]);
 
   const handleBackdropClick = (e: React.MouseEvent<HTMLDialogElement>) => {
-    if (e.target === dialogRef.current) {
+    if (!preventEasyClose && e.target === dialogRef.current) {
       onClose();
     }
   };
@@ -41,7 +43,7 @@ export function Modal({ isOpen, onClose, title, description, children, className
   return (
     <dialog
       ref={dialogRef}
-      onCancel={onClose}
+      onCancel={preventEasyClose ? (e) => e.preventDefault() : onClose}
       onClick={handleBackdropClick}
       className={cn(
         "backdrop:bg-secondary-950/50 backdrop:backdrop-blur-sm",
