@@ -5,7 +5,7 @@ import { useAuth } from "../../contexts/AuthContext";
 import { useWorkspaceMode } from "../../contexts/WorkspaceModeContext";
 import type { WorkspaceMode } from "../../contexts/WorkspaceModeContext";
 import { getVisibleNavGroups, getVisibleHrefs } from "../../lib/navigation";
-import { Settings, Lock, X, Mail } from "lucide-react";
+import { Settings, Lock, X, Mail, CreditCard } from "lucide-react";
 import { useTenantSettings } from "../../hooks/useTenantSettings";
 import { TIER_NAMES } from "../../types/tenant";
 import type { TenantTier } from "../../types/tenant";
@@ -177,17 +177,27 @@ export function Sidebar() {
                     ? "Unlock payroll, budgets, bank sync, approval workflows and more."
                     : "Custom pricing, unlimited seats, and dedicated 24/7 SLA support."}
                 </p>
-                <a
-                  href={
-                    upgradePanelFor === "business"
-                      ? "mailto:support@ledgio.app?subject=Upgrade%20to%20Business%20Plan"
-                      : "mailto:support@ledgio.app?subject=Upgrade%20to%20Enterprise%20Plan"
-                  }
+                <Link
+                  to="/settings?tab=subscription"
+                  onClick={() => setUpgradePanelFor(null)}
                   className="flex items-center gap-1.5 w-full justify-center rounded-md bg-primary-600 hover:bg-primary-700 text-white font-medium py-1.5 transition-colors"
                 >
+                  <CreditCard className="h-3 w-3" aria-hidden />
+                  Upgrade now
+                </Link>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const subject = upgradePanelFor === "business"
+                      ? "Upgrade%20to%20Business%20Plan"
+                      : "Upgrade%20to%20Enterprise%20Plan";
+                    window.location.href = `mailto:developershub26@gmail.com?subject=${subject}`;
+                  }}
+                  className="flex items-center gap-1.5 w-full justify-center rounded-md border border-secondary-300 dark:border-secondary-600 text-secondary-600 dark:text-secondary-300 hover:bg-secondary-100 dark:hover:bg-secondary-700 font-medium py-1.5 transition-colors"
+                >
                   <Mail className="h-3 w-3" aria-hidden />
-                  Contact us to upgrade
-                </a>
+                  Email us instead
+                </button>
               </div>
             )}
           </div>

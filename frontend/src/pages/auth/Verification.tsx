@@ -45,7 +45,7 @@ export function Verification() {
           setStatusMsg(
             res.data.data.emailSent
               ? "🎉 Account fully verified! Check your inbox for the Quick Start Guide PDF."
-              : "🎉 Account fully verified! (Welcome email is temporarily unavailable — contact support@ledgio.app for your Quick Start Guide.)"
+              : "🎉 Account fully verified! (Welcome email is temporarily unavailable — contact developershub26@gmail.com for your Quick Start Guide.)"
           );
         } else {
           setStatusMsg("Step verified. Please complete remaining verification.");
